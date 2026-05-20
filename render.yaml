@@ -1,0 +1,12 @@
+# render.yaml
+services:
+  - type: web
+    name: restaurant-os-backend
+    runtime: node
+    repo: https://github.com/Alexander-Florex/RestOS  # Tu URL de repo
+    rootDir: restaurant-app                         # ¡Aquí está la clave!
+    buildCommand: npm install
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.0
