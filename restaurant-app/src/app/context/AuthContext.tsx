@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useCallback, type ReactNode } from
 import type { AuthUser } from '../lib/auth';
 import { saveUser, loadUser, clearUser } from '../lib/auth';
 
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
 interface AuthContextValue {
   user: AuthUser | null;
   login: (username: string, password: string) => Promise<void>;
@@ -14,7 +16,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(loadUser);
 
   const login = useCallback(async (username: string, password: string) => {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),

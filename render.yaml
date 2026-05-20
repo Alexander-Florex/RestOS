@@ -1,12 +1,30 @@
-# render.yaml
 services:
+  # ── BACKEND: Express + WebSocket ──────────────────
   - type: web
-    name: restaurant-os-backend
+    name: restos-backend
     runtime: node
-    repo: https://github.com/Alexander-Florex/RestOS  # Tu URL de repo
-    rootDir: restaurant-app                         # ¡Aquí está la clave!
+    rootDir: restaurant-app
     buildCommand: npm install
     startCommand: node server/index.js
     envVars:
       - key: NODE_VERSION
         value: 20.11.0
+      - key: NODE_ENV
+        value: production
+
+  # ── FRONTEND: Vite/React Static Site ─────────────
+  - type: web
+    name: rest-os
+    runtime: static
+    rootDir: restaurant-app
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://restos-vlnv.onrender.com/api
+      - key: VITE_WS_URL
+        value: wss://restos-vlnv.onrender.com/ws
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

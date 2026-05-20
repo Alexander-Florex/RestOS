@@ -54,7 +54,7 @@ export function LoginPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-500 mb-4 shadow-lg shadow-emerald-500/30">
             <UtensilsCrossed className="w-9 h-9 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">RestOS</h1>
+          <h1 className="text-3xl font-bold text-white tracking-tight">RestaurantOS</h1>
           <p className="text-gray-400 mt-2 text-sm">Sistema de gestión de restaurante</p>
           <div className="flex items-center justify-center gap-1.5 mt-2">
             <Wifi className="w-3.5 h-3.5 text-emerald-400" />
