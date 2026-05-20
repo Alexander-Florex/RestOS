@@ -18,10 +18,18 @@ export interface WsMessage<T = unknown> {
 
 type Listener<T = unknown> = (msg: WsMessage<T>) => void;
 
-// URL del WS: en dev usa el proxy de Vite; en prod usa la variable de entorno
+// URL del WS: normaliza automáticamente (agrega /ws si falta, convierte https→wss)
 function getWsUrl(): string {
-  const envUrl = import.meta.env.VITE_WS_URL;
-  if (envUrl) return envUrl;
+  const raw = (import.meta.env.VITE_WS_URL as string || '').replace(/\/$/, '');
+
+  if (raw) {
+    // Convertir http(s) → ws(s) si el usuario puso la URL HTTP por error
+    const normalized = raw.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://');
+    // Agregar /ws si no lo tiene
+    return normalized.endsWith('/ws') ? normalized : `${normalized}/ws`;
+  }
+
+  // Fallback en desarrollo: usar el proxy de Vite
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/ws`;
 }
