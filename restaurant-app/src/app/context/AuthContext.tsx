@@ -2,7 +2,14 @@ import { createContext, useContext, useState, useCallback, type ReactNode } from
 import type { AuthUser } from '../lib/auth';
 import { saveUser, loadUser, clearUser } from '../lib/auth';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+// Normaliza la URL del backend: acepta con o sin /api al final
+function getBase(): string {
+  const raw = (import.meta.env.VITE_API_URL as string || '').replace(/\/$/, '');
+  if (!raw) return '/api';
+  if (raw.endsWith('/api')) return raw;
+  return `${raw}/api`;
+}
+const API_BASE = getBase();
 
 interface AuthContextValue {
   user: AuthUser | null;

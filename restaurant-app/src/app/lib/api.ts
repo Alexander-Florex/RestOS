@@ -2,7 +2,14 @@
 // api.ts — Cliente REST para la appDB del servidor
 // ──────────────────────────────────────────────
 
-const BASE = import.meta.env.VITE_API_URL || '/api';
+// Normaliza la URL del backend: acepta con o sin /api al final
+function getBase(): string {
+  const raw = (import.meta.env.VITE_API_URL as string || '').replace(/\/$/, '');
+  if (!raw) return '/api';
+  if (raw.endsWith('/api')) return raw;
+  return `${raw}/api`;
+}
+const BASE = getBase();
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${url}`, {
