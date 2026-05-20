@@ -7,9 +7,11 @@ interface TableMapProps {
   tables: Table[];
   menuItems: MenuItem[];
   onTableUpdate: (id: number, data: Partial<Table>) => Promise<void>;
+  /** Navegación a Ventas con datos pre-cargados tras cerrar una mesa */
+  onGoToSales?: (saleData: { tableNumber: number; total: number; orders: Table['orders'] }) => void;
 }
 
-export function TableMap({ tables, menuItems, onTableUpdate }: TableMapProps) {
+export function TableMap({ tables, menuItems, onTableUpdate, onGoToSales }: TableMapProps) {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
 
   const stats = {
@@ -141,6 +143,7 @@ export function TableMap({ tables, menuItems, onTableUpdate }: TableMapProps) {
           onAddOrder={handleAddOrder}
           onCloseTable={handleCloseTable}
           onStatusChange={handleStatusChange}
+          onCloseTableGoSales={onGoToSales}
         />
       )}
     </>

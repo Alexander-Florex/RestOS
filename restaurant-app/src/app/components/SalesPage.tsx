@@ -55,7 +55,15 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 // ── Component ────────────────────────────────────────
-export function SalesPage({ registeredBy }: { registeredBy?: string }) {
+export function SalesPage({
+  registeredBy,
+  preFill,
+  onPreFillUsed,
+}: {
+  registeredBy?: string;
+  preFill?: { tableNumber: number; total: number };
+  onPreFillUsed?: () => void;
+}) {
   const toast = useToast();
 
   // State
@@ -64,15 +72,15 @@ export function SalesPage({ registeredBy }: { registeredBy?: string }) {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [filterMethod, setFilterMethod] = useState<Sale['paymentMethod'] | 'all'>('all');
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(!!preFill);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Form state
+  // Form state — pre-cargado si viene de cerrar mesa
   const [form, setForm] = useState({
-    tableNumber: '',
+    tableNumber: preFill ? String(preFill.tableNumber) : '',
     paymentMethod: 'cash' as Sale['paymentMethod'],
-    amount: '',
-    total: '',
+    amount: preFill ? String(preFill.total) : '',
+    total: preFill ? String(preFill.total) : '',
     closedAt: new Date().toISOString().slice(0, 16),
     notes: '',
   });
@@ -139,6 +147,7 @@ export function SalesPage({ registeredBy }: { registeredBy?: string }) {
       setForm({ tableNumber: '', paymentMethod: 'cash', amount: '', total: '', closedAt: new Date().toISOString().slice(0, 16), notes: '' });
       clearImage();
       setShowForm(false);
+      onPreFillUsed?.();
     } catch {
       toast.error('Error al registrar la venta');
     } finally {

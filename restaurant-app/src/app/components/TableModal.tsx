@@ -10,11 +10,46 @@ interface TableModalProps {
   onAddOrder: (tableId: number, orders: Array<{ item: string; quantity: number; price: number }>) => Promise<void>;
   onCloseTable: (tableId: number) => Promise<void>;
   onStatusChange: (tableId: number, status: Table['status'], guestCount?: number) => Promise<void>;
+  /** Llamado al cerrar mesa → navega a Ventas con datos pre-cargados */
+  onCloseTableGoSales?: (saleData: { tableNumber: number; total: number; orders: Table['orders'] }) => void;
 }
 
 type View = 'detail' | 'add-order' | 'seat-guests';
 
-export function TableModal({ table, menuItems, onClose, onAddOrder, onCloseTable, onStatusChange }: TableModalProps) {
+// ── Impresión ────────────────────────────────────────────────
+function printOrder(table: Table, total: number) {
+  const rows = (table.orders || [])
+    .map(o => `<tr><td>${o.quantity}×</td><td>${o.item}</td><td style="text-align:right">$${(o.price * o.quantity).toFixed(2)}</td></tr>`)
+    .join('');
+  const w = window.open('', '_blank', 'width=400,height=600');
+  if (!w) return;
+  w.document.write(`
+    <!DOCTYPE html><html><head><title>Pedido Mesa ${table.number}</title>
+    <style>
+      body { font-family: monospace; font-size: 13px; padding: 16px; }
+      h2 { text-align:center; margin-bottom:4px; }
+      p  { text-align:center; color:#555; margin:2px 0 12px; }
+      table { width:100%; border-collapse:collapse; }
+      td { padding: 4px 2px; }
+      td:last-child { text-align:right; }
+      tfoot td { border-top:2px solid #000; font-weight:bold; padding-top:8px; font-size:15px; }
+      @media print { button { display:none; } }
+    </style></head><body>
+    <h2>RestaurantOS</h2>
+    <p>Mesa ${table.number}${table.guestCount ? ` · ${table.guestCount} comensales` : ''}<br>
+    ${new Date().toLocaleString('es-AR')}</p>
+    <table>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="2">TOTAL</td><td>$${total.toFixed(2)}</td></tr></tfoot>
+    </table>
+    <br><button onclick="window.print()">🖨️ Imprimir</button>
+    </body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
+}
+
+export function TableModal({ table, menuItems, onClose, onAddOrder, onCloseTable, onStatusChange, onCloseTableGoSales }: TableModalProps) {
   const toast = useToast();
   const [view, setView] = useState<View>(table.status === 'available' ? 'seat-guests' : 'detail');
   const [elapsedTime, setElapsedTime] = useState(table.occupiedTime || 0);
@@ -44,10 +79,8 @@ export function TableModal({ table, menuItems, onClose, onAddOrder, onCloseTable
 
   const total = (table.orders || []).reduce((s, o) => s + o.price * o.quantity, 0);
   const categories = [
-    { id: 'main-dishes', label: 'Platos' },
-    { id: 'drinks', label: 'Bebidas' },
-    { id: 'appetizers', label: 'Entradas' },
-    { id: 'desserts', label: 'Postres' },
+    { id: 'main-dishes', label: 'Platos' }, { id: 'drinks', label: 'Bebidas' },
+    { id: 'appetizers', label: 'Entradas' }, { id: 'desserts', label: 'Postres' },
   ];
   const cartTotal = Object.entries(cart).reduce((s, [id, qty]) => {
     const item = menuItems.find(i => i.id === Number(id));
@@ -100,8 +133,13 @@ export function TableModal({ table, menuItems, onClose, onAddOrder, onCloseTable
   const handleCloseTable = async () => {
     setLoading(true);
     try {
+      const saleData = { tableNumber: table.number, total, orders: table.orders };
       await onCloseTable(table.id);
-      toast.success(`Mesa ${table.number} cerrada`, `Total cobrado: $${total.toFixed(2)}`);
+      toast.success(`Mesa ${table.number} cerrada`, `Total: $${total.toFixed(2)}`);
+      // Navegar a Ventas con datos pre-cargados si el callback está disponible
+      if (onCloseTableGoSales) {
+        onCloseTableGoSales(saleData);
+      }
     } catch { toast.error('Error al cerrar la mesa'); }
     finally { setLoading(false); }
   };
@@ -169,12 +207,12 @@ export function TableModal({ table, menuItems, onClose, onAddOrder, onCloseTable
               <p className="text-sm text-gray-400 mb-8">Mesa {table.number} está libre</p>
               <div className="flex items-center justify-center gap-6 mb-8">
                 <button onClick={() => setGuestCount(Math.max(1, guestCount - 1))}
-                  className="w-12 h-12 rounded-full bg-gray-700 hover:bg-gray-600 text-white text-xl font-bold transition-colors flex items-center justify-center">
+                  className="w-12 h-12 rounded-full bg-gray-700 hover:bg-gray-600 text-white transition-colors flex items-center justify-center">
                   <Minus className="w-5 h-5" />
                 </button>
                 <span className="text-5xl font-black text-white w-16 text-center">{guestCount}</span>
                 <button onClick={() => setGuestCount(Math.min(20, guestCount + 1))}
-                  className="w-12 h-12 rounded-full bg-gray-700 hover:bg-gray-600 text-white text-xl font-bold transition-colors flex items-center justify-center">
+                  className="w-12 h-12 rounded-full bg-gray-700 hover:bg-gray-600 text-white transition-colors flex items-center justify-center">
                   <Plus className="w-5 h-5" />
                 </button>
               </div>
@@ -317,12 +355,22 @@ export function TableModal({ table, menuItems, onClose, onAddOrder, onCloseTable
                 </>
               )}
 
+              {/* Imprimir pedido — visible cuando hay ítems */}
+              {(table.orders?.length ?? 0) > 0 && (
+                <button
+                  onClick={() => printOrder(table, total)}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors"
+                >
+                  <Printer className="w-4 h-4" />Imprimir pedido
+                </button>
+              )}
+
               {(table.status === 'bill-requested' || table.status === 'occupied') && (
                 <button onClick={handleCloseTable} disabled={loading}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-60">
                   {loading
                     ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    : <Printer className="w-4 h-4" />}
+                    : <X className="w-4 h-4" />}
                   Cerrar mesa
                 </button>
               )}

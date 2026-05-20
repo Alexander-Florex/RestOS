@@ -34,10 +34,36 @@ function WaiterView({ tables, menuItems, onTableUpdate, onSendOrder }: {
   onSendOrder: (items: Array<{ item: string; quantity: number; price: number }>, tableId: number) => Promise<void>;
 }) {
   const { user } = useAuth();
+  const toast = useToast();
   const [mobileTab, setMobileTab] = useState<'tables' | 'menu' | 'notifications'>('tables');
-  const [selectedTable, setSelectedTable] = useState<number | null>(null);
+  const [selectedTable, setSelectedTable] = useState<number | null>(null); // table.number
   // Mesero solo ve items habilitados por el admin
   const enabledItems = menuItems.filter(m => m.enabled && m.stock !== 'out-of-stock');
+
+  // Mesa libre: abrir con N comensales y pasar a tomar pedido
+  const handleOpenTable = async (tableNumber: number, guestCount: number) => {
+    const table = tables.find(t => t.number === tableNumber);
+    if (!table) return;
+    try {
+      await onTableUpdate(table.id, { status: 'occupied', guestCount, occupiedTime: 0 });
+      setSelectedTable(tableNumber);
+    } catch { toast.error('Error al abrir la mesa'); }
+  };
+
+  // Mesa ocupada: agregar pedido
+  const handleAddOrder = (tableNumber: number) => {
+    setSelectedTable(tableNumber);
+  };
+
+  // Mesa ocupada: pedir cuenta
+  const handleRequestBill = async (tableNumber: number) => {
+    const table = tables.find(t => t.number === tableNumber);
+    if (!table) return;
+    try {
+      await onTableUpdate(table.id, { status: 'bill-requested' });
+      toast.info(`Mesa ${tableNumber}`, 'Cuenta solicitada → caja');
+    } catch { toast.error('Error al solicitar la cuenta'); }
+  };
 
   const handleSend = async (items: Array<{ item: string; quantity: number; price: number }>) => {
     if (!selectedTable) return;
@@ -53,7 +79,12 @@ function WaiterView({ tables, menuItems, onTableUpdate, onSendOrder }: {
       {!selectedTable && <MobileHeader waiterName={user?.name ?? 'Mesero'} selectedTable={selectedTable} />}
       <div className="flex-1 overflow-hidden flex flex-col">
         {mobileTab === 'tables' && !selectedTable && (
-          <MobileTableGrid tables={tables} onSelectTable={setSelectedTable} />
+          <MobileTableGrid
+            tables={tables}
+            onOpenTable={handleOpenTable}
+            onAddOrder={handleAddOrder}
+            onRequestBill={handleRequestBill}
+          />
         )}
         {selectedTable && (
           <MobileOrderTaking
@@ -94,6 +125,8 @@ function AppContent() {
   const [tables, setTables] = useState<Table[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
+  // Pre-carga de datos de venta al cerrar una mesa
+  const [preSaleData, setPreSaleData] = useState<{ tableNumber: number; total: number } | null>(null);
 
   // Load initial data
   useEffect(() => {
@@ -139,6 +172,13 @@ function AppContent() {
       return;
     }
     setActivePage(page);
+    setShowTableConfig(false);
+  };
+
+  // Cerrar mesa → navegar a Ventas con datos pre-cargados
+  const handleGoToSales = (saleData: { tableNumber: number; total: number }) => {
+    setPreSaleData(saleData);
+    setActivePage('sales');
     setShowTableConfig(false);
   };
 
@@ -190,7 +230,12 @@ function AppContent() {
                   </button>
                 )}
               </div>
-              <TableMap tables={tables} menuItems={menuItems} onTableUpdate={handleTableUpdate} />
+              <TableMap
+                tables={tables}
+                menuItems={menuItems}
+                onTableUpdate={handleTableUpdate}
+                onGoToSales={handleGoToSales}
+              />
             </div>
           )}
 
@@ -217,7 +262,13 @@ function AppContent() {
           {activePage === 'menu' && <MenuCatalog />}
 
           {/* SALES PAGE (admin + staff) */}
-          {activePage === 'sales' && <SalesPage registeredBy={user?.name} />}
+          {activePage === 'sales' && (
+            <SalesPage
+              registeredBy={user?.name}
+              preFill={preSaleData ?? undefined}
+              onPreFillUsed={() => setPreSaleData(null)}
+            />
+          )}
 
           {/* ADMIN-ONLY PAGES */}
           {activePage === 'inventory' && user?.role === 'admin' && <InventoryManagement />}
