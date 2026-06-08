@@ -40,7 +40,6 @@ services:
   - type: web
     name: resos-frontend
     runtime: static
-    region: oregon
     plan: free
     rootDir: apps/frontend
     buildCommand: npm install && npm run build
