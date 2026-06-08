@@ -1,0 +1,274 @@
+// ──────────────────────────────────────────────
+// Schema Prisma — RestOS Cliente
+// Incluye todas las entidades para las fases 1 a 5
+// ──────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────
+// AUTH — Usuarios del sistema (los que loguean)
+// ──────────────────────────────────────────────
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  email     String   @unique
+  password  String   // bcrypt hash
+  name      String
+  role      UserRole @default(STAFF)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Trazabilidad
+  ordersCreated Order[] @relation("OrderCreatedBy")
+  salesCreated  Sale[]  @relation("SaleRegisteredBy")
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  WAITER
+  STAFF
+}
+
+// ──────────────────────────────────────────────
+// SECCIONES DEL LOCAL (Salón principal, Patio, etc.)
+// ──────────────────────────────────────────────
+model Section {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  color     String   @default("#64748b") // color hex para diferenciar en la UI
+  order     Int      @default(0)          // orden en los tabs del mapa
+  tables    Table[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sections")
+}
+
+// ──────────────────────────────────────────────
+// MESAS
+// ──────────────────────────────────────────────
+model Table {
+  id           Int         @id @default(autoincrement())
+  number       Int         @unique
+  status       TableStatus @default(AVAILABLE)
+  capacity     Int         @default(4)
+  enabled      Boolean     @default(true)   // deshabilitar sin borrar
+  guestCount   Int?
+  openedAt     DateTime?
+  sectionId    Int?
+  section      Section?    @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  orders       Order[]
+  sales        Sale[]
+  reservations Reservation[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([sectionId])
+  @@map("tables")
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  BILL_REQUESTED
+  RESERVED
+}
+
+// ──────────────────────────────────────────────
+// MENÚ
+// ──────────────────────────────────────────────
+model MenuItem {
+  id          Int         @id @default(autoincrement())
+  name        String
+  category    String      // "main-dishes", "drinks", "appetizers", "desserts"
+  price       Decimal     @db.Decimal(10, 2)
+  description String?     @db.Text
+  stock       StockStatus @default(IN_STOCK)
+  enabled     Boolean     @default(true)
+  imageUrl    String?
+  orderItems  OrderItem[]
+  saleItems   SaleItem[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("menu_items")
+}
+
+enum StockStatus {
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
+}
+
+// ──────────────────────────────────────────────
+// PEDIDOS (lo que tomaron los meseros)
+// ──────────────────────────────────────────────
+model Order {
+  id          Int         @id @default(autoincrement())
+  tableId     Int
+  table       Table       @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  items       OrderItem[]
+  createdById Int?
+  createdBy   User?       @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime    @default(now())
+
+  @@index([tableId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id         Int       @id @default(autoincrement())
+  orderId    Int
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId Int?
+  menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  itemName   String    // denormalizado por si se borra el ítem
+  quantity   Int
+  price      Decimal   @db.Decimal(10, 2)
+  notes      String?
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ──────────────────────────────────────────────
+// VENTAS (cuentas cerradas)
+// ──────────────────────────────────────────────
+model Sale {
+  id             Int           @id @default(autoincrement())
+  tableId        Int?
+  table          Table?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableNumber    Int           // denormalizado por si se borra la mesa
+  paymentMethod  PaymentMethod
+  amount         Decimal       @db.Decimal(10, 2) // monto cobrado (puede ser igual o > total)
+  total          Decimal       @db.Decimal(10, 2) // total de la cuenta
+  notes          String?       @db.Text
+  imageUrl       String?       // ruta o URL del comprobante subido
+  registeredById Int?
+  registeredBy   User?         @relation("SaleRegisteredBy", fields: [registeredById], references: [id], onDelete: SetNull)
+  items          SaleItem[]    // snapshot de items consumidos (para reportes)
+  closedAt       DateTime
+  createdAt      DateTime      @default(now())
+
+  @@index([closedAt])
+  @@map("sales")
+}
+
+// Snapshot inmutable de un item dentro de una venta cerrada.
+// Permite reportes (top items, ticket promedio, etc.) sin depender de Order/OrderItem
+// que se borran al cerrar la mesa.
+model SaleItem {
+  id         Int       @id @default(autoincrement())
+  saleId     Int
+  sale       Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  menuItemId Int?
+  menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  itemName   String
+  category   String
+  quantity   Int
+  price      Decimal   @db.Decimal(10, 2)
+  subtotal   Decimal   @db.Decimal(10, 2) // price * quantity, precomputado para reportes
+
+  @@index([saleId])
+  @@index([menuItemId])
+  @@map("sale_items")
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+}
+
+// ──────────────────────────────────────────────
+// INVENTARIO
+// ──────────────────────────────────────────────
+model InventoryItem {
+  id            Int               @id @default(autoincrement())
+  name          String
+  category      InventoryCategory @default(FOOD)
+  quantity      Float
+  unit          String
+  minStock      Float             @default(0)
+  supplier      String?
+  lastRestocked DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@map("inventory_items")
+}
+
+enum InventoryCategory {
+  FOOD
+  BEVERAGE
+  SUPPLIES
+  EQUIPMENT
+}
+
+// ──────────────────────────────────────────────
+// STAFF (registro de personal, separado de Users)
+// Un staff puede estar listado sin poder loguearse.
+// ──────────────────────────────────────────────
+model StaffMember {
+  id        Int       @id @default(autoincrement())
+  name      String
+  email     String    @unique
+  role      StaffRole @default(WAITER)
+  phone     String?
+  active    Boolean   @default(true)
+  // CUIT para consulta de estado en ARCA (formato: 20-12345678-9 o 20123456789)
+  cuit      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("staff_members")
+}
+
+enum StaffRole {
+  WAITER
+  CHEF
+  MANAGER
+  CASHIER
+}
+
+// ──────────────────────────────────────────────
+// RESERVAS
+// ──────────────────────────────────────────────
+model Reservation {
+  id            Int               @id @default(autoincrement())
+  // Mesa asignada (opcional — la reserva puede registrarse sin asignar mesa específica)
+  tableId       Int?
+  table         Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  customerName  String
+  customerPhone String?
+  partySize     Int
+  reservedAt    DateTime          // fecha y hora de la reserva
+  duration      Int               @default(90) // duración estimada en minutos
+  status        ReservationStatus @default(CONFIRMED)
+  notes         String?           @db.Text
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([reservedAt])
+  @@index([status])
+  @@map("reservations")
+}
+
+enum ReservationStatus {
+  PENDING    // Cargada pero no confirmada
+  CONFIRMED  // Confirmada con el cliente
+  SEATED     // Ya llegaron y están sentados (mesa OCCUPIED)
+  COMPLETED  // Cerraron la mesa con éxito
+  CANCELLED  // Cancelada
+  NO_SHOW    // No vinieron
+}

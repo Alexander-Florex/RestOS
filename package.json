@@ -1,0 +1,26 @@
+{
+  "name": "restos-cliente",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistema de gestión de restaurante — monorepo (React + Express + Prisma + Socket.io)",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev -w @restos/backend\" \"npm run dev -w @restos/frontend\"",
+    "dev:backend": "npm run dev -w @restos/backend",
+    "dev:frontend": "npm run dev -w @restos/frontend",
+    "build": "npm run build -w @restos/backend && npm run build -w @restos/frontend",
+    "db:generate": "npm run db:generate -w @restos/backend",
+    "db:migrate": "npm run db:migrate -w @restos/backend",
+    "db:seed": "npm run db:seed -w @restos/backend",
+    "db:studio": "npm run db:studio -w @restos/backend",
+    "db:setup": "npm run db:setup -w @restos/backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
