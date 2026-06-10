@@ -15,10 +15,11 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select } from './ui/select';
 import {
-  salesApi, type Order, type PaymentMethod, type Table, ApiError,
+  salesApi, printingApi, type Order, type PaymentMethod, type Table, ApiError,
 } from '../lib/api';
 import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
+import { printerPrefs } from './PrintButton';
 import { cn } from '../lib/utils';
 
 interface CloseTableModalProps {
@@ -106,6 +107,32 @@ export function CloseTableModal({
         imageBase64: imageBase64 || undefined,
       });
       toast.success(`Mesa ${table.number} cobrada: ${formatMoney(numericAmount)}`);
+
+      // Imprimir ticket de caja automáticamente con los datos del frontend
+      // (no busca en BD porque los orders ya se borraron al cerrar la venta)
+      const printerName = printerPrefs.getPrinter();
+      if (printerName) {
+        try {
+          await printingApi.printCashDirect({
+            printerName,
+            restaurantName: printerPrefs.getRestaurant(),
+            tableNumber:    table.number,
+            items: items.map(i => ({
+              name:     i.itemName,
+              quantity: i.quantity,
+              price:    Number(i.price),
+            })),
+            total,
+            amountPaid:    numericAmount,
+            paymentMethod,
+            notes:         notes.trim() || null,
+          });
+          toast.success('Ticket de caja impreso');
+        } catch (printErr) {
+          toast.error(`Venta registrada. Error al imprimir: ${printErr instanceof ApiError ? printErr.message : 'revisar impresora'}`);
+        }
+      }
+
       onSuccess();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error al cobrar la mesa');

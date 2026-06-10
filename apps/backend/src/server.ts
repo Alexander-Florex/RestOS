@@ -17,6 +17,7 @@ import { staffRouter } from './modules/staff/staff.routes.js';
 import { reservationsRouter } from './modules/reservations/reservations.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { sectionsRouter } from './modules/sections/sections.routes.js';
+import { printingRouter } from './modules/printing/printing.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { prisma } from './lib/prisma.js';
 import path from 'node:path';
@@ -64,6 +65,7 @@ export function buildApp(): Express {
   app.use('/api/reservations', reservationsRouter);
   app.use('/api/reports',      reportsRouter);
   app.use('/api/sections',     sectionsRouter);
+  app.use('/api/printing',     printingRouter);
 
   // ── 404 y manejo de errores (siempre al final) ──
   app.use(notFoundHandler);

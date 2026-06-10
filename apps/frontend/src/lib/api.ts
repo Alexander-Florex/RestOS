@@ -577,3 +577,52 @@ export const reportsApi = {
     return `${base}/api/reports/sales.csv?${params}`;
   },
 };
+
+// ──────────────────────────────────────────────
+// Impresión — tipos y API
+// ──────────────────────────────────────────────
+export interface PrinterInfo {
+  name: string;
+  isDefault?: boolean;
+  status?: string;
+}
+
+export interface PrintOrderOptions {
+  printerName: string;
+  restaurantName?: string;
+  isKitchenTicket?: boolean;
+  paymentMethod?: string;
+  amountPaid?: number;
+  notes?: string | null;
+}
+
+export const printingApi = {
+  listPrinters: () =>
+    request<{ printers: PrinterInfo[]; platform: string }>('/printing/printers'),
+
+  printOrder: (orderId: number, opts: PrintOrderOptions) =>
+    request<{ ok: boolean; message: string }>(`/printing/orders/${orderId}`, {
+      method: 'POST', body: opts,
+    }),
+
+  // Ticket de caja enviando todos los datos desde el frontend
+  // Usar DESPUÉS de cerrar la venta (los orders ya no existen en BD)
+  printCashDirect: (opts: {
+    printerName: string;
+    restaurantName: string;
+    tableNumber: number;
+    items: Array<{ name: string; quantity: number; price: number }>;
+    total: number;
+    amountPaid: number;
+    paymentMethod: string;
+    notes?: string | null;
+  }) =>
+    request<{ ok: boolean; message: string }>('/printing/cash-direct', {
+      method: 'POST', body: opts,
+    }),
+
+  printTableAccount: (tableId: number, opts: Omit<PrintOrderOptions, 'isKitchenTicket'>) =>
+    request<{ ok: boolean; message: string }>(`/printing/tables/${tableId}/account`, {
+      method: 'POST', body: opts,
+    }),
+};

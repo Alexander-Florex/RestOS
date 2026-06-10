@@ -13,6 +13,7 @@ import { ROLE_LABELS } from '../lib/permissions';
 import { useNotifications } from '../hooks/useNotifications';
 import { Button } from '../components/ui/button';
 import { NotificationToggle } from '../components/NotificationToggle';
+import { PrinterConfigButton } from '../components/PrintButton';
 import { TableMap } from '../components/TableMap';
 import { MenuPage } from '../components/MenuPage';
 import { SalesHistoryPage } from '../components/SalesHistoryPage';
@@ -103,6 +104,7 @@ export function DashboardPage() {
               <LogOut className="h-3.5 w-3.5" />
               Cerrar sesión
             </Button>
+            <PrinterConfigButton />
           </div>
         </div>
       </aside>

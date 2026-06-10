@@ -12,19 +12,20 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   ChefHat, LogOut, ArrowLeft, Send, Loader2, Minus, Plus,
-  Users, Clock, ShoppingBag, X,
+  Users, Clock, ShoppingBag, X, Printer,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTables, useTick } from '../hooks/useTables';
 import { useMenu } from '../hooks/useMenu';
 import { useTableOrders } from '../hooks/useTableOrders';
-import { ordersApi, type MenuItem, type Table, ApiError } from '../lib/api';
+import { ordersApi, printingApi, type MenuItem, type Table, ApiError } from '../lib/api';
 import {
   TABLE_STATUS_LABEL, TABLE_STATUS_STYLE, elapsedSince,
 } from '../lib/table-helpers';
 import { categoryLabel, CATEGORY_OPTIONS } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { Button } from './ui/button';
+import { PrintButton, printerPrefs } from './PrintButton';
 import { cn } from '../lib/utils';
 
 type Step = 'tables' | 'guests' | 'menu';
@@ -41,11 +42,12 @@ export function WaiterMobileView() {
 
   const [step, setStep] = useState<Step>('tables');
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
-  // Carga inicial del guestCount: empieza en 1 si la mesa es pequeña, en 2 en el resto
   const [guestCount, setGuestCount] = useState(1);
   const [cart, setCart] = useState<Map<number, CartItem>>(new Map());
   const [submitting, setSubmitting] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('main-dishes');
+  // ID del último pedido enviado (para imprimir)
+  const [lastOrderId, setLastOrderId] = useState<number | null>(null);
 
   useTick(30_000);
 
@@ -121,7 +123,7 @@ export function WaiterMobileView() {
     if (!selectedTable || cart.size === 0) return;
     setSubmitting(true);
     try {
-      await ordersApi.create({
+      const order = await ordersApi.create({
         tableId: selectedTable.id,
         guestCount: selectedTable.status === 'AVAILABLE' ? guestCount : undefined,
         items: Array.from(cart.values()).map(ci => ({
@@ -129,7 +131,11 @@ export function WaiterMobileView() {
           quantity: ci.quantity,
         })),
       });
-      toast.success(`Pedido enviado a mesa ${selectedTable.number}`);
+      setLastOrderId(order.id);
+      toast.success(`Pedido enviado a mesa ${selectedTable.number}`, {
+        description: printerPrefs.getPrinter() ? 'Podés imprimir la comanda abajo' : undefined,
+        duration: 4000,
+      });
       backToTables();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error al enviar el pedido');
@@ -186,7 +192,34 @@ export function WaiterMobileView() {
       {/* Contenido por paso */}
       <main className="flex-1 overflow-y-auto px-4 py-4">
         {step === 'tables' && (
-          <TablesList tables={tables} loading={loadingTables} onSelect={selectTable} />
+          <>
+            <TablesList tables={tables} loading={loadingTables} onSelect={selectTable} />
+
+            {/* Banner: imprimir el último pedido enviado */}
+            {lastOrderId !== null && (
+              <div className="mt-4 flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <Printer className="h-5 w-5 shrink-0 text-emerald-400" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">Pedido #{lastOrderId} enviado</p>
+                  <p className="text-xs text-muted-foreground">¿Querés imprimir la comanda?</p>
+                </div>
+                <PrintButton
+                  label="Imprimir"
+                  size="sm"
+                  onPrint={(printerName, restaurantName) =>
+                    printingApi.printOrder(lastOrderId, { printerName, restaurantName }).then(() => {})
+                  }
+                />
+                <button
+                  onClick={() => setLastOrderId(null)}
+                  className="rounded-md p-1 text-muted-foreground hover:text-foreground"
+                  aria-label="Cerrar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {step === 'guests' && selectedTable && (

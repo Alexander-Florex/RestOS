@@ -11,7 +11,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
-import { tablesApi, ApiError, type Table } from '../lib/api';
+import { tablesApi, ApiError, type Table, printingApi } from '../lib/api';
 import {
   TABLE_STATUS_LABEL, TABLE_STATUS_STYLE, elapsedSince,
 } from '../lib/table-helpers';
@@ -20,6 +20,7 @@ import { useTableOrders } from '../hooks/useTableOrders';
 import { useAuth } from '../context/AuthContext';
 import { formatMoney } from '../lib/format';
 import { CloseTableModal } from './CloseTableModal';
+import { PrintButton } from './PrintButton';
 import { cn } from '../lib/utils';
 
 interface TableDetailModalProps {
@@ -268,10 +269,22 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                     Pedir cuenta
                   </Button>
                   {hasOrders ? (
-                    <Button className="w-full" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
-                      <CreditCard className="h-4 w-4" />
-                      Cobrar y cerrar mesa
-                    </Button>
+                    <>
+                      <Button className="w-full" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
+                        <CreditCard className="h-4 w-4" />
+                        Cobrar y cerrar mesa
+                      </Button>
+                      <PrintButton
+                        label="Imprimir pedido"
+                        variant="outline"
+                        className="w-full"
+                        onPrint={(printerName, restaurantName) => {
+                          const lastOrder = orders[orders.length - 1];
+                          if (!lastOrder) return Promise.reject(new Error('No hay pedidos'));
+                          return printingApi.printOrder(lastOrder.id, { printerName, restaurantName }).then(() => {});
+                        }}
+                      />
+                    </>
                   ) : (
                     <Button
                       className="w-full"
@@ -291,10 +304,22 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
               {table.status === 'BILL_REQUESTED' && (
                 <>
                   {hasOrders ? (
-                    <Button className="w-full" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
-                      <CreditCard className="h-4 w-4" />
-                      Cobrar y cerrar mesa
-                    </Button>
+                    <>
+                      <Button className="w-full" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
+                        <CreditCard className="h-4 w-4" />
+                        Cobrar y cerrar mesa
+                      </Button>
+                      <PrintButton
+                        label="Imprimir pedido"
+                        variant="outline"
+                        className="w-full"
+                        onPrint={(printerName, restaurantName) => {
+                          const lastOrder = orders[orders.length - 1];
+                          if (!lastOrder) return Promise.reject(new Error('No hay pedidos'));
+                          return printingApi.printOrder(lastOrder.id, { printerName, restaurantName }).then(() => {});
+                        }}
+                      />
+                    </>
                   ) : (
                     <Button
                       className="w-full"
