@@ -6,14 +6,13 @@
 const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 const TOKEN_KEY = 'restos_token';
-const RESTAURANT_ID_KEY = 'restos_restaurant_id';
 
 export const tokenStorage = {
   get: () => localStorage.getItem(TOKEN_KEY),
   set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
   clear: () => localStorage.removeItem(TOKEN_KEY),
 };
-
+const RESTAURANT_ID_KEY = 'restos_restaurant_id';
 export const restaurantIdStorage = {
   get: (): number | null => {
     const v = localStorage.getItem(RESTAURANT_ID_KEY);
@@ -84,8 +83,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 export type UserRole = 'ADMIN' | 'WAITER' | 'STAFF';
 
 export interface AuthUser {
-  id: number;
   restaurantId: number;
+  id: number;
   username: string;
   email: string;
   name: string;
@@ -256,6 +255,7 @@ export interface OrderItem {
 export interface Order {
   id: number;
   tableId: number;
+  notes: string | null;
   createdById: number | null;
   createdAt: string;
   items: OrderItem[];
@@ -264,6 +264,7 @@ export interface Order {
 export interface CreateOrderBody {
   tableId: number;
   guestCount?: number;
+  notes?: string | null;
   items: Array<{ menuItemId: number; quantity: number; notes?: string }>;
 }
 
@@ -636,4 +637,68 @@ export const printingApi = {
     request<{ ok: boolean; message: string }>(`/printing/tables/${tableId}/account`, {
       method: 'POST', body: opts,
     }),
+};
+// ──────────────────────────────────────────────
+// Para llevar — tipos y API
+// ──────────────────────────────────────────────
+export type TakeawayStatus = 'OPEN' | 'READY' | 'PAID' | 'CANCELLED';
+
+export interface TakeawayItem {
+  id:         number;
+  orderId:    number;
+  menuItemId: number | null;
+  itemName:   string;
+  quantity:   number;
+  price:      number | string;
+  notes:      string | null;
+}
+
+export interface TakeawayOrder {
+  id:            number;
+  customerName:  string;
+  customerPhone: string | null;
+  status:        TakeawayStatus;
+  notes:         string | null;
+  paymentMethod: PaymentMethod | null;
+  amountPaid:    number | string | null;
+  total:         number | string | null;
+  paidAt:        string | null;
+  createdAt:     string;
+  updatedAt:     string;
+  items:         TakeawayItem[];
+}
+
+export interface CreateTakeawayBody {
+  customerName:  string;
+  customerPhone?: string | null;
+  notes?:         string | null;
+  items: Array<{ menuItemId: number; quantity: number; notes?: string | null }>;
+}
+
+export const takeawayApi = {
+  list: (filters?: { status?: TakeawayStatus; date?: Date }) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.date)   params.set('date', filters.date.toISOString());
+    const qs = params.toString();
+    return request<{ orders: TakeawayOrder[] }>(`/takeaway${qs ? `?${qs}` : ''}`);
+  },
+
+  getById: (id: number) =>
+    request<{ order: TakeawayOrder }>(`/takeaway/${id}`),
+
+  create: (data: CreateTakeawayBody) =>
+    request<{ order: TakeawayOrder }>('/takeaway', { method: 'POST', body: data }),
+
+  markReady: (id: number) =>
+    request<{ order: TakeawayOrder }>(`/takeaway/${id}/ready`, { method: 'POST' }),
+
+  pay: (id: number, data: { paymentMethod: PaymentMethod; amountPaid: number; notes?: string | null }) =>
+    request<{ order: TakeawayOrder }>(`/takeaway/${id}/pay`, { method: 'POST', body: data }),
+
+  cancel: (id: number) =>
+    request<{ order: TakeawayOrder }>(`/takeaway/${id}/cancel`, { method: 'POST' }),
+
+  remove: (id: number) =>
+    request<void>(`/takeaway/${id}`, { method: 'DELETE' }),
 };

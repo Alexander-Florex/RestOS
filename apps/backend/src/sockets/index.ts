@@ -101,4 +101,8 @@ export const SocketEvents = {
   RESERVATION_CHANGED:     'reservation:changed',
   RESERVATION_CREATED:     'reservation:created',
   RESERVATION_DELETED:     'reservation:deleted',
+  // Takeaway
+  TAKEAWAY_CREATED:          'takeaway:created',
+  TAKEAWAY_UPDATED:          'takeaway:updated',
+  TAKEAWAY_DELETED:          'takeaway:deleted',
 } as const;

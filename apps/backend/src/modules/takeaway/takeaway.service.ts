@@ -121,4 +121,11 @@ export const takeawayService = {
     emit(restaurantId, SocketEvents.TAKEAWAY_UPDATED ?? 'takeaway:updated', order);
     return order;
   },
+}
+
+  async remove(restaurantId: number, id: number) {
+    await findOne(id, restaurantId);
+    await prisma.takeawayOrder.delete({ where: { id } });
+    ioRestaurant(restaurantId).emit(SocketEvents.TAKEAWAY_DELETED, { id });
+  },
 };

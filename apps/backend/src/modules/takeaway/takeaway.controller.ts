@@ -66,4 +66,11 @@ export const takeawayController = {
     const order = await takeawayService.cancel(req.user.restaurantId, Number(req.params.id));
     res.json({ order });
   },
+}
+
+  async remove(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    await takeawayService.remove(req.user.restaurantId, Number(req.params.id));
+    res.status(204).send();
+  },
 };
