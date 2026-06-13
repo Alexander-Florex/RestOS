@@ -2,6 +2,7 @@
 // Seed — Datos iniciales de demo
 // Corre: npm run db:seed
 // ──────────────────────────────────────────────
+import 'dotenv/config';
 import { PrismaClient, UserRole, TableStatus, StockStatus, InventoryCategory, StaffRole, ReservationStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
