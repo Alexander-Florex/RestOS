@@ -15,7 +15,7 @@ services:
     region: oregon
     plan: free
     rootDir: apps/backend
-    buildCommand: cd ../.. && npm install && cd apps/backend && npx prisma generate && npm run build && npx prisma migrate deploy
+    buildCommand: cd ../.. && npm install --include=dev && cd apps/backend && npx prisma generate && npm run build && npx prisma migrate deploy
     startCommand: npm run start
     envVars:
       - key: NODE_ENV
