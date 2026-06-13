@@ -123,7 +123,7 @@ export function WaiterMobileView() {
     if (!selectedTable || cart.size === 0) return;
     setSubmitting(true);
     try {
-      const order = await ordersApi.create({
+      const { order } = await ordersApi.create({
         tableId: selectedTable.id,
         guestCount: selectedTable.status === 'AVAILABLE' ? guestCount : undefined,
         items: Array.from(cart.values()).map(ci => ({
