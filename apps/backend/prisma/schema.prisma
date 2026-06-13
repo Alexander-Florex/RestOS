@@ -13,12 +13,42 @@ datasource db {
 }
 
 // ──────────────────────────────────────────────
+// RESTAURANTS — Tenants del sistema
+// ──────────────────────────────────────────────
+model Restaurant {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String?
+  phone     String?
+  address   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  sections       Section[]
+  tables         Table[]
+  menuItems      MenuItem[]
+  orders         Order[]
+  sales          Sale[]
+  inventoryItems InventoryItem[]
+  staffMembers   StaffMember[]
+  reservations   Reservation[]
+
+  @@map("restaurants")
+}
+
+// ──────────────────────────────────────────────
 // AUTH — Usuarios del sistema (los que loguean)
 // ──────────────────────────────────────────────
 model User {
   id        Int      @id @default(autoincrement())
-  username  String   @unique
-  email     String   @unique
+
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  username  String
+  email     String
   password  String   // bcrypt hash
   name      String
   role      UserRole @default(STAFF)
@@ -30,6 +60,9 @@ model User {
   ordersCreated Order[] @relation("OrderCreatedBy")
   salesCreated  Sale[]  @relation("SaleRegisteredBy")
 
+  @@unique([restaurantId, username])
+  @@unique([restaurantId, email])
+  @@index([restaurantId])
   @@map("users")
 }
 
@@ -44,13 +77,19 @@ enum UserRole {
 // ──────────────────────────────────────────────
 model Section {
   id        Int      @id @default(autoincrement())
-  name      String   @unique
+
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  name      String
   color     String   @default("#64748b") // color hex para diferenciar en la UI
   order     Int      @default(0)          // orden en los tabs del mapa
   tables    Table[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([restaurantId, name])
+  @@index([restaurantId])
   @@map("sections")
 }
 
@@ -59,7 +98,11 @@ model Section {
 // ──────────────────────────────────────────────
 model Table {
   id           Int         @id @default(autoincrement())
-  number       Int         @unique
+
+  restaurantId Int
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  number       Int
   status       TableStatus @default(AVAILABLE)
   capacity     Int         @default(4)
   enabled      Boolean     @default(true)   // deshabilitar sin borrar
@@ -73,6 +116,8 @@ model Table {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
+  @@unique([restaurantId, number])
+  @@index([restaurantId])
   @@index([sectionId])
   @@map("tables")
 }
@@ -89,6 +134,10 @@ enum TableStatus {
 // ──────────────────────────────────────────────
 model MenuItem {
   id          Int         @id @default(autoincrement())
+
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
   name        String
   category    String      // "main-dishes", "drinks", "appetizers", "desserts"
   price       Decimal     @db.Decimal(10, 2)
@@ -101,6 +150,7 @@ model MenuItem {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
+  @@index([restaurantId])
   @@map("menu_items")
 }
 
@@ -115,6 +165,10 @@ enum StockStatus {
 // ──────────────────────────────────────────────
 model Order {
   id          Int         @id @default(autoincrement())
+
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
   tableId     Int
   table       Table       @relation(fields: [tableId], references: [id], onDelete: Cascade)
   items       OrderItem[]
@@ -122,6 +176,7 @@ model Order {
   createdBy   User?       @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime    @default(now())
 
+  @@index([restaurantId])
   @@index([tableId])
   @@map("orders")
 }
@@ -146,6 +201,10 @@ model OrderItem {
 // ──────────────────────────────────────────────
 model Sale {
   id             Int           @id @default(autoincrement())
+
+  restaurantId   Int
+  restaurant     Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
   tableId        Int?
   table          Table?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
   tableNumber    Int           // denormalizado por si se borra la mesa
@@ -160,6 +219,7 @@ model Sale {
   closedAt       DateTime
   createdAt      DateTime      @default(now())
 
+  @@index([restaurantId])
   @@index([closedAt])
   @@map("sales")
 }
@@ -195,6 +255,10 @@ enum PaymentMethod {
 // ──────────────────────────────────────────────
 model InventoryItem {
   id            Int               @id @default(autoincrement())
+
+  restaurantId  Int
+  restaurant    Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
   name          String
   category      InventoryCategory @default(FOOD)
   quantity      Float
@@ -205,6 +269,7 @@ model InventoryItem {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
+  @@index([restaurantId])
   @@map("inventory_items")
 }
 
@@ -221,8 +286,12 @@ enum InventoryCategory {
 // ──────────────────────────────────────────────
 model StaffMember {
   id        Int       @id @default(autoincrement())
+
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
   name      String
-  email     String    @unique
+  email     String
   role      StaffRole @default(WAITER)
   phone     String?
   active    Boolean   @default(true)
@@ -231,6 +300,8 @@ model StaffMember {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  @@unique([restaurantId, email])
+  @@index([restaurantId])
   @@map("staff_members")
 }
 
@@ -246,6 +317,10 @@ enum StaffRole {
 // ──────────────────────────────────────────────
 model Reservation {
   id            Int               @id @default(autoincrement())
+
+  restaurantId Int
+  restaurant   Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
   // Mesa asignada (opcional — la reserva puede registrarse sin asignar mesa específica)
   tableId       Int?
   table         Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
@@ -259,6 +334,7 @@ model Reservation {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
+  @@index([restaurantId])
   @@index([reservedAt])
   @@index([status])
   @@map("reservations")

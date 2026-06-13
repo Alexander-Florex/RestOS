@@ -39,9 +39,9 @@ export interface TopItem {
 }
 
 export const reportsService = {
-  async salesReport({ from, to }: ReportRange): Promise<SalesReport> {
+  async salesReport(restaurantId: number, { from, to }: ReportRange): Promise<SalesReport> {
     const sales = await prisma.sale.findMany({
-      where: { closedAt: { gte: from, lte: to } },
+      where: { restaurantId, closedAt: { gte: from, lte: to } },
       orderBy: { closedAt: 'asc' },
     });
 
@@ -89,12 +89,12 @@ export const reportsService = {
   },
 
   /** Ranking de items más vendidos en el rango. */
-  async topItems({ from, to }: ReportRange, limit = 10): Promise<TopItem[]> {
+  async topItems(restaurantId: number, { from, to }: ReportRange, limit = 10): Promise<TopItem[]> {
     // groupBy de Prisma para sumar cantidades y subtotales por item
     const groups = await prisma.saleItem.groupBy({
       by: ['menuItemId', 'itemName', 'category'],
       where: {
-        sale: { closedAt: { gte: from, lte: to } },
+        sale: { restaurantId, closedAt: { gte: from, lte: to } },
       },
       _sum: {
         quantity: true,
@@ -116,9 +116,9 @@ export const reportsService = {
   },
 
   /** Genera CSV con las ventas del rango. */
-  async salesCsv({ from, to }: ReportRange): Promise<string> {
+  async salesCsv(restaurantId: number, { from, to }: ReportRange): Promise<string> {
     const sales = await prisma.sale.findMany({
-      where: { closedAt: { gte: from, lte: to } },
+      where: { restaurantId, closedAt: { gte: from, lte: to } },
       orderBy: { closedAt: 'asc' },
       include: { items: true },
     });

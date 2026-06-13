@@ -2,13 +2,13 @@
 // AuthContext.tsx — Estado global de autenticación
 // ──────────────────────────────────────────────
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
-import { authApi, tokenStorage, type AuthUser, ApiError } from '../lib/api';
+import { authApi, tokenStorage, restaurantIdStorage, type AuthUser, ApiError } from '../lib/api';
 import { connectSocket, disconnectSocket } from '../lib/socket';
 
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (restaurantId: number, username: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -39,10 +39,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (restaurantId: number, username: string, password: string) => {
     try {
-      const { user, token } = await authApi.login(username, password);
+      const { user, token } = await authApi.login(restaurantId, username, password);
       tokenStorage.set(token);
+      restaurantIdStorage.set(restaurantId);
       setUser(user);
       connectSocket();
     } catch (err) {

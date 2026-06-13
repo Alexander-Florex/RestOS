@@ -6,11 +6,21 @@
 const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 const TOKEN_KEY = 'restos_token';
+const RESTAURANT_ID_KEY = 'restos_restaurant_id';
 
 export const tokenStorage = {
   get: () => localStorage.getItem(TOKEN_KEY),
   set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
   clear: () => localStorage.removeItem(TOKEN_KEY),
+};
+
+export const restaurantIdStorage = {
+  get: (): number | null => {
+    const v = localStorage.getItem(RESTAURANT_ID_KEY);
+    return v ? Number(v) : null;
+  },
+  set: (id: number) => localStorage.setItem(RESTAURANT_ID_KEY, String(id)),
+  clear: () => localStorage.removeItem(RESTAURANT_ID_KEY),
 };
 
 export class ApiError extends Error {
@@ -75,6 +85,7 @@ export type UserRole = 'ADMIN' | 'WAITER' | 'STAFF';
 
 export interface AuthUser {
   id: number;
+  restaurantId: number;
   username: string;
   email: string;
   name: string;
@@ -91,10 +102,10 @@ export interface LoginResponse {
 // API por módulo
 // ──────────────────────────────────────────────
 export const authApi = {
-  login: (username: string, password: string) =>
+  login: (restaurantId: number, username: string, password: string) =>
     request<LoginResponse>('/auth/login', {
       method: 'POST',
-      body: { username, password },
+      body: { restaurantId, username, password },
       skipAuth: true,
     }),
 

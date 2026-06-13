@@ -8,6 +8,7 @@ import { HttpError } from '../../lib/http-error.js';
 
 export interface SafeUser {
   id: number;
+  restaurantId: number;
   username: string;
   email: string;
   name: string;
@@ -17,6 +18,7 @@ export interface SafeUser {
 
 function toSafeUser(u: {
   id: number;
+  restaurantId: number;
   username: string;
   email: string;
   name: string;
@@ -25,6 +27,7 @@ function toSafeUser(u: {
 }): SafeUser {
   return {
     id: u.id,
+    restaurantId: u.restaurantId,
     username: u.username,
     email: u.email,
     name: u.name,
@@ -34,8 +37,14 @@ function toSafeUser(u: {
 }
 
 export const authService = {
-  async login(username: string, password: string): Promise<{ user: SafeUser; token: string }> {
-    const user = await prisma.user.findUnique({ where: { username } });
+  /**
+   * Login multi-tenant: el username es único por restaurante, no globalmente.
+   * Por eso se requiere el restaurantId para encontrar al usuario correcto.
+   */
+  async login(restaurantId: number, username: string, password: string): Promise<{ user: SafeUser; token: string }> {
+    const user = await prisma.user.findUnique({
+      where: { restaurantId_username: { restaurantId, username } },
+    });
 
     // Genérico para no filtrar si el usuario existe o no
     if (!user || !user.active) {
@@ -49,6 +58,7 @@ export const authService = {
 
     const token = signToken({
       userId: user.id,
+      restaurantId: user.restaurantId,
       username: user.username,
       role: user.role,
     });
@@ -56,8 +66,8 @@ export const authService = {
     return { user: toSafeUser(user), token };
   },
 
-  async getMe(userId: number): Promise<SafeUser> {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+  async getMe(userId: number, restaurantId: number): Promise<SafeUser> {
+    const user = await prisma.user.findFirst({ where: { id: userId, restaurantId } });
     if (!user || !user.active) throw HttpError.unauthorized('Sesión inválida');
     return toSafeUser(user);
   },

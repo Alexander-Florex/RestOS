@@ -4,11 +4,11 @@
 import { StaffRole, type StaffMember } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
-import { getIO, SocketEvents } from '../../sockets/index.js';
+import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
-function emitChanged(member: StaffMember) { getIO().emit(SocketEvents.STAFF_CHANGED, member); }
-function emitCreated(member: StaffMember) { getIO().emit(SocketEvents.STAFF_CREATED, member); }
-function emitDeleted(id: number)          { getIO().emit(SocketEvents.STAFF_DELETED, { id }); }
+function emitChanged(restaurantId: number, member: StaffMember) { ioRestaurant(restaurantId).emit(SocketEvents.STAFF_CHANGED, member); }
+function emitCreated(restaurantId: number, member: StaffMember) { ioRestaurant(restaurantId).emit(SocketEvents.STAFF_CREATED, member); }
+function emitDeleted(restaurantId: number, id: number)          { ioRestaurant(restaurantId).emit(SocketEvents.STAFF_DELETED, { id }); }
 
 // ── ARCA / AFIP — consulta pública del padrón ──
 // Caché en memoria con TTL de 4 horas para no saturar el endpoint de AFIP
@@ -129,9 +129,10 @@ export interface CreateStaffData {
 export interface UpdateStaffData extends Partial<CreateStaffData> {}
 
 export const staffService = {
-  async list(opts?: { role?: StaffRole; activeOnly?: boolean }): Promise<StaffMember[]> {
+  async list(restaurantId: number, opts?: { role?: StaffRole; activeOnly?: boolean }): Promise<StaffMember[]> {
     return prisma.staffMember.findMany({
       where: {
+        restaurantId,
         ...(opts?.role ? { role: opts.role } : {}),
         ...(opts?.activeOnly ? { active: true } : {}),
       },
@@ -139,14 +140,14 @@ export const staffService = {
     });
   },
 
-  async getById(id: number): Promise<StaffMember> {
-    const member = await prisma.staffMember.findUnique({ where: { id } });
+  async getById(restaurantId: number, id: number): Promise<StaffMember> {
+    const member = await prisma.staffMember.findFirst({ where: { id, restaurantId } });
     if (!member) throw HttpError.notFound('Miembro de personal no encontrado');
     return member;
   },
 
-  async create(data: CreateStaffData): Promise<StaffMember> {
-    const existing = await prisma.staffMember.findUnique({ where: { email: data.email } });
+  async create(restaurantId: number, data: CreateStaffData): Promise<StaffMember> {
+    const existing = await prisma.staffMember.findUnique({ where: { restaurantId_email: { restaurantId, email: data.email } } });
     if (existing) throw HttpError.conflict('Ya existe un miembro con ese email');
 
     // Normalizar CUIT si viene
@@ -157,6 +158,7 @@ export const staffService = {
 
     const member = await prisma.staffMember.create({
       data: {
+        restaurantId,
         name: data.name,
         email: data.email,
         role: data.role,
@@ -165,15 +167,15 @@ export const staffService = {
         cuit: cuitNorm,
       },
     });
-    emitCreated(member);
+    emitCreated(restaurantId, member);
     return member;
   },
 
-  async update(id: number, data: UpdateStaffData): Promise<StaffMember> {
-    const current = await staffService.getById(id);
+  async update(restaurantId: number, id: number, data: UpdateStaffData): Promise<StaffMember> {
+    const current = await staffService.getById(restaurantId, id);
 
     if (data.email !== undefined && data.email !== current.email) {
-      const dup = await prisma.staffMember.findUnique({ where: { email: data.email } });
+      const dup = await prisma.staffMember.findUnique({ where: { restaurantId_email: { restaurantId, email: data.email } } });
       if (dup) throw HttpError.conflict('Ya existe un miembro con ese email');
     }
 
@@ -202,13 +204,13 @@ export const staffService = {
         ...(cuitNorm !== undefined    ? { cuit: cuitNorm }      : {}),
       },
     });
-    emitChanged(member);
+    emitChanged(restaurantId, member);
     return member;
   },
 
   /** Consulta el padrón público de ARCA para el miembro indicado. */
-  async queryArca(id: number): Promise<ArcaPadronData> {
-    const member = await staffService.getById(id);
+  async queryArca(restaurantId: number, id: number): Promise<ArcaPadronData> {
+    const member = await staffService.getById(restaurantId, id);
     if (!member.cuit) {
       throw HttpError.badRequest('Este miembro no tiene CUIT registrado. Agregalo primero desde la edición.');
     }
@@ -220,8 +222,8 @@ export const staffService = {
   },
 
   /** Invalida el caché de ARCA para un miembro específico (fuerza re-consulta). */
-  async invalidateArcaCache(id: number): Promise<void> {
-    const member = await staffService.getById(id);
+  async invalidateArcaCache(restaurantId: number, id: number): Promise<void> {
+    const member = await staffService.getById(restaurantId, id);
     if (member.cuit) arcaCache.delete(normalizeCuit(member.cuit));
   },
 
@@ -231,19 +233,19 @@ export const staffService = {
     return entry ? Date.now() - entry.fetchedAt : null;
   },
 
-  async remove(id: number): Promise<void> {
-    await staffService.getById(id);
+  async remove(restaurantId: number, id: number): Promise<void> {
+    await staffService.getById(restaurantId, id);
     await prisma.staffMember.delete({ where: { id } });
-    emitDeleted(id);
+    emitDeleted(restaurantId, id);
   },
 
-  async toggleActive(id: number): Promise<StaffMember> {
-    const current = await staffService.getById(id);
+  async toggleActive(restaurantId: number, id: number): Promise<StaffMember> {
+    const current = await staffService.getById(restaurantId, id);
     const member = await prisma.staffMember.update({
       where: { id },
       data: { active: !current.active },
     });
-    emitChanged(member);
+    emitChanged(restaurantId, member);
     return member;
   },
 };

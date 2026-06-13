@@ -31,21 +31,23 @@ const statsQuery = z.object({
 
 export const salesController = {
   async list(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const filters = listQuery.parse(req.query);
-    const sales = await salesService.list(filters);
+    const sales = await salesService.list(req.user.restaurantId, filters);
     res.json({ sales });
   },
 
   async getById(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const sale = await salesService.getById(id);
+    const sale = await salesService.getById(req.user.restaurantId, id);
     res.json({ sale });
   },
 
   async create(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);
-    const sale = await salesService.create({
+    const sale = await salesService.create(req.user.restaurantId, {
       ...data,
       registeredById: req.user.userId,
     });
@@ -53,8 +55,9 @@ export const salesController = {
   },
 
   async dailyStats(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { date } = statsQuery.parse(req.query);
-    const stats = await salesService.dailyStats(date);
+    const stats = await salesService.dailyStats(req.user.restaurantId, date);
     res.json(stats);
   },
 };

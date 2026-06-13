@@ -4,6 +4,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { tablesService } from './tables.service.js';
+import { HttpError } from '../../lib/http-error.js';
 
 const createSchema = z.object({
   number:    z.coerce.number().int().positive('El número debe ser positivo'),
@@ -31,71 +32,82 @@ const idParamSchema = z.object({
 });
 
 export const tablesController = {
-  async list(_req: Request, res: Response) {
-    const tables = await tablesService.list();
+  async list(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const tables = await tablesService.list(req.user.restaurantId);
     res.json({ tables });
   },
 
   async getById(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParamSchema.parse(req.params);
-    const table = await tablesService.getById(id);
+    const table = await tablesService.getById(req.user.restaurantId, id);
     res.json({ table });
   },
 
   async create(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);
-    const table = await tablesService.create(data);
+    const table = await tablesService.create(req.user.restaurantId, data);
     res.status(201).json({ table });
   },
 
   async update(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParamSchema.parse(req.params);
     const data = updateSchema.parse(req.body);
-    const table = await tablesService.update(id, data);
+    const table = await tablesService.update(req.user.restaurantId, id, data);
     res.json({ table });
   },
 
   async remove(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParamSchema.parse(req.params);
-    await tablesService.remove(id);
+    await tablesService.remove(req.user.restaurantId, id);
     res.status(204).send();
   },
 
   // ── Acciones de estado ──
   async open(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParamSchema.parse(req.params);
     const { guestCount } = openSchema.parse(req.body);
-    const table = await tablesService.open(id, guestCount);
+    const table = await tablesService.open(req.user.restaurantId, id, guestCount);
     res.json({ table });
   },
 
   async requestBill(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParamSchema.parse(req.params);
-    const table = await tablesService.requestBill(id);
+    const table = await tablesService.requestBill(req.user.restaurantId, id);
     res.json({ table });
   },
 
   async close(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParamSchema.parse(req.params);
-    const table = await tablesService.close(id);
+    const table = await tablesService.close(req.user.restaurantId, id);
     res.json({ table });
   },
 
   async reserve(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParamSchema.parse(req.params);
-    const table = await tablesService.reserve(id);
+    const table = await tablesService.reserve(req.user.restaurantId, id);
     res.json({ table });
   },
 
   async cancelReservation(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParamSchema.parse(req.params);
-    const table = await tablesService.cancelReservation(id);
+    const table = await tablesService.cancelReservation(req.user.restaurantId, id);
     res.json({ table });
   },
 
   async toggleEnabled(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParamSchema.parse(req.params);
-    const table = await tablesService.toggleEnabled(id);
+    const table = await tablesService.toggleEnabled(req.user.restaurantId, id);
     res.json({ table });
   },
 };

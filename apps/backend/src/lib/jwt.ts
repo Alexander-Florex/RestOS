@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 
 export interface JwtPayload {
   userId: number;
+  restaurantId: number;
   username: string;
   role: 'ADMIN' | 'WAITER' | 'STAFF';
 }

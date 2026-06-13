@@ -4,35 +4,36 @@
 import { TableStatus, type Table } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
-import { getIO, SocketEvents } from '../../sockets/index.js';
+import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
-function emitTableChanged(table: Table) { getIO().emit(SocketEvents.TABLE_CHANGED, table); }
-function emitTableCreated(table: Table) { getIO().emit(SocketEvents.TABLE_CREATED, table); }
-function emitTableDeleted(id: number)   { getIO().emit(SocketEvents.TABLE_DELETED, { id }); }
+function emitTableChanged(restaurantId: number, table: Table) { ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, table); }
+function emitTableCreated(restaurantId: number, table: Table) { ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CREATED, table); }
+function emitTableDeleted(restaurantId: number, id: number)   { ioRestaurant(restaurantId).emit(SocketEvents.TABLE_DELETED, { id }); }
 
 export const tablesService = {
   // ── CRUD ──
-  async list(): Promise<Table[]> {
-    return prisma.table.findMany({ orderBy: [{ sectionId: 'asc' }, { number: 'asc' }] });
+  async list(restaurantId: number): Promise<Table[]> {
+    return prisma.table.findMany({ where: { restaurantId }, orderBy: [{ sectionId: 'asc' }, { number: 'asc' }] });
   },
 
-  async getById(id: number): Promise<Table> {
-    const table = await prisma.table.findUnique({ where: { id } });
+  async getById(restaurantId: number, id: number): Promise<Table> {
+    const table = await prisma.table.findFirst({ where: { id, restaurantId } });
     if (!table) throw HttpError.notFound('Mesa no encontrada');
     return table;
   },
 
-  async create(data: { number: number; capacity?: number; sectionId?: number | null }): Promise<Table> {
-    const exists = await prisma.table.findUnique({ where: { number: data.number } });
+  async create(restaurantId: number, data: { number: number; capacity?: number; sectionId?: number | null }): Promise<Table> {
+    const exists = await prisma.table.findUnique({ where: { restaurantId_number: { restaurantId, number: data.number } } });
     if (exists) throw HttpError.conflict(`Ya existe la mesa N° ${data.number}`);
 
     if (data.sectionId) {
-      const section = await prisma.section.findUnique({ where: { id: data.sectionId } });
+      const section = await prisma.section.findFirst({ where: { id: data.sectionId, restaurantId } });
       if (!section) throw HttpError.notFound('Sección no encontrada');
     }
 
     const table = await prisma.table.create({
       data: {
+        restaurantId,
         number: data.number,
         capacity: data.capacity ?? 4,
         sectionId: data.sectionId ?? null,
@@ -40,25 +41,25 @@ export const tablesService = {
         enabled: true,
       },
     });
-    emitTableCreated(table);
+    emitTableCreated(restaurantId, table);
     return table;
   },
 
-  async update(id: number, data: {
+  async update(restaurantId: number, id: number, data: {
     number?: number;
     capacity?: number;
     sectionId?: number | null;
     enabled?: boolean;
   }): Promise<Table> {
-    const current = await tablesService.getById(id);
+    const current = await tablesService.getById(restaurantId, id);
 
     if (data.number !== undefined && data.number !== current.number) {
-      const dup = await prisma.table.findUnique({ where: { number: data.number } });
+      const dup = await prisma.table.findUnique({ where: { restaurantId_number: { restaurantId, number: data.number } } });
       if (dup) throw HttpError.conflict(`Ya existe la mesa N° ${data.number}`);
     }
 
     if (data.sectionId !== undefined && data.sectionId !== null) {
-      const section = await prisma.section.findUnique({ where: { id: data.sectionId } });
+      const section = await prisma.section.findFirst({ where: { id: data.sectionId, restaurantId } });
       if (!section) throw HttpError.notFound('Sección no encontrada');
     }
 
@@ -75,21 +76,21 @@ export const tablesService = {
         ...(data.enabled !== undefined   ? { enabled: data.enabled }     : {}),
       },
     });
-    emitTableChanged(table);
+    emitTableChanged(restaurantId, table);
     return table;
   },
 
-  async remove(id: number): Promise<void> {
-    const table = await tablesService.getById(id);
+  async remove(restaurantId: number, id: number): Promise<void> {
+    const table = await tablesService.getById(restaurantId, id);
     if (table.status !== TableStatus.AVAILABLE) {
       throw HttpError.badRequest('No se puede eliminar una mesa que no está libre');
     }
     await prisma.table.delete({ where: { id } });
-    emitTableDeleted(id);
+    emitTableDeleted(restaurantId, id);
   },
 
-  async toggleEnabled(id: number): Promise<Table> {
-    const current = await tablesService.getById(id);
+  async toggleEnabled(restaurantId: number, id: number): Promise<Table> {
+    const current = await tablesService.getById(restaurantId, id);
     if (!current.enabled && current.status !== TableStatus.AVAILABLE) {
       throw HttpError.badRequest('Solo se puede reactivar una mesa que esté libre');
     }
@@ -97,15 +98,15 @@ export const tablesService = {
       where: { id },
       data: { enabled: !current.enabled },
     });
-    emitTableChanged(table);
+    emitTableChanged(restaurantId, table);
     return table;
   },
 
   // ── ACCIONES DE ESTADO ──
 
   /** Abre la mesa. guestCount: mínimo 1, máximo = capacity (sin límite superior artificial). */
-  async open(id: number, guestCount: number): Promise<Table> {
-    const current = await tablesService.getById(id);
+  async open(restaurantId: number, id: number, guestCount: number): Promise<Table> {
+    const current = await tablesService.getById(restaurantId, id);
     if (!current.enabled) throw HttpError.badRequest('Esta mesa está deshabilitada');
     if (current.status === TableStatus.OCCUPIED) {
       throw HttpError.badRequest('La mesa ya está ocupada');
@@ -130,13 +131,13 @@ export const tablesService = {
         openedAt: new Date(),
       },
     });
-    emitTableChanged(table);
+    emitTableChanged(restaurantId, table);
     return table;
   },
 
   /** Marca la mesa como "cuenta pedida". Solo desde OCCUPIED. */
-  async requestBill(id: number): Promise<Table> {
-    const current = await tablesService.getById(id);
+  async requestBill(restaurantId: number, id: number): Promise<Table> {
+    const current = await tablesService.getById(restaurantId, id);
     if (current.status !== TableStatus.OCCUPIED) {
       throw HttpError.badRequest('Solo se puede pedir cuenta de una mesa ocupada');
     }
@@ -144,13 +145,13 @@ export const tablesService = {
       where: { id },
       data: { status: TableStatus.BILL_REQUESTED },
     });
-    emitTableChanged(table);
+    emitTableChanged(restaurantId, table);
     return table;
   },
 
   /** Libera la mesa (vuelve a AVAILABLE). Limpia guestCount y openedAt. */
-  async close(id: number): Promise<Table> {
-    await tablesService.getById(id);
+  async close(restaurantId: number, id: number): Promise<Table> {
+    await tablesService.getById(restaurantId, id);
     const table = await prisma.table.update({
       where: { id },
       data: {
@@ -159,13 +160,13 @@ export const tablesService = {
         openedAt: null,
       },
     });
-    emitTableChanged(table);
+    emitTableChanged(restaurantId, table);
     return table;
   },
 
   /** Marca la mesa como reservada. Solo desde AVAILABLE. */
-  async reserve(id: number): Promise<Table> {
-    const current = await tablesService.getById(id);
+  async reserve(restaurantId: number, id: number): Promise<Table> {
+    const current = await tablesService.getById(restaurantId, id);
     if (current.status !== TableStatus.AVAILABLE) {
       throw HttpError.badRequest('Solo se puede reservar una mesa libre');
     }
@@ -173,13 +174,13 @@ export const tablesService = {
       where: { id },
       data: { status: TableStatus.RESERVED },
     });
-    emitTableChanged(table);
+    emitTableChanged(restaurantId, table);
     return table;
   },
 
   /** Cancela una reserva (vuelve a AVAILABLE). */
-  async cancelReservation(id: number): Promise<Table> {
-    const current = await tablesService.getById(id);
+  async cancelReservation(restaurantId: number, id: number): Promise<Table> {
+    const current = await tablesService.getById(restaurantId, id);
     if (current.status !== TableStatus.RESERVED) {
       throw HttpError.badRequest('La mesa no está reservada');
     }
@@ -187,7 +188,7 @@ export const tablesService = {
       where: { id },
       data: { status: TableStatus.AVAILABLE },
     });
-    emitTableChanged(table);
+    emitTableChanged(restaurantId, table);
     return table;
   },
 };

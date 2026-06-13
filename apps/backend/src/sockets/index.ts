@@ -46,6 +46,11 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
       `📡 Socket conectado: ${socket.id}${user ? ` (user: ${user.username}, ${user.role})` : ' (anónimo)'}`
     );
 
+    // Unir al room del restaurante para que los eventos sean aislados por tenant.
+    if (user?.restaurantId) {
+      socket.join(`restaurant-${user.restaurantId}`);
+    }
+
     socket.on('disconnect', (reason) => {
       console.log(`📴 Socket desconectado: ${socket.id} (${reason})`);
     });
@@ -58,6 +63,11 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 export function getIO(): SocketIOServer {
   if (!io) throw new Error('Socket.io no inicializado. Llamar initSocket primero.');
   return io;
+}
+
+/** Devuelve el namespace del room de un restaurante para emitir eventos aislados por tenant. */
+export function ioRestaurant(restaurantId: number) {
+  return getIO().to(`restaurant-${restaurantId}`);
 }
 
 // ── Eventos emitidos (centralizamos los nombres acá) ──

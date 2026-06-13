@@ -23,7 +23,20 @@ async function main() {
   await prisma.inventoryItem.deleteMany();
   await prisma.staffMember.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.restaurant.deleteMany();
   console.log('🧹 Tablas limpiadas.\n');
+
+  // ── RESTAURANTE (tenant demo) ──
+  const restaurant = await prisma.restaurant.create({
+    data: {
+      name: 'RestOS Demo',
+      email: 'contacto@restosdemo.com',
+      phone: '+54 11 5555-0000',
+      address: 'Av. Siempre Viva 123, Buenos Aires',
+    },
+  });
+  const restaurantId = restaurant.id;
+  console.log(`🏠 Restaurante creado: ${restaurant.name} (id=${restaurantId})`);
 
   // ── USUARIOS (los que loguean al sistema) ──
   const users = [
@@ -36,6 +49,7 @@ async function main() {
     const password = await bcrypt.hash(u.plain, ROUNDS);
     await prisma.user.create({
       data: {
+        restaurantId,
         username: u.username,
         email: u.email,
         name: u.name,
@@ -45,18 +59,19 @@ async function main() {
     });
   }
   console.log(`👤 ${users.length} usuarios creados (passwords hasheadas con bcrypt).`);
+  console.log(`   restaurantId = ${restaurantId} (usar este valor para hacer login)`);
   users.forEach(u => console.log(`   - ${u.username.padEnd(10)} / ${u.plain.padEnd(10)} (${u.role})`));
   console.log('');
 
   // ── SECCIONES ──
   const salonSection = await prisma.section.create({
-    data: { name: 'Salón principal', color: '#10b981', order: 0 },
+    data: { restaurantId, name: 'Salón principal', color: '#10b981', order: 0 },
   });
   const patioSection = await prisma.section.create({
-    data: { name: 'Patio', color: '#3b82f6', order: 1 },
+    data: { restaurantId, name: 'Patio', color: '#3b82f6', order: 1 },
   });
   const barSection = await prisma.section.create({
-    data: { name: 'Bar', color: '#a855f7', order: 2 },
+    data: { restaurantId, name: 'Bar', color: '#a855f7', order: 2 },
   });
   console.log('🗂️  3 secciones creadas (Salón principal, Patio, Bar).');
 
@@ -81,7 +96,7 @@ async function main() {
     { number: 14, capacity: 2,  sectionId: barSection.id },
   ];
   await prisma.table.createMany({
-    data: tableData.map(t => ({ ...t, status: TableStatus.AVAILABLE, enabled: true })),
+    data: tableData.map(t => ({ ...t, restaurantId, status: TableStatus.AVAILABLE, enabled: true })),
   });
   console.log(`🪑 ${tableData.length} mesas creadas en 3 secciones.`);
 
@@ -103,7 +118,7 @@ async function main() {
     { name: 'Torta de Chocolate',  category: 'desserts',    price:  8.50, description: 'Capas de chocolate intenso',         stock: StockStatus.LOW_STOCK,    enabled: true  },
     { name: 'Sorbete de Frutas',   category: 'desserts',    price:  6.99, description: 'Sorbete refrescante de fruta',       stock: StockStatus.IN_STOCK,     enabled: true  },
   ];
-  await prisma.menuItem.createMany({ data: menuData });
+  await prisma.menuItem.createMany({ data: menuData.map(m => ({ ...m, restaurantId })) });
   console.log(`🍽️  ${menuData.length} platos creados.`);
 
   // ── INVENTARIO ──
@@ -116,7 +131,7 @@ async function main() {
     { name: 'Servilletas',     category: InventoryCategory.SUPPLIES, quantity: 150, unit: 'pcs',     minStock: 100, supplier: 'Suministros Resto' },
   ];
   await prisma.inventoryItem.createMany({
-    data: inventoryData.map(i => ({ ...i, lastRestocked: new Date() })),
+    data: inventoryData.map(i => ({ ...i, restaurantId, lastRestocked: new Date() })),
   });
   console.log(`📦 ${inventoryData.length} ítems de inventario creados.`);
 
@@ -128,7 +143,7 @@ async function main() {
     { name: 'Marcos Davis',    email: 'marcos@resto.com', role: StaffRole.WAITER,  phone: '+54 11 5555-0104', active: true,  cuit: '20-30123456-7' },
     { name: 'Emily Brown',     email: 'emily@resto.com',  role: StaffRole.CASHIER, phone: '+54 11 5555-0105', active: false, cuit: null },
   ];
-  await prisma.staffMember.createMany({ data: staffData });
+  await prisma.staffMember.createMany({ data: staffData.map(s => ({ ...s, restaurantId })) });
   console.log(`👥 ${staffData.length} miembros de staff creados.`);
 
   // ── RESERVAS ── (próximas, para ver algo al entrar)
@@ -153,11 +168,11 @@ async function main() {
   // Resolver tableId por número de mesa
   for (const r of reservationsData) {
     if (r.tableId !== null) {
-      const t = await prisma.table.findUnique({ where: { number: r.tableId } });
+      const t = await prisma.table.findUnique({ where: { restaurantId_number: { restaurantId, number: r.tableId } } });
       r.tableId = t?.id ?? null;
     }
   }
-  await prisma.reservation.createMany({ data: reservationsData });
+  await prisma.reservation.createMany({ data: reservationsData.map(r => ({ ...r, restaurantId })) });
   console.log(`📅 ${reservationsData.length} reservas creadas (hoy y mañana).\n`);
 
   console.log('✅ Seed completo.\n');

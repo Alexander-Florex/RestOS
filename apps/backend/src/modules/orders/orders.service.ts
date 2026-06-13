@@ -14,19 +14,19 @@
 import { TableStatus, type Order, type OrderItem, type Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
-import { getIO, SocketEvents } from '../../sockets/index.js';
+import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 // Order con sus items y la mesa, listo para enviar al frontend
 export type OrderWithItems = Order & { items: OrderItem[] };
 
-function emitOrderCreated(order: OrderWithItems) {
-  getIO().emit(SocketEvents.ORDER_CREATED, order);
+function emitOrderCreated(restaurantId: number, order: OrderWithItems) {
+  ioRestaurant(restaurantId).emit(SocketEvents.ORDER_CREATED, order);
 }
-function emitOrderDeleted(id: number, tableId: number) {
-  getIO().emit(SocketEvents.ORDER_DELETED, { id, tableId });
+function emitOrderDeleted(restaurantId: number, id: number, tableId: number) {
+  ioRestaurant(restaurantId).emit(SocketEvents.ORDER_DELETED, { id, tableId });
 }
-function emitTableChanged(table: unknown) {
-  getIO().emit(SocketEvents.TABLE_CHANGED, table);
+function emitTableChanged(restaurantId: number, table: unknown) {
+  ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, table);
 }
 
 export interface CreateOrderItemInput {
@@ -47,17 +47,17 @@ export const ordersService = {
    * Lista pedidos. Si se pasa tableId, devuelve solo los de esa mesa.
    * Ordenados del más nuevo al más viejo.
    */
-  async list(opts?: { tableId?: number }): Promise<OrderWithItems[]> {
+  async list(restaurantId: number, opts?: { tableId?: number }): Promise<OrderWithItems[]> {
     return prisma.order.findMany({
-      where: opts?.tableId ? { tableId: opts.tableId } : undefined,
+      where: { restaurantId, ...(opts?.tableId ? { tableId: opts.tableId } : {}) },
       include: { items: true },
       orderBy: { createdAt: 'desc' },
     });
   },
 
-  async getById(id: number): Promise<OrderWithItems> {
-    const order = await prisma.order.findUnique({
-      where: { id },
+  async getById(restaurantId: number, id: number): Promise<OrderWithItems> {
+    const order = await prisma.order.findFirst({
+      where: { id, restaurantId },
       include: { items: true },
     });
     if (!order) throw HttpError.notFound('Pedido no encontrado');
@@ -68,9 +68,9 @@ export const ordersService = {
    * Total acumulado de los pedidos abiertos de una mesa.
    * Útil para mostrar "la cuenta" antes de cerrar.
    */
-  async getTableTotal(tableId: number): Promise<number> {
+  async getTableTotal(restaurantId: number, tableId: number): Promise<number> {
     const orders = await prisma.order.findMany({
-      where: { tableId },
+      where: { restaurantId, tableId },
       include: { items: true },
     });
     let total = 0;
@@ -82,13 +82,13 @@ export const ordersService = {
     return total;
   },
 
-  async create(input: CreateOrderInput): Promise<OrderWithItems> {
+  async create(restaurantId: number, input: CreateOrderInput): Promise<OrderWithItems> {
     if (input.items.length === 0) {
       throw HttpError.badRequest('El pedido debe tener al menos un item');
     }
 
     // Validar la mesa
-    const table = await prisma.table.findUnique({ where: { id: input.tableId } });
+    const table = await prisma.table.findFirst({ where: { id: input.tableId, restaurantId } });
     if (!table) throw HttpError.notFound('Mesa no encontrada');
     if (table.status === TableStatus.RESERVED) {
       throw HttpError.badRequest('La mesa está reservada — abrila antes de tomar pedido');
@@ -107,7 +107,7 @@ export const ordersService = {
     // Tomar snapshot de precios actuales y nombres de los items del menú
     const menuItemIds = input.items.map(i => i.menuItemId);
     const menuItems = await prisma.menuItem.findMany({
-      where: { id: { in: menuItemIds } },
+      where: { id: { in: menuItemIds }, restaurantId },
     });
     const menuMap = new Map(menuItems.map(m => [m.id, m]));
 
@@ -132,6 +132,7 @@ export const ordersService = {
     const result = await prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
         data: {
+          restaurantId,
           tableId: input.tableId,
           createdById: input.createdById ?? null,
           items: {
@@ -166,16 +167,16 @@ export const ordersService = {
       return { order, updatedTable };
     });
 
-    emitOrderCreated(result.order);
-    if (result.updatedTable) emitTableChanged(result.updatedTable);
+    emitOrderCreated(restaurantId, result.order);
+    if (result.updatedTable) emitTableChanged(restaurantId, result.updatedTable);
 
     return result.order;
   },
 
   /** Elimina un pedido individual. Solo permitido si la mesa sigue abierta (sin venta). */
-  async remove(id: number): Promise<void> {
-    const order = await ordersService.getById(id);
+  async remove(restaurantId: number, id: number): Promise<void> {
+    const order = await ordersService.getById(restaurantId, id);
     await prisma.order.delete({ where: { id } });
-    emitOrderDeleted(id, order.tableId);
+    emitOrderDeleted(restaurantId, id, order.tableId);
   },
 };

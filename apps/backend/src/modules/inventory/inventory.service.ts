@@ -4,11 +4,11 @@
 import { InventoryCategory, type InventoryItem } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
-import { getIO, SocketEvents } from '../../sockets/index.js';
+import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
-function emitChanged(item: InventoryItem) { getIO().emit(SocketEvents.INVENTORY_ITEM_CHANGED, item); }
-function emitCreated(item: InventoryItem) { getIO().emit(SocketEvents.INVENTORY_ITEM_CREATED, item); }
-function emitDeleted(id: number)          { getIO().emit(SocketEvents.INVENTORY_ITEM_DELETED, { id }); }
+function emitChanged(restaurantId: number, item: InventoryItem) { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_CHANGED, item); }
+function emitCreated(restaurantId: number, item: InventoryItem) { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_CREATED, item); }
+function emitDeleted(restaurantId: number, id: number)          { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_DELETED, { id }); }
 
 export interface CreateInventoryData {
   name: string;
@@ -22,9 +22,10 @@ export interface CreateInventoryData {
 export interface UpdateInventoryData extends Partial<CreateInventoryData> {}
 
 export const inventoryService = {
-  async list(opts?: { category?: InventoryCategory; search?: string }): Promise<InventoryItem[]> {
+  async list(restaurantId: number, opts?: { category?: InventoryCategory; search?: string }): Promise<InventoryItem[]> {
     return prisma.inventoryItem.findMany({
       where: {
+        restaurantId,
         ...(opts?.category ? { category: opts.category } : {}),
         ...(opts?.search ? { name: { contains: opts.search } } : {}),
       },
@@ -32,19 +33,20 @@ export const inventoryService = {
     });
   },
 
-  async getById(id: number): Promise<InventoryItem> {
-    const item = await prisma.inventoryItem.findUnique({ where: { id } });
+  async getById(restaurantId: number, id: number): Promise<InventoryItem> {
+    const item = await prisma.inventoryItem.findFirst({ where: { id, restaurantId } });
     if (!item) throw HttpError.notFound('Ítem de inventario no encontrado');
     return item;
   },
 
-  async create(data: CreateInventoryData): Promise<InventoryItem> {
+  async create(restaurantId: number, data: CreateInventoryData): Promise<InventoryItem> {
     if (data.quantity < 0) throw HttpError.badRequest('La cantidad no puede ser negativa');
     if (data.minStock !== undefined && data.minStock < 0) {
       throw HttpError.badRequest('El stock mínimo no puede ser negativo');
     }
     const item = await prisma.inventoryItem.create({
       data: {
+        restaurantId,
         name: data.name,
         category: data.category,
         quantity: data.quantity,
@@ -54,12 +56,12 @@ export const inventoryService = {
         lastRestocked: data.quantity > 0 ? new Date() : null,
       },
     });
-    emitCreated(item);
+    emitCreated(restaurantId, item);
     return item;
   },
 
-  async update(id: number, data: UpdateInventoryData): Promise<InventoryItem> {
-    await inventoryService.getById(id);
+  async update(restaurantId: number, id: number, data: UpdateInventoryData): Promise<InventoryItem> {
+    await inventoryService.getById(restaurantId, id);
     if (data.quantity !== undefined && data.quantity < 0) {
       throw HttpError.badRequest('La cantidad no puede ser negativa');
     }
@@ -77,19 +79,19 @@ export const inventoryService = {
         ...(data.supplier !== undefined ? { supplier: data.supplier } : {}),
       },
     });
-    emitChanged(item);
+    emitChanged(restaurantId, item);
     return item;
   },
 
-  async remove(id: number): Promise<void> {
-    await inventoryService.getById(id);
+  async remove(restaurantId: number, id: number): Promise<void> {
+    await inventoryService.getById(restaurantId, id);
     await prisma.inventoryItem.delete({ where: { id } });
-    emitDeleted(id);
+    emitDeleted(restaurantId, id);
   },
 
   /** Reabastece: suma `amount` a la cantidad y actualiza lastRestocked. */
-  async restock(id: number, amount: number): Promise<InventoryItem> {
-    const current = await inventoryService.getById(id);
+  async restock(restaurantId: number, id: number, amount: number): Promise<InventoryItem> {
+    const current = await inventoryService.getById(restaurantId, id);
     if (amount <= 0) throw HttpError.badRequest('La cantidad a reabastecer debe ser mayor a 0');
     const item = await prisma.inventoryItem.update({
       where: { id },
@@ -98,20 +100,20 @@ export const inventoryService = {
         lastRestocked: new Date(),
       },
     });
-    emitChanged(item);
+    emitChanged(restaurantId, item);
     return item;
   },
 
   /** Consume: resta `amount` (sin permitir negativos). Útil para integraciones futuras. */
-  async consume(id: number, amount: number): Promise<InventoryItem> {
-    const current = await inventoryService.getById(id);
+  async consume(restaurantId: number, id: number, amount: number): Promise<InventoryItem> {
+    const current = await inventoryService.getById(restaurantId, id);
     if (amount <= 0) throw HttpError.badRequest('La cantidad a consumir debe ser mayor a 0');
     const newQty = Math.max(0, current.quantity - amount);
     const item = await prisma.inventoryItem.update({
       where: { id },
       data: { quantity: newQty },
     });
-    emitChanged(item);
+    emitChanged(restaurantId, item);
     return item;
   },
 };

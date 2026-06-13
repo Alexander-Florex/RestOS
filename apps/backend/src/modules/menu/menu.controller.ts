@@ -5,6 +5,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { StockStatus } from '@prisma/client';
 import { menuService } from './menu.service.js';
+import { HttpError } from '../../lib/http-error.js';
 
 const stockEnum = z.nativeEnum(StockStatus);
 
@@ -31,20 +32,23 @@ const stockBody = z.object({ stock: stockEnum });
 
 export const menuController = {
   async list(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const opts = listQuery.parse(req.query);
-    const items = await menuService.list(opts);
+    const items = await menuService.list(req.user.restaurantId, opts);
     res.json({ items });
   },
 
   async getById(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const item = await menuService.getById(id);
+    const item = await menuService.getById(req.user.restaurantId, id);
     res.json({ item });
   },
 
   async create(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);
-    const item = await menuService.create({
+    const item = await menuService.create(req.user.restaurantId, {
       ...data,
       description: data.description ?? undefined,
       imageUrl: data.imageUrl ?? undefined,
@@ -53,9 +57,10 @@ export const menuController = {
   },
 
   async update(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
     const data = updateSchema.parse(req.body);
-    const item = await menuService.update(id, {
+    const item = await menuService.update(req.user.restaurantId, id, {
       ...data,
       description: data.description ?? undefined,
       imageUrl: data.imageUrl ?? undefined,
@@ -64,21 +69,24 @@ export const menuController = {
   },
 
   async remove(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    await menuService.remove(id);
+    await menuService.remove(req.user.restaurantId, id);
     res.status(204).send();
   },
 
   async toggleEnabled(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const item = await menuService.toggleEnabled(id);
+    const item = await menuService.toggleEnabled(req.user.restaurantId, id);
     res.json({ item });
   },
 
   async setStock(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
     const { stock } = stockBody.parse(req.body);
-    const item = await menuService.setStock(id, stock);
+    const item = await menuService.setStock(req.user.restaurantId, id, stock);
     res.json({ item });
   },
 };

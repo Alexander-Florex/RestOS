@@ -17,14 +17,17 @@ const topItemsQuery = rangeQuery.and(z.object({
 
 export const reportsController = {
   async salesReport(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { from, to } = rangeQuery.parse(req.query);
-    const report = await reportsService.salesReport({ from, to });
+    const report = await reportsService.salesReport(req.user.restaurantId, { from, to });
     res.json(report);
   },
 
   async topItems(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const parsed = topItemsQuery.parse(req.query);
     const items = await reportsService.topItems(
+      req.user.restaurantId,
       { from: parsed.from, to: parsed.to },
       parsed.limit ?? 10
     );
@@ -32,8 +35,9 @@ export const reportsController = {
   },
 
   async salesCsv(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { from, to } = rangeQuery.parse(req.query);
-    const csv = await reportsService.salesCsv({ from, to });
+    const csv = await reportsService.salesCsv(req.user.restaurantId, { from, to });
     if (!csv) throw HttpError.notFound('No hay ventas en ese rango');
 
     const fromStr = from.toISOString().slice(0, 10);

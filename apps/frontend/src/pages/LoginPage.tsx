@@ -9,10 +9,11 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { ApiError } from '../lib/api';
+import { ApiError, restaurantIdStorage } from '../lib/api';
 
 export function LoginPage() {
   const { login } = useAuth();
+  const [restaurantId, setRestaurantId] = useState(() => restaurantIdStorage.get()?.toString() || '');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -21,6 +22,11 @@ export function LoginPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    const restId = Number(restaurantId);
+    if (!restaurantId.trim() || !Number.isInteger(restId) || restId <= 0) {
+      setError('Ingresá un ID de restaurante válido.');
+      return;
+    }
     if (!username.trim() || !password) {
       setError('Completá usuario y contraseña.');
       return;
@@ -30,7 +36,7 @@ export function LoginPage() {
     setError(null);
 
     try {
-      await login(username.trim(), password);
+      await login(restId, username.trim(), password);
       toast.success('Sesión iniciada', { description: `Bienvenido, ${username}` });
     } catch (err) {
       const msg =
@@ -89,6 +95,19 @@ export function LoginPage() {
 
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="restaurantId">ID de restaurante</Label>
+                <Input
+                  id="restaurantId"
+                  type="number"
+                  min={1}
+                  placeholder="1"
+                  value={restaurantId}
+                  onChange={(e) => setRestaurantId(e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="username">Usuario</Label>
                 <Input

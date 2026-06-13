@@ -24,28 +24,31 @@ const listQuery = z.object({ tableId: z.coerce.number().int().positive().optiona
 
 export const ordersController = {
   async list(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { tableId } = listQuery.parse(req.query);
-    const orders = await ordersService.list({ tableId });
+    const orders = await ordersService.list(req.user.restaurantId, { tableId });
     res.json({ orders });
   },
 
   async getById(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const order = await ordersService.getById(id);
+    const order = await ordersService.getById(req.user.restaurantId, id);
     res.json({ order });
   },
 
   async listByTable(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { tableId } = tableIdParam.parse(req.params);
-    const orders = await ordersService.list({ tableId });
-    const total = await ordersService.getTableTotal(tableId);
+    const orders = await ordersService.list(req.user.restaurantId, { tableId });
+    const total = await ordersService.getTableTotal(req.user.restaurantId, tableId);
     res.json({ orders, total });
   },
 
   async create(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);
-    const order = await ordersService.create({
+    const order = await ordersService.create(req.user.restaurantId, {
       ...data,
       createdById: req.user.userId,
     });
@@ -53,8 +56,9 @@ export const ordersController = {
   },
 
   async remove(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    await ordersService.remove(id);
+    await ordersService.remove(req.user.restaurantId, id);
     res.status(204).send();
   },
 };

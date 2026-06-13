@@ -18,7 +18,7 @@ import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
-import { getIO, SocketEvents } from '../../sockets/index.js';
+import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads', 'sales');
 
@@ -55,11 +55,11 @@ async function saveBase64Image(b64: string): Promise<string> {
   return `/uploads/sales/${filename}`;
 }
 
-function emitSaleRegistered(sale: Sale) {
-  getIO().emit(SocketEvents.SALE_REGISTERED, sale);
+function emitSaleRegistered(restaurantId: number, sale: Sale) {
+  ioRestaurant(restaurantId).emit(SocketEvents.SALE_REGISTERED, sale);
 }
-function emitTableChanged(table: unknown) {
-  getIO().emit(SocketEvents.TABLE_CHANGED, table);
+function emitTableChanged(restaurantId: number, table: unknown) {
+  ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, table);
 }
 
 export interface CreateSaleInput {
@@ -78,9 +78,10 @@ export interface SalesListFilters {
 }
 
 export const salesService = {
-  async list(filters: SalesListFilters = {}): Promise<Sale[]> {
+  async list(restaurantId: number, filters: SalesListFilters = {}): Promise<Sale[]> {
     return prisma.sale.findMany({
       where: {
+        restaurantId,
         ...((filters.from || filters.to) ? {
           closedAt: {
             ...(filters.from ? { gte: filters.from } : {}),
@@ -93,8 +94,8 @@ export const salesService = {
     });
   },
 
-  async getById(id: number): Promise<Sale> {
-    const sale = await prisma.sale.findUnique({ where: { id } });
+  async getById(restaurantId: number, id: number): Promise<Sale> {
+    const sale = await prisma.sale.findFirst({ where: { id, restaurantId } });
     if (!sale) throw HttpError.notFound('Venta no encontrada');
     return sale;
   },
@@ -103,9 +104,9 @@ export const salesService = {
    * Registra venta + cierra mesa + borra orders, todo en una transacción.
    * Guarda un snapshot de items en sale_items para reportes posteriores.
    */
-  async create(input: CreateSaleInput): Promise<Sale> {
-    const table = await prisma.table.findUnique({
-      where: { id: input.tableId },
+  async create(restaurantId: number, input: CreateSaleInput): Promise<Sale> {
+    const table = await prisma.table.findFirst({
+      where: { id: input.tableId, restaurantId },
       include: {
         orders: {
           include: {
@@ -168,6 +169,7 @@ export const salesService = {
     const { sale, updatedTable } = await prisma.$transaction(async (tx) => {
       const sale = await tx.sale.create({
         data: {
+          restaurantId,
           tableId: input.tableId,
           tableNumber,
           paymentMethod: input.paymentMethod,
@@ -212,8 +214,8 @@ export const salesService = {
       return { sale, updatedTable };
     });
 
-    emitSaleRegistered(sale);
-    emitTableChanged(updatedTable);
+    emitSaleRegistered(restaurantId, sale);
+    emitTableChanged(restaurantId, updatedTable);
 
     return sale;
   },
@@ -221,7 +223,7 @@ export const salesService = {
   /**
    * Estadísticas del día: total facturado, conteo, breakdown por método.
    */
-  async dailyStats(date: Date = new Date()): Promise<{
+  async dailyStats(restaurantId: number, date: Date = new Date()): Promise<{
     total: number;
     count: number;
     byMethod: Record<PaymentMethod, { count: number; amount: number }>;
@@ -230,7 +232,7 @@ export const salesService = {
     const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999);
 
     const sales = await prisma.sale.findMany({
-      where: { closedAt: { gte: dayStart, lte: dayEnd } },
+      where: { restaurantId, closedAt: { gte: dayStart, lte: dayEnd } },
     });
 
     const byMethod: Record<PaymentMethod, { count: number; amount: number }> = {

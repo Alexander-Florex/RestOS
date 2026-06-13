@@ -268,9 +268,9 @@ export const printingService = {
   },
 
   // Ticket de COCINA — sin precios, desde el pedido en BD
-  async printOrder(opts: { orderId: number; printerName: string; restaurantName: string; }): Promise<void> {
-    const order = await prisma.order.findUnique({
-      where: { id: opts.orderId },
+  async printOrder(opts: { restaurantId: number; orderId: number; printerName: string; restaurantName: string; }): Promise<void> {
+    const order = await prisma.order.findFirst({
+      where: { id: opts.orderId, restaurantId: opts.restaurantId },
       include: { items: true, table: true },
     });
     if (!order) throw HttpError.notFound('Pedido no encontrado');
@@ -313,11 +313,11 @@ export const printingService = {
 
   // Mantenido por compatibilidad — busca en BD (solo usar ANTES de cerrar la venta)
   async printTableOrders(opts: {
-    tableId: number; printerName: string; restaurantName: string;
+    restaurantId: number; tableId: number; printerName: string; restaurantName: string;
     paymentMethod?: string; amountPaid?: number; notes?: string | null;
   }): Promise<void> {
-    const table = await prisma.table.findUnique({
-      where: { id: opts.tableId },
+    const table = await prisma.table.findFirst({
+      where: { id: opts.tableId, restaurantId: opts.restaurantId },
       include: { orders: { include: { items: true } } },
     });
     if (!table) throw HttpError.notFound('Mesa no encontrada');

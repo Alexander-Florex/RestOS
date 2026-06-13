@@ -1,15 +1,16 @@
-databases:
-  - name: resos-mysql
-    databaseName: restos_db
-    plan: free
-    region: oregon
+# ──────────────────────────────────────────────
+# RestOS — Backend (Express + Prisma + Socket.io)
+# ──────────────────────────────────────────────
+# IMPORTANTE: Render no ofrece MySQL gestionado (solo Postgres).
+# Necesitás una base de datos MySQL externa (ej. Aiven free tier).
+# Configurá la variable DATABASE_URL manualmente en el dashboard de
+# Render con la connection string de tu proveedor MySQL.
+#
+# El frontend se despliega por separado en Netlify (ver apps/frontend).
 
 services:
-  # ─────────────────────────────────────────────
-  # BACKEND — Express + Prisma + Socket.io
-  # ─────────────────────────────────────────────
   - type: web
-    name: resos-backend
+    name: restos-backend
     runtime: node
     region: oregon
     plan: free
@@ -22,9 +23,7 @@ services:
       - key: PORT
         value: 3001
       - key: DATABASE_URL
-        fromDatabase:
-          name: resos-mysql
-          property: connectionString
+        sync: false   # ← configurar manualmente en el dashboard (connection string MySQL externa)
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
@@ -32,22 +31,4 @@ services:
       - key: BCRYPT_ROUNDS
         value: 10
       - key: CORS_ORIGIN
-        value: https://resos-frontend.onrender.com  # ← cambiá esto por la URL real del frontend
-
-  # ─────────────────────────────────────────────
-  # FRONTEND — React + Vite (Static Site)
-  # ─────────────────────────────────────────────
-  - type: web
-    name: resos-frontend
-    runtime: static
-    plan: free
-    rootDir: apps/frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    envVars:
-      - key: VITE_API_URL
-        value: https://resos-backend.onrender.com  # ← cambiá esto por la URL real del backend
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
+        value: https://restos-cliente.netlify.app  # ← cambiá esto por la URL real de tu sitio en Netlify

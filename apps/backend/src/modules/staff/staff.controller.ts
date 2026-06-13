@@ -5,6 +5,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { StaffRole } from '@prisma/client';
 import { staffService } from './staff.service.js';
+import { HttpError } from '../../lib/http-error.js';
 
 const roleEnum = z.nativeEnum(StaffRole);
 
@@ -26,20 +27,23 @@ const listQuery = z.object({
 
 export const staffController = {
   async list(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const opts = listQuery.parse(req.query);
-    const members = await staffService.list(opts);
+    const members = await staffService.list(req.user.restaurantId, opts);
     res.json({ members });
   },
 
   async getById(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const member = await staffService.getById(id);
+    const member = await staffService.getById(req.user.restaurantId, id);
     res.json({ member });
   },
 
   async create(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);
-    const member = await staffService.create({
+    const member = await staffService.create(req.user.restaurantId, {
       ...data,
       phone: data.phone ?? undefined,
       cuit:  data.cuit ?? undefined,
@@ -48,9 +52,10 @@ export const staffController = {
   },
 
   async update(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
     const data = updateSchema.parse(req.body);
-    const member = await staffService.update(id, {
+    const member = await staffService.update(req.user.restaurantId, id, {
       ...data,
       phone: data.phone ?? undefined,
       cuit:  data.cuit ?? undefined,
@@ -59,28 +64,32 @@ export const staffController = {
   },
 
   async remove(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    await staffService.remove(id);
+    await staffService.remove(req.user.restaurantId, id);
     res.status(204).send();
   },
 
   async toggleActive(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const member = await staffService.toggleActive(id);
+    const member = await staffService.toggleActive(req.user.restaurantId, id);
     res.json({ member });
   },
 
   /** GET /api/staff/:id/arca — consulta padrón ARCA y devuelve estado de inscripción */
   async queryArca(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const data = await staffService.queryArca(id);
+    const data = await staffService.queryArca(req.user.restaurantId, id);
     res.json({ arca: data });
   },
 
   /** DELETE /api/staff/:id/arca-cache — fuerza re-consulta en la próxima llamada */
   async invalidateArcaCache(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    await staffService.invalidateArcaCache(id);
+    await staffService.invalidateArcaCache(req.user.restaurantId, id);
     res.json({ message: 'Caché de ARCA limpiado. La próxima consulta irá directo a ARCA.' });
   },
 };

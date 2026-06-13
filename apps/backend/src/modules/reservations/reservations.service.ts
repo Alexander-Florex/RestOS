@@ -10,11 +10,11 @@
 import { ReservationStatus, TableStatus, type Reservation } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
-import { getIO, SocketEvents } from '../../sockets/index.js';
+import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
-function emitChanged(reservation: Reservation) { getIO().emit(SocketEvents.RESERVATION_CHANGED, reservation); }
-function emitCreated(reservation: Reservation) { getIO().emit(SocketEvents.RESERVATION_CREATED, reservation); }
-function emitDeleted(id: number)                { getIO().emit(SocketEvents.RESERVATION_DELETED, { id }); }
+function emitChanged(restaurantId: number, reservation: Reservation) { ioRestaurant(restaurantId).emit(SocketEvents.RESERVATION_CHANGED, reservation); }
+function emitCreated(restaurantId: number, reservation: Reservation) { ioRestaurant(restaurantId).emit(SocketEvents.RESERVATION_CREATED, reservation); }
+function emitDeleted(restaurantId: number, id: number)                { ioRestaurant(restaurantId).emit(SocketEvents.RESERVATION_DELETED, { id }); }
 
 export interface CreateReservationData {
   customerName: string;
@@ -37,9 +37,10 @@ export interface ListFilters {
 }
 
 export const reservationsService = {
-  async list(filters: ListFilters = {}): Promise<Reservation[]> {
+  async list(restaurantId: number, filters: ListFilters = {}): Promise<Reservation[]> {
     return prisma.reservation.findMany({
       where: {
+        restaurantId,
         ...((filters.from || filters.to) ? {
           reservedAt: {
             ...(filters.from ? { gte: filters.from } : {}),
@@ -54,9 +55,10 @@ export const reservationsService = {
   },
 
   /** Próximas N reservas activas (CONFIRMED o PENDING) ordenadas por hora ascendente. */
-  async upcoming(limit = 20): Promise<Reservation[]> {
+  async upcoming(restaurantId: number, limit = 20): Promise<Reservation[]> {
     return prisma.reservation.findMany({
       where: {
+        restaurantId,
         reservedAt: { gte: new Date() },
         status: { in: [ReservationStatus.CONFIRMED, ReservationStatus.PENDING] },
       },
@@ -65,13 +67,13 @@ export const reservationsService = {
     });
   },
 
-  async getById(id: number): Promise<Reservation> {
-    const r = await prisma.reservation.findUnique({ where: { id } });
+  async getById(restaurantId: number, id: number): Promise<Reservation> {
+    const r = await prisma.reservation.findFirst({ where: { id, restaurantId } });
     if (!r) throw HttpError.notFound('Reserva no encontrada');
     return r;
   },
 
-  async create(data: CreateReservationData): Promise<Reservation> {
+  async create(restaurantId: number, data: CreateReservationData): Promise<Reservation> {
     if (data.partySize < 1) throw HttpError.badRequest('La cantidad de comensales debe ser ≥ 1');
     if (data.duration !== undefined && data.duration < 15) {
       throw HttpError.badRequest('La duración debe ser de al menos 15 minutos');
@@ -79,7 +81,7 @@ export const reservationsService = {
 
     // Si se asigna mesa, validar que exista y tenga capacidad
     if (data.tableId) {
-      const table = await prisma.table.findUnique({ where: { id: data.tableId } });
+      const table = await prisma.table.findFirst({ where: { id: data.tableId, restaurantId } });
       if (!table) throw HttpError.notFound('Mesa no encontrada');
       if (data.partySize > table.capacity) {
         throw HttpError.badRequest(`La mesa N° ${table.number} tiene capacidad para ${table.capacity}`);
@@ -88,6 +90,7 @@ export const reservationsService = {
 
     const reservation = await prisma.reservation.create({
       data: {
+        restaurantId,
         customerName: data.customerName,
         customerPhone: data.customerPhone ?? null,
         partySize: data.partySize,
@@ -98,15 +101,15 @@ export const reservationsService = {
         status: data.status ?? ReservationStatus.CONFIRMED,
       },
     });
-    emitCreated(reservation);
+    emitCreated(restaurantId, reservation);
     return reservation;
   },
 
-  async update(id: number, data: UpdateReservationData): Promise<Reservation> {
-    const current = await reservationsService.getById(id);
+  async update(restaurantId: number, id: number, data: UpdateReservationData): Promise<Reservation> {
+    const current = await reservationsService.getById(restaurantId, id);
 
     if (data.tableId !== undefined && data.tableId !== null && data.tableId !== current.tableId) {
-      const table = await prisma.table.findUnique({ where: { id: data.tableId } });
+      const table = await prisma.table.findFirst({ where: { id: data.tableId, restaurantId } });
       if (!table) throw HttpError.notFound('Mesa no encontrada');
       const ps = data.partySize ?? current.partySize;
       if (ps > table.capacity) {
@@ -127,19 +130,19 @@ export const reservationsService = {
         ...(data.status !== undefined ? { status: data.status } : {}),
       },
     });
-    emitChanged(reservation);
+    emitChanged(restaurantId, reservation);
     return reservation;
   },
 
-  async remove(id: number): Promise<void> {
-    await reservationsService.getById(id);
+  async remove(restaurantId: number, id: number): Promise<void> {
+    await reservationsService.getById(restaurantId, id);
     await prisma.reservation.delete({ where: { id } });
-    emitDeleted(id);
+    emitDeleted(restaurantId, id);
   },
 
   /** Marca la reserva como cancelada. La mesa (si estaba RESERVED) vuelve a AVAILABLE. */
-  async cancel(id: number): Promise<Reservation> {
-    const current = await reservationsService.getById(id);
+  async cancel(restaurantId: number, id: number): Promise<Reservation> {
+    const current = await reservationsService.getById(restaurantId, id);
     if (current.status === ReservationStatus.COMPLETED) {
       throw HttpError.badRequest('No se puede cancelar una reserva ya completada');
     }
@@ -156,17 +159,17 @@ export const reservationsService = {
             where: { id: current.tableId },
             data: { status: TableStatus.AVAILABLE },
           });
-          getIO().emit(SocketEvents.TABLE_CHANGED, freed);
+          ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, freed);
         }
       }
-      emitChanged(updated);
+      emitChanged(restaurantId, updated);
       return updated;
     });
   },
 
   /** Marca la reserva como no-show. Libera la mesa si estaba RESERVED. */
-  async noShow(id: number): Promise<Reservation> {
-    const current = await reservationsService.getById(id);
+  async noShow(restaurantId: number, id: number): Promise<Reservation> {
+    const current = await reservationsService.getById(restaurantId, id);
     return await prisma.$transaction(async (tx) => {
       const updated = await tx.reservation.update({
         where: { id },
@@ -179,10 +182,10 @@ export const reservationsService = {
             where: { id: current.tableId },
             data: { status: TableStatus.AVAILABLE },
           });
-          getIO().emit(SocketEvents.TABLE_CHANGED, freed);
+          ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, freed);
         }
       }
-      emitChanged(updated);
+      emitChanged(restaurantId, updated);
       return updated;
     });
   },
@@ -192,8 +195,8 @@ export const reservationsService = {
    * la reserva, y pasa la reserva a SEATED.
    * Requiere que la reserva tenga mesa asignada.
    */
-  async seat(id: number): Promise<{ reservation: Reservation; tableId: number }> {
-    const current = await reservationsService.getById(id);
+  async seat(restaurantId: number, id: number): Promise<{ reservation: Reservation; tableId: number }> {
+    const current = await reservationsService.getById(restaurantId, id);
     if (!current.tableId) {
       throw HttpError.badRequest('La reserva no tiene mesa asignada');
     }
@@ -204,7 +207,7 @@ export const reservationsService = {
       throw HttpError.badRequest('La reserva ya finalizó');
     }
 
-    const table = await prisma.table.findUnique({ where: { id: current.tableId } });
+    const table = await prisma.table.findFirst({ where: { id: current.tableId, restaurantId } });
     if (!table) throw HttpError.notFound('La mesa de la reserva ya no existe');
     if (table.status === TableStatus.OCCUPIED || table.status === TableStatus.BILL_REQUESTED) {
       throw HttpError.badRequest('La mesa está ocupada por otros comensales');
@@ -223,19 +226,19 @@ export const reservationsService = {
           openedAt: new Date(),
         },
       });
-      getIO().emit(SocketEvents.TABLE_CHANGED, updatedTable);
-      emitChanged(reservation);
+      ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, updatedTable);
+      emitChanged(restaurantId, reservation);
       return { reservation, tableId: updatedTable.id };
     });
   },
 
   /** Marca la mesa asignada a la reserva como RESERVED (típico cuando faltan minutos para que lleguen). */
-  async markTableReserved(id: number): Promise<Reservation> {
-    const current = await reservationsService.getById(id);
+  async markTableReserved(restaurantId: number, id: number): Promise<Reservation> {
+    const current = await reservationsService.getById(restaurantId, id);
     if (!current.tableId) {
       throw HttpError.badRequest('La reserva no tiene mesa asignada');
     }
-    const table = await prisma.table.findUnique({ where: { id: current.tableId } });
+    const table = await prisma.table.findFirst({ where: { id: current.tableId, restaurantId } });
     if (!table) throw HttpError.notFound('La mesa de la reserva ya no existe');
     if (table.status !== TableStatus.AVAILABLE) {
       throw HttpError.badRequest('La mesa no está libre. Solo se pueden reservar mesas libres');
@@ -246,7 +249,7 @@ export const reservationsService = {
         where: { id: current.tableId! },
         data: { status: TableStatus.RESERVED },
       });
-      getIO().emit(SocketEvents.TABLE_CHANGED, updatedTable);
+      ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, updatedTable);
       // No cambiamos el status de la reserva: sigue CONFIRMED hasta que lleguen
       return current;
     });

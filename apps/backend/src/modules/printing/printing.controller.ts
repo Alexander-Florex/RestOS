@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { printingService } from './printing.service.js';
+import { HttpError } from '../../lib/http-error.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
@@ -31,9 +32,10 @@ export const printingController = {
 
   // Ticket de cocina — desde el ID del pedido
   async printOrder(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
     const opts   = printOrderSchema.parse(req.body);
-    await printingService.printOrder({ orderId: id, ...opts });
+    await printingService.printOrder({ restaurantId: req.user.restaurantId, orderId: id, ...opts });
     res.json({ ok: true, message: `Comanda #${id} enviada` });
   },
 
@@ -47,6 +49,7 @@ export const printingController = {
 
   // Mantenido por compatibilidad (busca en BD — usar solo antes de cerrar)
   async printTableAccount(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
     const opts   = z.object({
       printerName: z.string().min(1),
@@ -55,7 +58,7 @@ export const printingController = {
       amountPaid: z.coerce.number().optional(),
       notes: z.string().optional().nullable(),
     }).parse(req.body);
-    await printingService.printTableOrders({ tableId: id, ...opts });
+    await printingService.printTableOrders({ restaurantId: req.user.restaurantId, tableId: id, ...opts });
     res.json({ ok: true, message: 'Ticket de caja impreso' });
   },
 };
