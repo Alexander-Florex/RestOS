@@ -44,14 +44,23 @@ export function errorHandler(
     if (err.code === 'P2025') {
       return res.status(404).json({ error: 'Registro no encontrado' });
     }
+    if (err.code === 'P2003') {
+      // Foreign key constraint failed — típicamente un token JWT desactualizado
+      // (userId/restaurantId que ya no existen porque se reseedeó la base).
+      return res.status(409).json({
+        error: 'Referencia inválida (registro relacionado no existe). Cerrá sesión y volvé a iniciar sesión.',
+        field: err.meta?.field_name ?? undefined,
+      });
+    }
   }
 
   // ── Fallback ──
   console.error('💥 Error no manejado:', err);
   res.status(500).json({
     error: 'Error interno del servidor',
+    ...(err instanceof Error ? { message: err.message } : {}),
     ...(env.NODE_ENV === 'development' && err instanceof Error
-      ? { message: err.message, stack: err.stack }
+      ? { stack: err.stack }
       : {}),
   });
 }
