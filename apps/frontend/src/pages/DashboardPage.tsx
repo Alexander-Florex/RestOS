@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import {
   LogOut, ChefHat, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3,
+  CalendarDays, BarChart3, ShoppingBag,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ROLE_LABELS } from '../lib/permissions';
@@ -14,6 +14,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { Button } from '../components/ui/button';
 import { NotificationToggle } from '../components/NotificationToggle';
 import { PrinterConfigButton } from '../components/PrintButton';
+import { TakeawayPage } from '../components/TakeawayPage';
 import { TableMap } from '../components/TableMap';
 import { MenuPage } from '../components/MenuPage';
 import { SalesHistoryPage } from '../components/SalesHistoryPage';
@@ -23,7 +24,7 @@ import { ReservationsPage } from '../components/ReservationsPage';
 import { ReportsPage } from '../components/ReportsPage';
 import { cn } from '../lib/utils';
 
-type View = 'tables' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'staff';
+type View = 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'staff';
 
 interface NavItem {
   id: View;
@@ -34,6 +35,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { id: 'tables',       label: 'Mapa de mesas', icon: LayoutGrid },
+  { id: 'takeaway',     label: 'Para llevar',   icon: ShoppingBag },
   { id: 'reservations', label: 'Reservas',      icon: CalendarDays },
   { id: 'menu',         label: 'Menú',          icon: BookOpen },
   { id: 'sales',        label: 'Ventas',        icon: Receipt },
@@ -151,6 +153,7 @@ export function DashboardPage() {
 
         <main className="flex-1 overflow-y-auto px-6 py-6">
           {view === 'tables'       && <TableMap />}
+          {view === 'takeaway'     && <TakeawayPage />}
           {view === 'reservations' && <ReservationsPage />}
           {view === 'menu'         && <MenuPage />}
           {view === 'sales'        && <SalesHistoryPage />}

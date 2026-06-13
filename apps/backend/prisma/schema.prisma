@@ -1,6 +1,5 @@
 // ──────────────────────────────────────────────
-// Schema Prisma — RestOS Cliente
-// Incluye todas las entidades para las fases 1 a 5
+// Schema Prisma — RestOS Cliente (multi-tenant)
 // ──────────────────────────────────────────────
 
 generator client {
@@ -21,7 +20,6 @@ model Restaurant {
   email     String?
   phone     String?
   address   String?
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -34,31 +32,30 @@ model Restaurant {
   inventoryItems InventoryItem[]
   staffMembers   StaffMember[]
   reservations   Reservation[]
+  takeawayOrders TakeawayOrder[]
 
   @@map("restaurants")
 }
 
 // ──────────────────────────────────────────────
-// AUTH — Usuarios del sistema (los que loguean)
+// AUTH
 // ──────────────────────────────────────────────
 model User {
-  id        Int      @id @default(autoincrement())
-
+  id           Int        @id @default(autoincrement())
   restaurantId Int
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  username     String
+  email        String
+  password     String
+  name         String
+  role         UserRole   @default(STAFF)
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  username  String
-  email     String
-  password  String   // bcrypt hash
-  name      String
-  role      UserRole @default(STAFF)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Trazabilidad
-  ordersCreated Order[] @relation("OrderCreatedBy")
-  salesCreated  Sale[]  @relation("SaleRegisteredBy")
+  ordersCreated    Order[]         @relation("OrderCreatedBy")
+  salesCreated     Sale[]          @relation("SaleRegisteredBy")
+  takeawaysCreated TakeawayOrder[] @relation("TakeawayCreatedBy")
 
   @@unique([restaurantId, username])
   @@unique([restaurantId, email])
@@ -73,20 +70,18 @@ enum UserRole {
 }
 
 // ──────────────────────────────────────────────
-// SECCIONES DEL LOCAL (Salón principal, Patio, etc.)
+// SECCIONES
 // ──────────────────────────────────────────────
 model Section {
-  id        Int      @id @default(autoincrement())
-
+  id           Int        @id @default(autoincrement())
   restaurantId Int
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  name      String
-  color     String   @default("#64748b") // color hex para diferenciar en la UI
-  order     Int      @default(0)          // orden en los tabs del mapa
-  tables    Table[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  name         String
+  color        String     @default("#64748b")
+  order        Int        @default(0)
+  tables       Table[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   @@unique([restaurantId, name])
   @@index([restaurantId])
@@ -98,14 +93,12 @@ model Section {
 // ──────────────────────────────────────────────
 model Table {
   id           Int         @id @default(autoincrement())
-
   restaurantId Int
   restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
   number       Int
   status       TableStatus @default(AVAILABLE)
   capacity     Int         @default(4)
-  enabled      Boolean     @default(true)   // deshabilitar sin borrar
+  enabled      Boolean     @default(true)
   guestCount   Int?
   openedAt     DateTime?
   sectionId    Int?
@@ -133,22 +126,21 @@ enum TableStatus {
 // MENÚ
 // ──────────────────────────────────────────────
 model MenuItem {
-  id          Int         @id @default(autoincrement())
-
+  id           Int         @id @default(autoincrement())
   restaurantId Int
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  name        String
-  category    String      // "main-dishes", "drinks", "appetizers", "desserts"
-  price       Decimal     @db.Decimal(10, 2)
-  description String?     @db.Text
-  stock       StockStatus @default(IN_STOCK)
-  enabled     Boolean     @default(true)
-  imageUrl    String?
-  orderItems  OrderItem[]
-  saleItems   SaleItem[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  category     String
+  price        Decimal     @db.Decimal(10, 2)
+  description  String?     @db.Text
+  stock        StockStatus @default(IN_STOCK)
+  enabled      Boolean     @default(true)
+  imageUrl     String?
+  orderItems   OrderItem[]
+  saleItems    SaleItem[]
+  takeawayItems TakeawayItem[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@index([restaurantId])
   @@map("menu_items")
@@ -161,20 +153,19 @@ enum StockStatus {
 }
 
 // ──────────────────────────────────────────────
-// PEDIDOS (lo que tomaron los meseros)
+// PEDIDOS
 // ──────────────────────────────────────────────
 model Order {
-  id          Int         @id @default(autoincrement())
-
+  id           Int       @id @default(autoincrement())
   restaurantId Int
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  tableId     Int
-  table       Table       @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  items       OrderItem[]
-  createdById Int?
-  createdBy   User?       @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt   DateTime    @default(now())
+  tableId      Int
+  table        Table     @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  items        OrderItem[]
+  notes        String?
+  createdById  Int?
+  createdBy    User?     @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
 
   @@index([restaurantId])
   @@index([tableId])
@@ -187,7 +178,7 @@ model OrderItem {
   order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItemId Int?
   menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
-  itemName   String    // denormalizado por si se borra el ítem
+  itemName   String
   quantity   Int
   price      Decimal   @db.Decimal(10, 2)
   notes      String?
@@ -197,25 +188,23 @@ model OrderItem {
 }
 
 // ──────────────────────────────────────────────
-// VENTAS (cuentas cerradas)
+// VENTAS
 // ──────────────────────────────────────────────
 model Sale {
   id             Int           @id @default(autoincrement())
-
   restaurantId   Int
   restaurant     Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
   tableId        Int?
   table          Table?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  tableNumber    Int           // denormalizado por si se borra la mesa
+  tableNumber    Int
   paymentMethod  PaymentMethod
-  amount         Decimal       @db.Decimal(10, 2) // monto cobrado (puede ser igual o > total)
-  total          Decimal       @db.Decimal(10, 2) // total de la cuenta
+  amount         Decimal       @db.Decimal(10, 2)
+  total          Decimal       @db.Decimal(10, 2)
   notes          String?       @db.Text
-  imageUrl       String?       // ruta o URL del comprobante subido
+  imageUrl       String?
   registeredById Int?
   registeredBy   User?         @relation("SaleRegisteredBy", fields: [registeredById], references: [id], onDelete: SetNull)
-  items          SaleItem[]    // snapshot de items consumidos (para reportes)
+  items          SaleItem[]
   closedAt       DateTime
   createdAt      DateTime      @default(now())
 
@@ -224,9 +213,6 @@ model Sale {
   @@map("sales")
 }
 
-// Snapshot inmutable de un item dentro de una venta cerrada.
-// Permite reportes (top items, ticket promedio, etc.) sin depender de Order/OrderItem
-// que se borran al cerrar la mesa.
 model SaleItem {
   id         Int       @id @default(autoincrement())
   saleId     Int
@@ -237,7 +223,7 @@ model SaleItem {
   category   String
   quantity   Int
   price      Decimal   @db.Decimal(10, 2)
-  subtotal   Decimal   @db.Decimal(10, 2) // price * quantity, precomputado para reportes
+  subtotal   Decimal   @db.Decimal(10, 2)
 
   @@index([saleId])
   @@index([menuItemId])
@@ -254,20 +240,18 @@ enum PaymentMethod {
 // INVENTARIO
 // ──────────────────────────────────────────────
 model InventoryItem {
-  id            Int               @id @default(autoincrement())
-
-  restaurantId  Int
-  restaurant    Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  name          String
-  category      InventoryCategory @default(FOOD)
-  quantity      Float
-  unit          String
-  minStock      Float             @default(0)
-  supplier      String?
+  id           Int               @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  category     InventoryCategory @default(FOOD)
+  quantity     Float
+  unit         String
+  minStock     Float             @default(0)
+  supplier     String?
   lastRestocked DateTime?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   @@index([restaurantId])
   @@map("inventory_items")
@@ -281,24 +265,20 @@ enum InventoryCategory {
 }
 
 // ──────────────────────────────────────────────
-// STAFF (registro de personal, separado de Users)
-// Un staff puede estar listado sin poder loguearse.
+// STAFF
 // ──────────────────────────────────────────────
 model StaffMember {
-  id        Int       @id @default(autoincrement())
-
+  id           Int        @id @default(autoincrement())
   restaurantId Int
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  name      String
-  email     String
-  role      StaffRole @default(WAITER)
-  phone     String?
-  active    Boolean   @default(true)
-  // CUIT para consulta de estado en ARCA (formato: 20-12345678-9 o 20123456789)
-  cuit      String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  name         String
+  email        String
+  role         StaffRole  @default(WAITER)
+  phone        String?
+  active       Boolean    @default(true)
+  cuit         String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   @@unique([restaurantId, email])
   @@index([restaurantId])
@@ -316,23 +296,20 @@ enum StaffRole {
 // RESERVAS
 // ──────────────────────────────────────────────
 model Reservation {
-  id            Int               @id @default(autoincrement())
-
+  id           Int               @id @default(autoincrement())
   restaurantId Int
   restaurant   Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  // Mesa asignada (opcional — la reserva puede registrarse sin asignar mesa específica)
-  tableId       Int?
-  table         Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableId      Int?
+  table        Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
   customerName  String
   customerPhone String?
-  partySize     Int
-  reservedAt    DateTime          // fecha y hora de la reserva
-  duration      Int               @default(90) // duración estimada en minutos
-  status        ReservationStatus @default(CONFIRMED)
-  notes         String?           @db.Text
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  partySize    Int
+  reservedAt   DateTime
+  duration     Int               @default(90)
+  status       ReservationStatus @default(CONFIRMED)
+  notes        String?           @db.Text
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   @@index([restaurantId])
   @@index([reservedAt])
@@ -341,10 +318,59 @@ model Reservation {
 }
 
 enum ReservationStatus {
-  PENDING    // Cargada pero no confirmada
-  CONFIRMED  // Confirmada con el cliente
-  SEATED     // Ya llegaron y están sentados (mesa OCCUPIED)
-  COMPLETED  // Cerraron la mesa con éxito
-  CANCELLED  // Cancelada
-  NO_SHOW    // No vinieron
+  PENDING
+  CONFIRMED
+  SEATED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+// ──────────────────────────────────────────────
+// PEDIDOS PARA LLEVAR
+// ──────────────────────────────────────────────
+model TakeawayOrder {
+  id            Int            @id @default(autoincrement())
+  restaurantId  Int
+  restaurant    Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  customerName  String
+  customerPhone String?
+  status        TakeawayStatus @default(OPEN)
+  notes         String?        @db.Text
+  paymentMethod PaymentMethod?
+  amountPaid    Decimal?       @db.Decimal(10, 2)
+  total         Decimal?       @db.Decimal(10, 2)
+  createdById   Int?
+  createdBy     User?          @relation("TakeawayCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  paidAt        DateTime?
+  items         TakeawayItem[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([restaurantId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("takeaway_orders")
+}
+
+model TakeawayItem {
+  id         Int           @id @default(autoincrement())
+  orderId    Int
+  order      TakeawayOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId Int?
+  menuItem   MenuItem?     @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  itemName   String
+  quantity   Int
+  price      Decimal       @db.Decimal(10, 2)
+  notes      String?
+
+  @@index([orderId])
+  @@map("takeaway_items")
+}
+
+enum TakeawayStatus {
+  OPEN
+  READY
+  PAID
+  CANCELLED
 }

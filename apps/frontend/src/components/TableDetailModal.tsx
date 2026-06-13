@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   Users, Clock, Loader2, Receipt, Lock, CalendarCheck,
-  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard,
+  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard, Printer,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -20,7 +20,7 @@ import { useTableOrders } from '../hooks/useTableOrders';
 import { useAuth } from '../context/AuthContext';
 import { formatMoney } from '../lib/format';
 import { CloseTableModal } from './CloseTableModal';
-import { PrintButton } from './PrintButton';
+import { PrintButton, printerPrefs } from './PrintButton';
 import { cn } from '../lib/utils';
 
 interface TableDetailModalProps {
@@ -198,29 +198,96 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                 </p>
               ) : (
                 <>
-                  {/* Items agregados de todos los pedidos */}
-                  <div className="max-h-48 space-y-1.5 overflow-y-auto">
-                    {orders.flatMap(o => o.items).map((item) => (
-                      <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
-                        <div className="flex-1 min-w-0">
-                          <span className="text-foreground">{item.itemName}</span>
-                          {item.notes && (
-                            <span className="ml-2 text-xs italic text-muted-foreground">
-                              ({item.notes})
-                            </span>
+                  {/* Cada pedido individualmente con su botón de imprimir */}
+                  <div className="max-h-72 space-y-3 overflow-y-auto">
+                    {orders.map((order, idx) => {
+                      const isLatest = idx === orders.length - 1;
+                      const orderSubtotal = order.items.reduce(
+                        (s, i) => s + Number(i.price) * i.quantity, 0
+                      );
+                      const isTakeaway = order.notes?.startsWith('PARA LLEVAR:');
+                      const takeawayName = isTakeaway
+                        ? order.notes!.replace('PARA LLEVAR:', '').trim()
+                        : null;
+                      return (
+                        <div key={order.id} className={cn(
+                          'rounded-lg border p-3',
+                          isLatest ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-border'
+                        )}>
+                          {/* Header del pedido */}
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                Pedido #{order.id}
+                              </span>
+                              {isLatest && (
+                                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-400">
+                                  Último
+                                </span>
+                              )}
+                              {isTakeaway && (
+                                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-400">
+                                  🥡 {takeawayName}
+                                </span>
+                              )}
+                            </div>
+                            {/* Botón imprimir — solo ADMIN/STAFF */}
+                            {isAdminOrStaff && (
+                              <button
+                                onClick={() => {
+                                  const printerName = printerPrefs.getPrinter();
+                                  if (!printerName) {
+                                    toast.error('Configurá la impresora primero desde el sidebar');
+                                    return;
+                                  }
+                                  printingApi.printOrder(order.id, {
+                                    printerName,
+                                    restaurantName: printerPrefs.getRestaurant(),
+                                  })
+                                    .then(() => toast.success(`Pedido #${order.id} enviado a cocina`))
+                                    .catch(err => toast.error(err?.message ?? 'Error al imprimir'));
+                                }}
+                                className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-emerald-500/40 hover:text-emerald-400"
+                                title={`Reimprimir pedido #${order.id} en cocina`}
+                              >
+                                <Printer className="h-3 w-3" />
+                                Reimprimir
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Items del pedido */}
+                          <div className="space-y-1">
+                            {order.items.map(item => (
+                              <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
+                                <div className="flex-1 min-w-0">
+                                  <span>{item.itemName}</span>
+                                  {item.notes && (
+                                    <p className="text-xs italic text-muted-foreground">• {item.notes}</p>
+                                  )}
+                                </div>
+                                <span className="shrink-0 tabular-nums text-muted-foreground">x{item.quantity}</span>
+                                <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground">
+                                  {formatMoney(Number(item.price) * item.quantity)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Subtotal si hay múltiples pedidos */}
+                          {orders.length > 1 && (
+                            <div className="mt-2 flex justify-end border-t border-border pt-1.5">
+                              <span className="text-xs text-muted-foreground tabular-nums">
+                                Subtotal: {formatMoney(orderSubtotal)}
+                              </span>
+                            </div>
                           )}
                         </div>
-                        <span className="text-muted-foreground tabular-nums">
-                          x{item.quantity}
-                        </span>
-                        <span className="w-20 text-right tabular-nums text-muted-foreground">
-                          {formatMoney(Number(item.price) * item.quantity)}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
-                  {/* Total */}
+                  {/* Total global */}
                   <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
                     <span className="text-sm font-semibold">Total</span>
                     <span className="text-lg font-bold text-emerald-400 tabular-nums">
@@ -232,7 +299,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
             </div>
           )}
 
-          {/* Acciones */}
+          {/* Acciones para ADMIN y STAFF */}
           {isAdminOrStaff && (
             <div className="mt-5 space-y-2">
               {table.status === 'AVAILABLE' && (
@@ -358,10 +425,45 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
             </div>
           )}
 
-          {!isAdminOrStaff && (
-            <p className="mt-4 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-center text-xs text-muted-foreground">
-              Solo administradores y personal pueden modificar mesas
-            </p>
+          {/* Acciones para WAITER — puede pedir cuenta y cobrar (sin imprimir) */}
+          {!isAdminOrStaff && user?.role === 'WAITER' && (
+            <div className="mt-5 space-y-2">
+              {(table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED') && hasOrders && (
+                <>
+                  {table.status === 'OCCUPIED' && (
+                    <Button
+                      variant="outline" className="w-full"
+                      disabled={submitting}
+                      onClick={() => runAction(
+                        () => tablesApi.requestBill(table.id),
+                        `Cuenta pedida en mesa ${table.number}`
+                      )}
+                    >
+                      <Receipt className="h-4 w-4" />
+                      Pedir cuenta
+                    </Button>
+                  )}
+                  <Button
+                    className="w-full"
+                    onClick={() => setCloseModalOpen(true)}
+                    disabled={submitting}
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    Cobrar y cerrar mesa
+                  </Button>
+                </>
+              )}
+              {!hasOrders && (table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED') && (
+                <p className="rounded-lg border border-dashed border-border px-3 py-2 text-center text-xs text-muted-foreground">
+                  La mesa no tiene pedidos registrados
+                </p>
+              )}
+              {table.status === 'AVAILABLE' && (
+                <p className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-center text-xs text-muted-foreground">
+                  Mesa libre — usá la vista de mesero para tomar pedidos
+                </p>
+              )}
+            </div>
           )}
         </DialogContent>
       </Dialog>

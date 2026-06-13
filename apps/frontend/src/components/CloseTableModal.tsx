@@ -20,6 +20,7 @@ import {
 import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { printerPrefs } from './PrintButton';
+import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 
 interface CloseTableModalProps {
@@ -44,6 +45,7 @@ function fileToBase64(file: File): Promise<string> {
 export function CloseTableModal({
   table, open, onClose, onSuccess, orders, total,
 }: CloseTableModalProps) {
+  const { user } = useAuth();
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [amount, setAmount] = useState<string>('');
   const [notes, setNotes] = useState('');
@@ -108,10 +110,10 @@ export function CloseTableModal({
       });
       toast.success(`Mesa ${table.number} cobrada: ${formatMoney(numericAmount)}`);
 
-      // Imprimir ticket de caja automáticamente con los datos del frontend
-      // (no busca en BD porque los orders ya se borraron al cerrar la venta)
+      // Imprimir ticket de caja solo si es ADMIN o STAFF (no para meseros)
+      const canPrint = user?.role === 'ADMIN' || user?.role === 'STAFF';
       const printerName = printerPrefs.getPrinter();
-      if (printerName) {
+      if (canPrint && printerName) {
         try {
           await printingApi.printCashDirect({
             printerName,
@@ -143,7 +145,7 @@ export function CloseTableModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-emerald-400" />

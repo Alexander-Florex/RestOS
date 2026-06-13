@@ -65,6 +65,10 @@ export const SocketEvents = {
   SECTION_CHANGED:         'section:changed',
   SECTION_CREATED:         'section:created',
   SECTION_DELETED:         'section:deleted',
+  // Para llevar
+  TAKEAWAY_CREATED:        'takeaway:created',
+  TAKEAWAY_CHANGED:        'takeaway:changed',
+  TAKEAWAY_DELETED:        'takeaway:deleted',
   // Reservas
   RESERVATION_CHANGED:     'reservation:changed',
   RESERVATION_CREATED:     'reservation:created',

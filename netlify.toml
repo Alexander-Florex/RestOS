@@ -1,0 +1,15 @@
+# ──────────────────────────────────────────────
+# Netlify — configuración de build para RestOS (monorepo)
+# Este archivo va en la RAÍZ del repositorio.
+# ──────────────────────────────────────────────
+
+[build]
+  command = "npm run build -w @restos/frontend"
+  publish = "apps/frontend/dist"
+
+# SPA fallback: cualquier ruta no encontrada cae en index.html
+# (necesario para React Router)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
