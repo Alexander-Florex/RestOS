@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
+import { emitPrintRequest } from '../../sockets/index.js';
 
 const ESC = 0x1b;
 const GS  = 0x1d;
@@ -267,48 +268,55 @@ export const printingService = {
     return { printers: listWindowsPrinters(), platform };
   },
 
-  // Ticket de COCINA — sin precios, desde el pedido en BD
+  // Ticket de COCINA — emite socket al agente local del restaurante
   async printOrder(opts: { restaurantId: number; orderId: number; printerName: string; restaurantName: string; }): Promise<void> {
     const order = await prisma.order.findFirst({
       where: { id: opts.orderId, restaurantId: opts.restaurantId },
       include: { items: true, table: true },
     });
     if (!order) throw HttpError.notFound('Pedido no encontrado');
-    const ticket = buildKitchenTicket({
-      restaurantName: opts.restaurantName,
-      tableNumber:    order.table?.number ?? 0,
-      orderNumber:    order.id,
-      printedAt:      new Date(),
+
+    const isTakeaway  = typeof order.notes === 'string' && order.notes.startsWith('PARA LLEVAR:');
+    const takeawayName = isTakeaway ? order.notes!.replace('PARA LLEVAR:', '').trim() : null;
+
+    // Emitir al agente local vía WebSocket (el agente tiene la impresora conectada)
+    emitPrintRequest(opts.restaurantId, {
+      type:         'kitchen',
+      tableNumber:  order.table?.number ?? 0,
+      orderNumber:  order.id,
+      isTakeaway,
+      takeawayName,
       items: order.items.map(i => ({ name: i.itemName, quantity: i.quantity, notes: i.notes })),
     });
-    if (process.platform !== 'win32') { console.log('[Printing] Simulado cocina'); return; }
-    printRawToWindows(ticket, opts.printerName);
+    console.log(`[Printing] 📡 print:request kitchen enviado al agente (orden #${order.id})`);
   },
 
-  // Ticket de CAJA — recibe los datos directamente del frontend
-  // (no busca en BD porque los orders ya se borraron al cerrar la venta)
+  // Ticket de CAJA — emite socket al agente local
   async printCashTicketDirect(opts: {
+    restaurantId: number;
     printerName: string;
     restaurantName: string;
     tableNumber: number;
+    isTakeaway?: boolean;
+    customerName?: string | null;
     items: Array<{ name: string; quantity: number; price: number }>;
     total: number;
     amountPaid: number;
     paymentMethod: string;
     notes?: string | null;
   }): Promise<void> {
-    const ticket = buildCashTicket({
-      restaurantName: opts.restaurantName,
-      tableNumber:    opts.tableNumber,
-      printedAt:      new Date(),
-      items:          opts.items,
-      total:          opts.total,
-      amountPaid:     opts.amountPaid,
-      paymentMethod:  opts.paymentMethod,
-      notes:          opts.notes,
+    emitPrintRequest(opts.restaurantId, {
+      type:          'cash',
+      tableNumber:   opts.tableNumber,
+      isTakeaway:    opts.isTakeaway ?? false,
+      customerName:  opts.customerName ?? null,
+      items:         opts.items,
+      total:         opts.total,
+      amountPaid:    opts.amountPaid,
+      paymentMethod: opts.paymentMethod,
+      notes:         opts.notes,
     });
-    if (process.platform !== 'win32') { console.log('[Printing] Simulado caja'); return; }
-    printRawToWindows(ticket, opts.printerName);
+    console.log(`[Printing] 📡 print:request cash enviado al agente (mesa ${opts.tableNumber})`);
   },
 
   // Mantenido por compatibilidad — busca en BD (solo usar ANTES de cerrar la venta)
@@ -341,7 +349,15 @@ export const printingService = {
       paymentMethod:  opts.paymentMethod ?? 'CASH',
       notes:          opts.notes,
     });
-    if (process.platform !== 'win32') { console.log('[Printing] Simulado caja (BD)'); return; }
-    printRawToWindows(ticket, opts.printerName);
+    emitPrintRequest(opts.restaurantId, {
+      type:          'cash',
+      tableNumber:   table.number,
+      items:         allItems,
+      total,
+      amountPaid:    opts.amountPaid ?? total,
+      paymentMethod: opts.paymentMethod ?? 'CASH',
+      notes:         opts.notes,
+    });
+    console.log(`[Printing] 📡 print:request cash (BD) enviado al agente (mesa ${table.number})`);
   },
 };

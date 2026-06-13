@@ -42,9 +42,10 @@ export const printingController = {
   // Ticket de caja — recibe los datos completos del frontend
   // Se usa DESPUÉS de cerrar la venta (los orders ya no existen en BD)
   async printCashDirect(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
     const opts = printCashDirectSchema.parse(req.body);
-    await printingService.printCashTicketDirect(opts);
-    res.json({ ok: true, message: 'Ticket de caja impreso' });
+    await printingService.printCashTicketDirect({ restaurantId: req.user.restaurantId, ...opts });
+    res.json({ ok: true, message: 'Ticket de caja enviado al agente' });
   },
 
   // Mantenido por compatibilidad (busca en BD — usar solo antes de cerrar)

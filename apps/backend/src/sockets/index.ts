@@ -105,4 +105,29 @@ export const SocketEvents = {
   TAKEAWAY_CREATED:          'takeaway:created',
   TAKEAWAY_UPDATED:          'takeaway:updated',
   TAKEAWAY_DELETED:          'takeaway:deleted',
+  // Impresión (el agente local escucha este evento)
+  PRINT_REQUEST:             'print:request',
 } as const;
+
+/**
+ * Emite un evento de impresión al agente local del restaurante.
+ * El agente corre en la PC del local y tiene la impresora física conectada.
+ *
+ * @param restaurantId  ID del restaurante (para el room correcto)
+ * @param payload       Datos del ticket a imprimir
+ */
+export function emitPrintRequest(restaurantId: number, payload: {
+  type:          'kitchen' | 'cash';
+  tableNumber?:  number;
+  orderNumber?:  number;
+  isTakeaway?:   boolean;
+  takeawayName?: string | null;
+  customerName?: string | null;
+  items:         Array<{ name?: string; itemName?: string; quantity: number; price?: number; notes?: string | null }>;
+  total?:        number;
+  amountPaid?:   number;
+  paymentMethod?: string;
+  notes?:        string | null;
+}): void {
+  ioRestaurant(restaurantId).emit(SocketEvents.PRINT_REQUEST, payload);
+}
