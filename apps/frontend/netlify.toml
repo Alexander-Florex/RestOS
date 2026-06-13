@@ -1,13 +1,11 @@
 # ──────────────────────────────────────────────
-# Netlify — configuración de build para RestOS frontend
+# Netlify — configuración de build para RestOS (monorepo)
+# Este archivo va en la RAÍZ del repositorio.
 # ──────────────────────────────────────────────
-# Este archivo va en apps/frontend/netlify.toml
-# Si en Netlify configurás "Base directory" = apps/frontend,
-# las rutas de [build] son relativas a esa carpeta.
 
 [build]
-  command = "npm run build"
-  publish = "dist"
+  command = "npm run build -w @restos/frontend"
+  publish = "apps/frontend/dist"
 
 # SPA fallback: cualquier ruta no encontrada cae en index.html
 # (necesario para React Router)
