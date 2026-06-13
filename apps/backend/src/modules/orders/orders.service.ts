@@ -38,6 +38,7 @@ export interface CreateOrderItemInput {
 export interface CreateOrderInput {
   tableId: number;
   guestCount?: number; // requerido si la mesa va a abrirse
+  notes?: string;
   items: CreateOrderItemInput[];
   createdById?: number;
 }
@@ -134,6 +135,7 @@ export const ordersService = {
         data: {
           restaurantId,
           tableId: input.tableId,
+          notes: input.notes ?? null,
           createdById: input.createdById ?? null,
           items: {
             create: input.items.map(it => {

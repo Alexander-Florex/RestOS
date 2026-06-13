@@ -15,6 +15,7 @@ const orderItemSchema = z.object({
 const createSchema = z.object({
   tableId: z.number().int().positive(),
   guestCount: z.number().int().positive().optional(),
+  notes: z.string().trim().max(500).optional(),
   items: z.array(orderItemSchema).min(1, 'Agregá al menos un item'),
 });
 
