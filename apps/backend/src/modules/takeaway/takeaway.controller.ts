@@ -1,6 +1,3 @@
-// ──────────────────────────────────────────────
-// takeaway.controller.ts — multi-tenant
-// ──────────────────────────────────────────────
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { TakeawayStatus, PaymentMethod } from '@prisma/client';
@@ -26,9 +23,8 @@ const paySchema = z.object({
 export const takeawayController = {
   async list(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
-    const restaurantId = req.user.restaurantId;
     const status = req.query.status as TakeawayStatus | undefined;
-    const orders = await takeawayService.list(restaurantId, status);
+    const orders = await takeawayService.list(req.user.restaurantId, status);
     res.json({ orders });
   },
 
@@ -66,7 +62,6 @@ export const takeawayController = {
     const order = await takeawayService.cancel(req.user.restaurantId, Number(req.params.id));
     res.json({ order });
   },
-}
 
   async remove(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();

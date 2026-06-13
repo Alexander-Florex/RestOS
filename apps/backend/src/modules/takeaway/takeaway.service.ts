@@ -85,7 +85,7 @@ export const takeawayService = {
       include: { items: { include: { menuItem: true } } },
     });
 
-    emit(restaurantId, SocketEvents.TAKEAWAY_CREATED ?? 'takeaway:created', order);
+    emit(restaurantId, SocketEvents.TAKEAWAY_CREATED, order);
     return order;
   },
 
@@ -96,7 +96,7 @@ export const takeawayService = {
       data: { status: TakeawayStatus.READY },
       include: { items: { include: { menuItem: true } } },
     });
-    emit(restaurantId, SocketEvents.TAKEAWAY_UPDATED ?? 'takeaway:updated', order);
+    emit(restaurantId, SocketEvents.TAKEAWAY_UPDATED, order);
     return order;
   },
 
@@ -107,7 +107,7 @@ export const takeawayService = {
       data: { status: TakeawayStatus.PAID, paymentMethod, amountPaid, paidAt: new Date() },
       include: { items: { include: { menuItem: true } } },
     });
-    emit(restaurantId, SocketEvents.TAKEAWAY_UPDATED ?? 'takeaway:updated', order);
+    emit(restaurantId, SocketEvents.TAKEAWAY_UPDATED, order);
     return order;
   },
 
@@ -118,10 +118,9 @@ export const takeawayService = {
       data: { status: TakeawayStatus.CANCELLED },
       include: { items: { include: { menuItem: true } } },
     });
-    emit(restaurantId, SocketEvents.TAKEAWAY_UPDATED ?? 'takeaway:updated', order);
+    emit(restaurantId, SocketEvents.TAKEAWAY_UPDATED, order);
     return order;
   },
-}
 
   async remove(restaurantId: number, id: number) {
     await findOne(id, restaurantId);
