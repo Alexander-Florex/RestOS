@@ -18,6 +18,7 @@ import { reservationsRouter } from './modules/reservations/reservations.routes.j
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { sectionsRouter } from './modules/sections/sections.routes.js';
 import { printingRouter } from './modules/printing/printing.routes.js';
+import { takeawayRouter } from './modules/takeaway/takeaway.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { prisma } from './lib/prisma.js';
 import path from 'node:path';
@@ -66,6 +67,7 @@ export function buildApp(): Express {
   app.use('/api/reports',      reportsRouter);
   app.use('/api/sections',     sectionsRouter);
   app.use('/api/printing',     printingRouter);
+  app.use('/api/takeaway',     takeawayRouter);
 
   // ── 404 y manejo de errores (siempre al final) ──
   app.use(notFoundHandler);

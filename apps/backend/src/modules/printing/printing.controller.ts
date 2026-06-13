@@ -39,6 +39,15 @@ export const printingController = {
     res.json({ ok: true, message: `Comanda #${id} enviada` });
   },
 
+  // Ticket de cocina para TakeawayOrder
+  async printTakeawayOrder(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParam.parse(req.params);
+    const opts   = printOrderSchema.parse(req.body);
+    await printingService.printTakeawayKitchen({ restaurantId: req.user.restaurantId, takeawayId: id, ...opts });
+    res.json({ ok: true, message: `Comanda para llevar #${id} enviada` });
+  },
+
   // Ticket de caja — recibe los datos completos del frontend
   // Se usa DESPUÉS de cerrar la venta (los orders ya no existen en BD)
   async printCashDirect(req: Request, res: Response) {

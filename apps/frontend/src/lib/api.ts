@@ -617,6 +617,11 @@ export const printingApi = {
       method: 'POST', body: opts,
     }),
 
+  printTakeawayOrder: (takeawayId: number, opts: PrintOrderOptions) =>
+    request<{ ok: boolean; message: string }>(`/printing/takeaway/${takeawayId}`, {
+      method: 'POST', body: opts,
+    }),
+
   // Ticket de caja enviando todos los datos desde el frontend
   // Usar DESPUÉS de cerrar la venta (los orders ya no existen en BD)
   printCashDirect: (opts: {

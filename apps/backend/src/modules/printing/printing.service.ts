@@ -291,6 +291,25 @@ export const printingService = {
     console.log(`[Printing] 📡 print:request kitchen enviado al agente (orden #${order.id})`);
   },
 
+  // Ticket de COCINA para TakeawayOrder — emite socket al agente local
+  async printTakeawayKitchen(opts: { restaurantId: number; takeawayId: number; printerName: string; restaurantName: string }): Promise<void> {
+    const order = await prisma.takeawayOrder.findFirst({
+      where: { id: opts.takeawayId, restaurantId: opts.restaurantId },
+      include: { items: true },
+    });
+    if (!order) throw HttpError.notFound('Pedido para llevar no encontrado');
+
+    emitPrintRequest(opts.restaurantId, {
+      type:          'kitchen',
+      tableNumber:   0,
+      orderNumber:   order.id,
+      isTakeaway:    true,
+      takeawayName:  order.customerName,
+      items: order.items.map(i => ({ name: i.itemName, quantity: i.quantity, notes: i.notes })),
+    });
+    console.log(`[Printing] 📡 print:request takeaway kitchen enviado al agente (pedido #${order.id})`);
+  },
+
   // Ticket de CAJA — emite socket al agente local
   async printCashTicketDirect(opts: {
     restaurantId: number;
