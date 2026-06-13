@@ -44,12 +44,17 @@ export function useMenu(opts: UseMenuOpts = {}): UseMenuResult {
     const onChanged = (updated: MenuItem) => {
       setItems(prev => {
         const exists = prev.some(i => i.id === updated.id);
-        if (!exists) return prev;
-        // Si filtramos por onlyEnabled y dejó de estarlo, lo removemos
+
+        // Si filtramos por habilitados y el item pasó a deshabilitado, sacarlo.
         if (onlyEnabled && !updated.enabled) {
-          return prev.filter(i => i.id !== updated.id);
+          return exists ? prev.filter(i => i.id !== updated.id) : prev;
         }
-        return prev.map(i => (i.id === updated.id ? updated : i));
+
+        // El item debe estar visible: si no estaba (ej. se re-habilitó), agregarlo;
+        // si ya estaba, actualizarlo.
+        return exists
+          ? prev.map(i => (i.id === updated.id ? updated : i))
+          : [...prev, updated];
       });
     };
     const onCreated = (created: MenuItem) => {
