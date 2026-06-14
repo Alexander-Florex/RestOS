@@ -4,7 +4,7 @@
 import type { UserRole } from './api';
 
 export const ROLE_PAGES: Record<UserRole, readonly string[]> = {
-  ADMIN:  ['dashboard', 'tables', 'menu', 'sales', 'inventory', 'staff', 'accounting', 'expenses'],
+  ADMIN:  ['dashboard', 'tables', 'menu', 'sales', 'inventory', 'staff', 'users', 'accounting', 'expenses'],
   STAFF:  ['tables', 'menu', 'sales'],
   WAITER: ['tables-mobile'], // solo vista móvil de toma de pedidos
 };

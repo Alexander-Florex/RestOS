@@ -61,6 +61,10 @@ export const SocketEvents = {
   STAFF_CHANGED:           'staff:changed',
   STAFF_CREATED:           'staff:created',
   STAFF_DELETED:           'staff:deleted',
+  // Usuarios (cuentas de login)
+  USER_CHANGED:            'user:changed',
+  USER_CREATED:            'user:created',
+  USER_DELETED:            'user:deleted',
   // Secciones
   SECTION_CHANGED:         'section:changed',
   SECTION_CREATED:         'section:created',

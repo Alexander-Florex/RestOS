@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import {
   LogOut, ChefHat, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3, ShoppingBag,
+  CalendarDays, BarChart3, ShoppingBag, UserCog,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ROLE_LABELS } from '../lib/permissions';
@@ -20,11 +20,12 @@ import { MenuPage } from '../components/MenuPage';
 import { SalesHistoryPage } from '../components/SalesHistoryPage';
 import { InventoryPage } from '../components/InventoryPage';
 import { StaffPage } from '../components/StaffPage';
+import { UsersPage } from '../components/UsersPage';
 import { ReservationsPage } from '../components/ReservationsPage';
 import { ReportsPage } from '../components/ReportsPage';
 import { cn } from '../lib/utils';
 
-type View = 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'staff';
+type View = 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'staff' | 'users';
 
 interface NavItem {
   id: View;
@@ -42,6 +43,7 @@ const NAV: NavItem[] = [
   { id: 'reports',      label: 'Reportes',      icon: BarChart3 },
   { id: 'inventory',    label: 'Inventario',    icon: Package },
   { id: 'staff',        label: 'Personal',      icon: Users, adminOnly: true },
+  { id: 'users',        label: 'Usuarios',      icon: UserCog, adminOnly: true },
 ];
 
 export function DashboardPage() {
@@ -160,6 +162,7 @@ export function DashboardPage() {
           {view === 'reports'      && <ReportsPage />}
           {view === 'inventory'    && <InventoryPage />}
           {view === 'staff'        && <StaffPage />}
+          {view === 'users'        && <UsersPage />}
         </main>
       </div>
     </div>

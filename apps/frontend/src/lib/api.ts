@@ -467,6 +467,54 @@ export const staffApi = {
 };
 
 // ──────────────────────────────────────────────
+// Usuarios (cuentas de login) — solo ADMIN
+// ──────────────────────────────────────────────
+export interface AppUser {
+  id: number;
+  username: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateUserBody {
+  username: string;
+  email: string;
+  password: string;
+  name: string;
+  role: UserRole;
+  active?: boolean;
+}
+
+export interface UpdateUserBody {
+  username?: string;
+  email?: string;
+  password?: string;
+  name?: string;
+  role?: UserRole;
+  active?: boolean;
+}
+
+export const usersApi = {
+  list: () => request<{ users: AppUser[] }>('/users'),
+
+  create: (data: CreateUserBody) =>
+    request<{ user: AppUser }>('/users', { method: 'POST', body: data }),
+
+  update: (id: number, data: UpdateUserBody) =>
+    request<{ user: AppUser }>(`/users/${id}`, { method: 'PATCH', body: data }),
+
+  remove: (id: number) =>
+    request<void>(`/users/${id}`, { method: 'DELETE' }),
+
+  toggleActive: (id: number) =>
+    request<{ user: AppUser }>(`/users/${id}/toggle`, { method: 'POST' }),
+};
+
+// ──────────────────────────────────────────────
 // Reservas — tipos y API
 // ──────────────────────────────────────────────
 export type ReservationStatus =

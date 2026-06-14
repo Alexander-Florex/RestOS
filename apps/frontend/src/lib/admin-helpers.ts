@@ -2,7 +2,7 @@
 // admin-helpers.ts — Labels y estilos de inventario y staff
 // ──────────────────────────────────────────────
 import { Apple, GlassWater, Package, Wrench } from 'lucide-react';
-import type { InventoryCategory, InventoryItem, StaffRole } from './api';
+import type { InventoryCategory, InventoryItem, StaffRole, UserRole } from './api';
 
 // ── Inventario ──
 export const INVENTORY_CATEGORY_LABEL: Record<InventoryCategory, string> = {
@@ -76,3 +76,22 @@ export function initials(name: string): string {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
+
+// ── Usuarios (cuentas de login) ──
+export const USER_ROLE_LABEL: Record<UserRole, string> = {
+  ADMIN:  'Administrador',
+  STAFF:  'Personal',
+  WAITER: 'Mesero',
+};
+
+export const USER_ROLE_OPTIONS = [
+  { value: 'ADMIN'  as UserRole, label: 'Administrador' },
+  { value: 'STAFF'  as UserRole, label: 'Personal' },
+  { value: 'WAITER' as UserRole, label: 'Mesero' },
+] as const;
+
+export const USER_ROLE_STYLE: Record<UserRole, { text: string; bg: string; border: string }> = {
+  ADMIN:  { text: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30'    },
+  STAFF:  { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  WAITER: { text: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30'    },
+};
