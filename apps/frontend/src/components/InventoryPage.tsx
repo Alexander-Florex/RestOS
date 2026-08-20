@@ -17,6 +17,7 @@ import {
 } from '../lib/admin-helpers';
 import { formatDateTime } from '../lib/format';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from './ui/confirm-dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -47,6 +48,7 @@ const EMPTY_FORM: FormState = {
 export function InventoryPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const confirm = useConfirm();
 
   const { items, loading } = useInventory();
   const [filter, setFilter] = useState<InventoryCategory | 'ALL' | 'LOW'>('ALL');
@@ -148,7 +150,7 @@ export function InventoryPage() {
   }
 
   async function handleDelete(item: InventoryItem) {
-    if (!window.confirm(`¿Eliminar "${item.name}" del inventario?`)) return;
+    if (!await confirm({ title: `¿Eliminar "${item.name}"?`, description: 'Se quitará del inventario.', variant: 'destructive', confirmLabel: 'Eliminar' })) return;
     try {
       await inventoryApi.remove(item.id);
       toast.success(`"${item.name}" eliminado`);

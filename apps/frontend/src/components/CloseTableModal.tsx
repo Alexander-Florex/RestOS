@@ -21,6 +21,7 @@ import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { printerPrefs } from './PrintButton';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from './ui/confirm-dialog';
 import { cn } from '../lib/utils';
 
 interface CloseTableModalProps {
@@ -46,6 +47,7 @@ export function CloseTableModal({
   table, open, onClose, onSuccess, orders, total,
 }: CloseTableModalProps) {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [amount, setAmount] = useState<string>('');
   const [notes, setNotes] = useState('');
@@ -93,9 +95,10 @@ export function CloseTableModal({
       return;
     }
     if (numericAmount < total) {
-      const proceed = window.confirm(
-        `El monto cobrado (${formatMoney(numericAmount)}) es menor al total (${formatMoney(total)}). ¿Confirmás de todos modos?`
-      );
+      const proceed = await confirm({
+        title: 'Monto menor al total',
+        description: `El monto cobrado (${formatMoney(numericAmount)}) es menor al total (${formatMoney(total)}). ¿Confirmás de todos modos?`,
+      });
       if (!proceed) return;
     }
 

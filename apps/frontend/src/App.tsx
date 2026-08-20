@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { WaiterMobileView } from './components/WaiterMobileView';
+import { ConfirmDialogProvider } from './components/ui/confirm-dialog';
 
 function AuthGate() {
   const { user, loading } = useAuth();
@@ -35,18 +36,20 @@ function AuthGate() {
 export default function App() {
   return (
     <AuthProvider>
-      <AuthGate />
-      <Toaster
-        theme="dark"
-        position="top-right"
-        toastOptions={{
-          style: {
-            background: 'hsl(222 47% 9%)',
-            border: '1px solid hsl(217 33% 22%)',
-            color: 'white',
-          },
-        }}
-      />
+      <ConfirmDialogProvider>
+        <AuthGate />
+        <Toaster
+          theme="dark"
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: 'hsl(222 47% 9%)',
+              border: '1px solid hsl(217 33% 22%)',
+              color: 'white',
+            },
+          }}
+        />
+      </ConfirmDialogProvider>
     </AuthProvider>
   );
 }

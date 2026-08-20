@@ -18,6 +18,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { PrintButton, printerPrefs } from './PrintButton';
+import { useConfirm } from './ui/confirm-dialog';
 import { printingApi } from '../lib/api';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -381,6 +382,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
 
 // ── Tarjeta de pedido para llevar ───────────────────────────────────────────
 function TakeawayCard({ order, onPay }: { order: TakeawayOrder; onPay: () => void }) {
+  const confirm = useConfirm();
   const [acting, setActing] = useState(false);
   const style = STATUS_STYLE[order.status];
   const total = order.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
@@ -398,7 +400,7 @@ function TakeawayCard({ order, onPay }: { order: TakeawayOrder; onPay: () => voi
   }
 
   async function handleCancel() {
-    if (!window.confirm(`¿Cancelar pedido de "${order.customerName}"?`)) return;
+    if (!await confirm({ title: `¿Cancelar pedido de "${order.customerName}"?`, variant: 'destructive', confirmLabel: 'Cancelar pedido', cancelLabel: 'Volver' })) return;
     setActing(true);
     try {
       await takeawayApi.cancel(order.id);

@@ -21,6 +21,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select } from './ui/select';
 import { Textarea } from './ui/textarea';
+import { useConfirm } from './ui/confirm-dialog';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
@@ -49,6 +50,7 @@ const EMPTY_FORM: FormState = {
 };
 
 export function ReservationsPage() {
+  const confirm = useConfirm();
   // Día seleccionado (default: hoy)
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
@@ -385,8 +387,8 @@ export function ReservationsPage() {
                   </Button>
                   <Button
                     variant="ghost" size="icon"
-                    onClick={() => {
-                      if (!window.confirm(`¿Eliminar la reserva de "${r.customerName}"?`)) return;
+                    onClick={async () => {
+                      if (!await confirm({ title: `¿Eliminar la reserva de "${r.customerName}"?`, variant: 'destructive', confirmLabel: 'Eliminar' })) return;
                       runAction(() => reservationsApi.remove(r.id), 'Reserva eliminada');
                     }}
                     title="Eliminar"

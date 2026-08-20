@@ -14,6 +14,7 @@ import {
   STAFF_ROLE_LABEL, STAFF_ROLE_OPTIONS, STAFF_ROLE_STYLE, initials,
 } from '../lib/admin-helpers';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from './ui/confirm-dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -241,6 +242,7 @@ const EMPTY_FORM: FormState = {
 export function StaffPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const confirm = useConfirm();
 
   const { members, loading } = useStaff();
   const [filter, setFilter] = useState<StaffRole | 'ALL' | 'INACTIVE'>('ALL');
@@ -328,7 +330,7 @@ export function StaffPage() {
   }
 
   async function handleDelete(member: StaffMember) {
-    if (!window.confirm(`¿Eliminar a "${member.name}" del registro?`)) return;
+    if (!await confirm({ title: `¿Eliminar a "${member.name}"?`, description: 'Se quitará del registro.', variant: 'destructive', confirmLabel: 'Eliminar' })) return;
     try {
       await staffApi.remove(member.id);
       toast.success(`"${member.name}" eliminado`);

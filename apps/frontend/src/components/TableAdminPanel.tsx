@@ -16,6 +16,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select } from './ui/select';
+import { useConfirm } from './ui/confirm-dialog';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
@@ -262,6 +263,7 @@ function SectionFormDialog({
 
 // ── Componente principal ──
 export function TableAdminPanel() {
+  const confirm = useConfirm();
   const { tables, loading: loadingTables } = useTables();
   const { sections, loading: loadingSections } = useSections();
 
@@ -287,7 +289,7 @@ export function TableAdminPanel() {
     if (t.status !== 'AVAILABLE') {
       toast.error('Solo se puede eliminar una mesa libre'); return;
     }
-    if (!window.confirm(`¿Eliminar mesa N° ${t.number}? Esta acción no se puede deshacer.`)) return;
+    if (!await confirm({ title: `¿Eliminar mesa N° ${t.number}?`, description: 'Esta acción no se puede deshacer.', variant: 'destructive', confirmLabel: 'Eliminar' })) return;
     try {
       await tablesApi.remove(t.id);
       toast.success(`Mesa N° ${t.number} eliminada`);
@@ -311,7 +313,7 @@ export function TableAdminPanel() {
       toast.error(`La sección tiene ${count} ${count === 1 ? 'mesa asignada' : 'mesas asignadas'}. Reasignales primero.`);
       return;
     }
-    if (!window.confirm(`¿Eliminar la sección "${s.name}"?`)) return;
+    if (!await confirm({ title: `¿Eliminar la sección "${s.name}"?`, variant: 'destructive', confirmLabel: 'Eliminar' })) return;
     try {
       await sectionsApi.remove(s.id);
       toast.success(`Sección "${s.name}" eliminada`);

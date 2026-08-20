@@ -16,6 +16,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select } from './ui/select';
+import { useConfirm } from './ui/confirm-dialog';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from './ui/dialog';
@@ -37,6 +38,7 @@ const EMPTY_FORM: FormState = {
 export function UsersPage() {
   const { user: me } = useAuth();
   const isAdmin = me?.role === 'ADMIN';
+  const confirm = useConfirm();
 
   const { users, loading } = useUsers();
   const [filter, setFilter] = useState<UserRole | 'ALL' | 'INACTIVE'>('ALL');
@@ -139,7 +141,7 @@ export function UsersPage() {
   }
 
   async function handleDelete(u: AppUser) {
-    if (!window.confirm(`¿Eliminar la cuenta "${u.username}"? Esta acción no se puede deshacer.`)) return;
+    if (!await confirm({ title: `¿Eliminar la cuenta "${u.username}"?`, description: 'Esta acción no se puede deshacer.', variant: 'destructive', confirmLabel: 'Eliminar' })) return;
     try {
       await usersApi.remove(u.id);
       toast.success(`Cuenta "${u.username}" eliminada`);

@@ -20,6 +20,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from './ui/dialog';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from './ui/confirm-dialog';
 import { cn } from '../lib/utils';
 
 // ── Formulario de ítem ──
@@ -39,6 +40,7 @@ const EMPTY_ITEM: ItemForm = {
 export function MenuPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const confirm = useConfirm();
 
   const { items, loading } = useMenu();
 
@@ -133,7 +135,7 @@ export function MenuPage() {
   }
 
   async function handleDeleteItem(item: MenuItem) {
-    if (!window.confirm(`¿Eliminar "${item.name}" del menú?`)) return;
+    if (!await confirm({ title: `¿Eliminar "${item.name}"?`, description: 'Se quitará del menú.', variant: 'destructive', confirmLabel: 'Eliminar' })) return;
     try {
       await menuApi.remove(item.id);
       toast.success(`"${item.name}" eliminado`);
@@ -194,7 +196,7 @@ export function MenuPage() {
   async function handleDeleteCategory(cat: string) {
     const count = items.filter(i => i.category === cat).length;
     if (count > 0) {
-      if (!window.confirm(`La categoría "${cat}" tiene ${count} ítems. ¿Eliminarlos también?`)) return;
+      if (!await confirm({ title: `¿Eliminar categoría "${cat}"?`, description: `Tiene ${count} ítems. ¿Eliminarlos también?`, variant: 'destructive', confirmLabel: 'Eliminar' })) return;
       try {
         await Promise.all(items.filter(i => i.category === cat).map(i => menuApi.remove(i.id)));
       } catch (err) {
