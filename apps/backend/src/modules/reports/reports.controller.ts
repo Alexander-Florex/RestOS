@@ -15,6 +15,10 @@ const topItemsQuery = rangeQuery.and(z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 }));
 
+const dateQuery = z.object({
+  date: z.coerce.date(),
+});
+
 export const reportsController = {
   async salesReport(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
@@ -32,6 +36,15 @@ export const reportsController = {
       parsed.limit ?? 10
     );
     res.json({ items });
+  },
+
+  async dailyTickets(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { date } = dateQuery.parse(req.query);
+    const from = new Date(date); from.setHours(0, 0, 0, 0);
+    const to = new Date(date); to.setHours(23, 59, 59, 999);
+    const tickets = await reportsService.dailyTickets(req.user.restaurantId, { from, to });
+    res.json({ tickets });
   },
 
   async salesCsv(req: Request, res: Response) {

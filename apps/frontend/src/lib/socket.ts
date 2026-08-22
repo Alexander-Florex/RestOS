@@ -48,6 +48,9 @@ export const SocketEvents = {
   MENU_ITEM_CHANGED:       'menu-item:changed',
   MENU_ITEM_CREATED:       'menu-item:created',
   MENU_ITEM_DELETED:       'menu-item:deleted',
+  MENU_CATEGORY_CHANGED:   'menu-category:changed',
+  MENU_CATEGORY_CREATED:   'menu-category:created',
+  MENU_CATEGORY_DELETED:   'menu-category:deleted',
   // Pedidos
   ORDER_CREATED:           'order:created',
   ORDER_DELETED:           'order:deleted',

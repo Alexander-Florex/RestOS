@@ -10,6 +10,8 @@ import { env, corsOrigins } from './config/env.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { tablesRouter } from './modules/tables/tables.routes.js';
 import { menuRouter } from './modules/menu/menu.routes.js';
+import { menuCategoriesRouter } from './modules/menu-categories/menu-categories.routes.js';
+import { recipesRouter } from './modules/recipes/recipes.routes.js';
 import { ordersRouter } from './modules/orders/orders.routes.js';
 import { salesRouter } from './modules/sales/sales.routes.js';
 import { inventoryRouter } from './modules/inventory/inventory.routes.js';
@@ -60,6 +62,8 @@ export function buildApp(): Express {
   app.use('/api/auth',         authRouter);
   app.use('/api/tables',       tablesRouter);
   app.use('/api/menu',         menuRouter);
+  app.use('/api/menu-categories', menuCategoriesRouter);
+  app.use('/api/recipes',      recipesRouter);
   app.use('/api/orders',       ordersRouter);
   app.use('/api/sales',        salesRouter);
   app.use('/api/inventory',    inventoryRouter);

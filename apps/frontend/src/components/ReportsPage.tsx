@@ -5,9 +5,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Calendar, TrendingUp, ShoppingBag, DollarSign, Loader2,
-  FileDown, RefreshCw, Trophy, Sun, BarChart3, ChevronLeft, ChevronRight,
+  FileDown, RefreshCw, Trophy, Sun, BarChart3, ChevronLeft, ChevronRight, Receipt,
 } from 'lucide-react';
-import { reportsApi, type SalesReport, type TopItem, type PaymentMethod, ApiError } from '../lib/api';
+import { reportsApi, type SalesReport, type TopItem, type DailyTicket, type PaymentMethod, ApiError } from '../lib/api';
 import { PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { localDateString } from '../lib/reservation-helpers';
@@ -46,6 +46,8 @@ export function ReportsPage() {
   const [report, setReport] = useState<SalesReport | null>(null);
   const [topItems, setTopItems] = useState<TopItem[]>([]);
   const [prevMonthReport, setPrevMonthReport] = useState<SalesReport | null>(null);
+  const [tickets, setTickets] = useState<DailyTicket[]>([]);
+  const [ticketTableFilter, setTicketTableFilter] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Calcular from/to según el modo
@@ -81,6 +83,15 @@ export function ReportsPage() {
         setPrevMonthReport(prev);
       } else {
         setPrevMonthReport(null);
+      }
+
+      // Listado de tickets — solo tiene sentido en la vista diaria
+      if (viewMode === 'daily') {
+        const { tickets: dayTickets } = await reportsApi.dailyTickets(selectedDay);
+        setTickets(dayTickets);
+        setTicketTableFilter(null);
+      } else {
+        setTickets([]);
       }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error al cargar el reporte');
@@ -274,6 +285,83 @@ export function ReportsPage() {
               })}
             </div>
           </div>
+
+          {/* Tickets del día — listado de cuentas cerradas, solo en vista diaria */}
+          {viewMode === 'daily' && tickets.length > 0 && (
+            <div className="mb-6 rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="flex items-center gap-2 text-sm font-semibold">
+                  <Receipt className="h-4 w-4 text-emerald-400" />
+                  Tickets del día ({tickets.length})
+                </h3>
+                {report!.byTable.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button onClick={() => setTicketTableFilter(null)}
+                      className={cn('rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+                        ticketTableFilter === null ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-muted-foreground hover:text-foreground border border-transparent')}>
+                      Todas
+                    </button>
+                    {report!.byTable.map(t => (
+                      <button key={t.tableNumber} onClick={() => setTicketTableFilter(t.tableNumber)}
+                        className={cn('rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+                          ticketTableFilter === t.tableNumber ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-muted-foreground hover:text-foreground border border-transparent')}>
+                        Mesa {t.tableNumber} ({t.count})
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <th className="pb-2 pr-3 font-medium">Hora</th>
+                      <th className="pb-2 pr-3 font-medium">Mesa</th>
+                      <th className="pb-2 pr-3 font-medium">Items</th>
+                      <th className="pb-2 pr-3 font-medium">Pago</th>
+                      <th className="pb-2 pr-3 font-medium">Cobró</th>
+                      <th className="pb-2 text-right font-medium">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tickets
+                      .filter(t => ticketTableFilter === null || t.tableNumber === ticketTableFilter)
+                      .map(t => (
+                        <tr key={t.id} className="border-b border-border/50 last:border-0">
+                          <td className="py-2 pr-3 tabular-nums text-muted-foreground">
+                            {new Date(t.closedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="py-2 pr-3 font-medium">Mesa {t.tableNumber}</td>
+                          <td className="py-2 pr-3 max-w-xs truncate text-muted-foreground" title={t.items.map(i => `${i.quantity}x ${i.itemName}`).join(', ')}>
+                            {t.items.map(i => `${i.quantity}x ${i.itemName}`).join(', ')}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <span className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                              style={{ background: `${PAYMENT_COLOR[t.paymentMethod]}1a`, color: PAYMENT_COLOR[t.paymentMethod] }}>
+                              {PAYMENT_LABEL[t.paymentMethod]}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 text-muted-foreground">{t.registeredByName ?? '—'}</td>
+                          <td className="py-2 text-right font-semibold tabular-nums">{formatMoney(t.total)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-border font-semibold">
+                      <td colSpan={5} className="pt-2 text-right text-xs uppercase tracking-wider text-muted-foreground">Total</td>
+                      <td className="pt-2 text-right tabular-nums text-emerald-400">
+                        {formatMoney(
+                          tickets
+                            .filter(t => ticketTableFilter === null || t.tableNumber === ticketTableFilter)
+                            .reduce((sum, t) => sum + t.total, 0)
+                        )}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Comparación con mes anterior — solo en vista mensual */}
           {viewMode === 'monthly' && prevMonthReport && (

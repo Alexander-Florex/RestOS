@@ -28,6 +28,11 @@ export interface SalesReport {
     total: number;
     count: number;
   }>;
+  byTable: Array<{
+    tableNumber: number;
+    count: number;
+    total: number;
+  }>;
 }
 
 export interface TopItem {
@@ -36,6 +41,17 @@ export interface TopItem {
   category: string;
   quantity: number;
   revenue: number;
+}
+
+export interface DailyTicket {
+  id: number;
+  tableNumber: number;
+  closedAt: string;
+  total: number;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  registeredByName: string | null;
+  items: Array<{ itemName: string; quantity: number; subtotal: number }>;
 }
 
 export const reportsService = {
@@ -80,12 +96,49 @@ export const reportsService = {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, data]) => ({ date, total: data.total, count: data.count }));
 
+    // Breakdown por mesa
+    const tableMap = new Map<number, { total: number; count: number }>();
+    for (const s of sales) {
+      const entry = tableMap.get(s.tableNumber) ?? { total: 0, count: 0 };
+      entry.total += Number(s.total);
+      entry.count++;
+      tableMap.set(s.tableNumber, entry);
+    }
+    const byTable = Array.from(tableMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([tableNumber, data]) => ({ tableNumber, total: data.total, count: data.count }));
+
     return {
       range: { from: from.toISOString(), to: to.toISOString() },
       totals: { totalSold, totalCollected, salesCount, averageTicket },
       byPaymentMethod,
       byDay,
+      byTable,
     };
+  },
+
+  /** Listado de tickets (cuentas cerradas) de un día, ordenado por hora. */
+  async dailyTickets(restaurantId: number, { from, to }: ReportRange): Promise<DailyTicket[]> {
+    const sales = await prisma.sale.findMany({
+      where: { restaurantId, closedAt: { gte: from, lte: to } },
+      orderBy: { closedAt: 'asc' },
+      include: { items: true, registeredBy: { select: { name: true } } },
+    });
+
+    return sales.map(s => ({
+      id: s.id,
+      tableNumber: s.tableNumber,
+      closedAt: s.closedAt.toISOString(),
+      total: Number(s.total),
+      amount: Number(s.amount),
+      paymentMethod: s.paymentMethod,
+      registeredByName: s.registeredBy?.name ?? null,
+      items: s.items.map(i => ({
+        itemName: i.itemName,
+        quantity: i.quantity,
+        subtotal: Number(i.subtotal),
+      })),
+    }));
   },
 
   /** Ranking de items más vendidos en el rango. */

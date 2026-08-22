@@ -27,9 +27,11 @@ model Restaurant {
   sections       Section[]
   tables         Table[]
   menuItems      MenuItem[]
+  menuCategories MenuCategory[]
   orders         Order[]
   sales          Sale[]
   inventoryItems InventoryItem[]
+  recipes        Recipe[]
   staffMembers   StaffMember[]
   reservations   Reservation[]
   takeawayOrders TakeawayOrder[]
@@ -139,6 +141,7 @@ model MenuItem {
   orderItems   OrderItem[]
   saleItems    SaleItem[]
   takeawayItems TakeawayItem[]
+  recipes      Recipe[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -150,6 +153,25 @@ enum StockStatus {
   IN_STOCK
   LOW_STOCK
   OUT_OF_STOCK
+}
+
+// ──────────────────────────────────────────────
+// CATEGORÍAS DEL MENÚ
+// (entidad propia con orden y color; MenuItem.category sigue siendo texto libre)
+// ──────────────────────────────────────────────
+model MenuCategory {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  color        String     @default("#10b981")
+  order        Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([restaurantId, name])
+  @@index([restaurantId])
+  @@map("menu_categories")
 }
 
 // ──────────────────────────────────────────────
@@ -248,8 +270,10 @@ model InventoryItem {
   quantity     Float
   unit         String
   minStock     Float             @default(0)
+  costPerUnit  Decimal           @default(0) @db.Decimal(10, 4)
   supplier     String?
   lastRestocked DateTime?
+  recipeIngredients RecipeIngredient[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
@@ -262,6 +286,45 @@ enum InventoryCategory {
   BEVERAGE
   SUPPLIES
   EQUIPMENT
+}
+
+// ──────────────────────────────────────────────
+// RECETAS Y COSTOS
+// Costo de elaboración calculado desde InventoryItem; sugiere precio de venta
+// según %_ganancia + iva, comparable contra el precio real del MenuItem.
+// ──────────────────────────────────────────────
+model Recipe {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItemId   Int?
+  menuItem     MenuItem?  @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  name         String
+  yield        Int        @default(1) // porciones que rinde
+  profitPct    Float      @default(0.5) // % de ganancia
+  vatPct       Float      @default(0.21)
+  notes        String?    @db.Text
+  ingredients  RecipeIngredient[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId])
+  @@index([menuItemId])
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id              Int           @id @default(autoincrement())
+  recipeId        Int
+  recipe          Recipe        @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  inventoryItemId Int
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  quantity        Float
+  unit            String
+
+  @@index([recipeId])
+  @@index([inventoryItemId])
+  @@map("recipe_ingredients")
 }
 
 // ──────────────────────────────────────────────

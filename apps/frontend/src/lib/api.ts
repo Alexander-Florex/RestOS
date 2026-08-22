@@ -240,6 +240,37 @@ export const menuApi = {
 };
 
 // ──────────────────────────────────────────────
+// Categorías del menú — tipos y API
+// ──────────────────────────────────────────────
+export interface MenuCategory {
+  id: number;
+  name: string;
+  color: string;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMenuCategoryBody {
+  name: string;
+  color?: string;
+  order?: number;
+}
+
+export const menuCategoriesApi = {
+  list: () => request<{ categories: MenuCategory[] }>('/menu-categories'),
+
+  create: (data: CreateMenuCategoryBody) =>
+    request<{ category: MenuCategory }>('/menu-categories', { method: 'POST', body: data }),
+
+  update: (id: number, data: Partial<CreateMenuCategoryBody>) =>
+    request<{ category: MenuCategory }>(`/menu-categories/${id}`, { method: 'PATCH', body: data }),
+
+  remove: (id: number) =>
+    request<void>(`/menu-categories/${id}`, { method: 'DELETE' }),
+};
+
+// ──────────────────────────────────────────────
 // Pedidos — tipos y API
 // ──────────────────────────────────────────────
 export interface OrderItem {
@@ -345,6 +376,7 @@ export interface InventoryItem {
   quantity: number;
   unit: string;
   minStock: number;
+  costPerUnit: string; // Prisma Decimal viene como string
   supplier: string | null;
   lastRestocked: string | null;
   createdAt: string;
@@ -357,6 +389,7 @@ export interface CreateInventoryBody {
   quantity: number;
   unit: string;
   minStock?: number;
+  costPerUnit?: number;
   supplier?: string | null;
 }
 
@@ -383,6 +416,72 @@ export const inventoryApi = {
 
   consume: (id: number, amount: number) =>
     request<{ item: InventoryItem }>(`/inventory/${id}/consume`, { method: 'POST', body: { amount } }),
+};
+
+// ──────────────────────────────────────────────
+// Recetas y costos — tipos y API
+// ──────────────────────────────────────────────
+export interface RecipeIngredient {
+  id: number;
+  recipeId: number;
+  inventoryItemId: number;
+  quantity: number;
+  unit: string;
+  inventoryItem: InventoryItem;
+}
+
+export interface RecipeCost {
+  costTotal: number;
+  costPerServing: number;
+  suggestedPrice: number;
+  menuItemPrice: number | null;
+  priceDiff: number | null;
+}
+
+export interface Recipe {
+  id: number;
+  menuItemId: number | null;
+  menuItem: MenuItem | null;
+  name: string;
+  yield: number;
+  profitPct: number;
+  vatPct: number;
+  notes: string | null;
+  ingredients: RecipeIngredient[];
+  cost: RecipeCost;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecipeIngredientBody {
+  inventoryItemId: number;
+  quantity: number;
+  unit: string;
+}
+
+export interface CreateRecipeBody {
+  name: string;
+  menuItemId?: number | null;
+  yield?: number;
+  profitPct?: number;
+  vatPct?: number;
+  notes?: string | null;
+  ingredients: RecipeIngredientBody[];
+}
+
+export const recipesApi = {
+  list: () => request<{ recipes: Recipe[] }>('/recipes'),
+
+  getById: (id: number) => request<{ recipe: Recipe }>(`/recipes/${id}`),
+
+  create: (data: CreateRecipeBody) =>
+    request<{ recipe: Recipe }>('/recipes', { method: 'POST', body: data }),
+
+  update: (id: number, data: Partial<CreateRecipeBody>) =>
+    request<{ recipe: Recipe }>(`/recipes/${id}`, { method: 'PATCH', body: data }),
+
+  remove: (id: number) =>
+    request<void>(`/recipes/${id}`, { method: 'DELETE' }),
 };
 
 // ──────────────────────────────────────────────
@@ -598,6 +697,7 @@ export interface SalesReport {
     percentage: number;
   }>;
   byDay: Array<{ date: string; total: number; count: number }>;
+  byTable: Array<{ tableNumber: number; count: number; total: number }>;
 }
 
 export interface TopItem {
@@ -606,6 +706,17 @@ export interface TopItem {
   category: string;
   quantity: number;
   revenue: number;
+}
+
+export interface DailyTicket {
+  id: number;
+  tableNumber: number;
+  closedAt: string;
+  total: number;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  registeredByName: string | null;
+  items: Array<{ itemName: string; quantity: number; subtotal: number }>;
 }
 
 export const reportsApi = {
@@ -624,6 +735,11 @@ export const reportsApi = {
       limit: String(limit),
     });
     return request<{ items: TopItem[] }>(`/reports/top-items?${params}`);
+  },
+
+  dailyTickets: (date: Date) => {
+    const params = new URLSearchParams({ date: date.toISOString() });
+    return request<{ tickets: DailyTicket[] }>(`/reports/tickets?${params}`);
   },
 
   /** URL para descarga directa de CSV con token por query (no requiere fetch + Blob). */

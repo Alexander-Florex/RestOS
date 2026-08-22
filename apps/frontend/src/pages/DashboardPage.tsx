@@ -5,8 +5,8 @@
 // ──────────────────────────────────────────────
 import { useState } from 'react';
 import {
-  LogOut, ChefHat, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3, ShoppingBag, UserCog,
+  LogOut, ChefHat, Home, LayoutGrid, BookOpen, Receipt, Package, Users,
+  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ROLE_LABELS } from '../lib/permissions';
@@ -14,6 +14,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { Button } from '../components/ui/button';
 import { NotificationToggle } from '../components/NotificationToggle';
 import { PrinterConfigButton } from '../components/PrintButton';
+import { DashboardHome } from '../components/DashboardHome';
 import { TakeawayPage } from '../components/TakeawayPage';
 import { TableMap } from '../components/TableMap';
 import { MenuPage } from '../components/MenuPage';
@@ -23,9 +24,10 @@ import { StaffPage } from '../components/StaffPage';
 import { UsersPage } from '../components/UsersPage';
 import { ReservationsPage } from '../components/ReservationsPage';
 import { ReportsPage } from '../components/ReportsPage';
+import { RecipesPage } from '../components/RecipesPage';
 import { cn } from '../lib/utils';
 
-type View = 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'staff' | 'users';
+type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'recipes' | 'staff' | 'users';
 
 interface NavItem {
   id: View;
@@ -35,6 +37,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
+  { id: 'dashboard',    label: 'Inicio',        icon: Home },
   { id: 'tables',       label: 'Mapa de mesas', icon: LayoutGrid },
   { id: 'takeaway',     label: 'Para llevar',   icon: ShoppingBag },
   { id: 'reservations', label: 'Reservas',      icon: CalendarDays },
@@ -42,13 +45,14 @@ const NAV: NavItem[] = [
   { id: 'sales',        label: 'Ventas',        icon: Receipt },
   { id: 'reports',      label: 'Reportes',      icon: BarChart3 },
   { id: 'inventory',    label: 'Inventario',    icon: Package },
+  { id: 'recipes',      label: 'Recetas',       icon: Calculator, adminOnly: true },
   { id: 'staff',        label: 'Personal',      icon: Users, adminOnly: true },
   { id: 'users',        label: 'Usuarios',      icon: UserCog, adminOnly: true },
 ];
 
 export function DashboardPage() {
   const { user, logout } = useAuth();
-  const [view, setView] = useState<View>('tables');
+  const [view, setView] = useState<View>('dashboard');
 
   // Hook global de notificaciones (sonido + toast + browser notif)
   useNotifications();
@@ -154,6 +158,7 @@ export function DashboardPage() {
         </header>
 
         <main className="flex-1 overflow-y-auto px-6 py-6">
+          {view === 'dashboard'    && <DashboardHome onNavigate={setView} />}
           {view === 'tables'       && <TableMap />}
           {view === 'takeaway'     && <TakeawayPage />}
           {view === 'reservations' && <ReservationsPage />}
@@ -161,6 +166,7 @@ export function DashboardPage() {
           {view === 'sales'        && <SalesHistoryPage />}
           {view === 'reports'      && <ReportsPage />}
           {view === 'inventory'    && <InventoryPage />}
+          {view === 'recipes'      && <RecipesPage />}
           {view === 'staff'        && <StaffPage />}
           {view === 'users'        && <UsersPage />}
         </main>

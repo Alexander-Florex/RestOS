@@ -16,6 +16,7 @@ export interface CreateInventoryData {
   quantity: number;
   unit: string;
   minStock?: number;
+  costPerUnit?: number;
   supplier?: string;
 }
 
@@ -52,6 +53,7 @@ export const inventoryService = {
         quantity: data.quantity,
         unit: data.unit,
         minStock: data.minStock ?? 0,
+        costPerUnit: data.costPerUnit ?? 0,
         supplier: data.supplier ?? null,
         lastRestocked: data.quantity > 0 ? new Date() : null,
       },
@@ -76,6 +78,7 @@ export const inventoryService = {
         ...(data.quantity !== undefined ? { quantity: data.quantity } : {}),
         ...(data.unit !== undefined ? { unit: data.unit } : {}),
         ...(data.minStock !== undefined ? { minStock: data.minStock } : {}),
+        ...(data.costPerUnit !== undefined ? { costPerUnit: data.costPerUnit } : {}),
         ...(data.supplier !== undefined ? { supplier: data.supplier } : {}),
       },
     });

@@ -15,7 +15,7 @@ import {
   INVENTORY_CATEGORY_ICON, INVENTORY_CATEGORY_STYLE,
   STOCK_LEVEL_STYLE, stockLevel,
 } from '../lib/admin-helpers';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatMoney } from '../lib/format';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from './ui/confirm-dialog';
 import { Button } from './ui/button';
@@ -33,6 +33,7 @@ interface FormState {
   quantity: string;
   unit: string;
   minStock: string;
+  costPerUnit: string;
   supplier: string;
 }
 
@@ -42,6 +43,7 @@ const EMPTY_FORM: FormState = {
   quantity: '',
   unit: '',
   minStock: '',
+  costPerUnit: '',
   supplier: '',
 };
 
@@ -96,6 +98,7 @@ export function InventoryPage() {
       quantity: String(item.quantity),
       unit: item.unit,
       minStock: String(item.minStock),
+      costPerUnit: item.costPerUnit,
       supplier: item.supplier ?? '',
     });
     setEditing(item);
@@ -123,6 +126,11 @@ export function InventoryPage() {
       toast.error('El stock mínimo debe ser ≥ 0');
       return;
     }
+    const costPerUnit = form.costPerUnit === '' ? 0 : Number(form.costPerUnit);
+    if (Number.isNaN(costPerUnit) || costPerUnit < 0) {
+      toast.error('El costo por unidad debe ser ≥ 0');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -132,6 +140,7 @@ export function InventoryPage() {
         quantity,
         unit: form.unit.trim(),
         minStock,
+        costPerUnit,
         supplier: form.supplier.trim() || null,
       };
       if (editing) {
@@ -316,6 +325,11 @@ export function InventoryPage() {
                         Mín: {item.minStock} {item.unit}
                       </p>
                     )}
+                    {Number(item.costPerUnit) > 0 && (
+                      <p className="text-[10px] text-muted-foreground">
+                        {formatMoney(item.costPerUnit)} / {item.unit}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -415,6 +429,16 @@ export function InventoryPage() {
                   disabled={submitting} placeholder="20"
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="costPerUnit">Costo por unidad</Label>
+              <Input
+                id="costPerUnit" type="number" step="0.0001" inputMode="decimal"
+                value={form.costPerUnit}
+                onChange={(e) => setForm(f => ({ ...f, costPerUnit: e.target.value }))}
+                disabled={submitting} placeholder="Costo de compra por unidad — usado en Recetas"
+              />
             </div>
 
             <div className="space-y-2">

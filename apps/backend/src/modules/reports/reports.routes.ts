@@ -14,6 +14,7 @@ const router = Router();
 // JSON: header Authorization estándar
 router.get('/sales',     authenticate, requireRole('ADMIN', 'STAFF'), asyncHandler(reportsController.salesReport));
 router.get('/top-items', authenticate, requireRole('ADMIN', 'STAFF'), asyncHandler(reportsController.topItems));
+router.get('/tickets',   authenticate, requireRole('ADMIN', 'STAFF'), asyncHandler(reportsController.dailyTickets));
 
 // Descarga de CSV: acepta token por query (no se puede setear header en una redirección de <a>)
 router.get('/sales.csv', authenticateFromQuery, requireRole('ADMIN', 'STAFF'), asyncHandler(reportsController.salesCsv));

@@ -15,6 +15,7 @@ const createSchema = z.object({
   quantity: z.coerce.number().nonnegative(),
   unit: z.string().min(1, 'Unidad requerida').trim(),
   minStock: z.coerce.number().nonnegative().optional(),
+  costPerUnit: z.coerce.number().nonnegative().optional(),
   supplier: z.string().trim().optional().nullable(),
 });
 

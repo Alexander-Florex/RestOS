@@ -5,10 +5,11 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Edit, Trash2, Loader2, ToggleLeft, ToggleRight,
-  Tag, BookOpen, ChevronDown, ChevronUp,
+  Tag, BookOpen, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { useMenu } from '../hooks/useMenu';
-import { menuApi, type MenuItem, type StockStatus, ApiError } from '../lib/api';
+import { useMenuCategories } from '../hooks/useMenuCategories';
+import { menuApi, menuCategoriesApi, type MenuItem, type StockStatus, ApiError } from '../lib/api';
 import { STOCK_LABEL, STOCK_STYLE } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { Button } from './ui/button';
@@ -43,12 +44,12 @@ export function MenuPage() {
   const confirm = useConfirm();
 
   const { items, loading } = useMenu();
+  const { categories: categoryEntities, loading: categoriesLoading } = useMenuCategories();
 
-  // Categorías dinámicas: se extraen de los items existentes + las que crea el admin
-  const categories = useMemo(() => {
-    const set = new Set(items.map(i => i.category).filter(Boolean));
-    return Array.from(set).sort();
-  }, [items]);
+  const categories = useMemo(
+    () => categoryEntities.map(c => c.name),
+    [categoryEntities]
+  );
 
   // Vista activa: 'menu' | 'categories'
   const [view, setView] = useState<'menu' | 'categories'>('menu');
@@ -63,8 +64,10 @@ export function MenuPage() {
   // Modal de categoría
   const [catModalOpen, setCatModalOpen] = useState(false);
   const [newCatName, setNewCatName] = useState('');
-  const [editingCat, setEditingCat] = useState<string | null>(null);
+  const [newCatColor, setNewCatColor] = useState('#10b981');
+  const [editingCatId, setEditingCatId] = useState<number | null>(null);
   const [editCatValue, setEditCatValue] = useState('');
+  const [editCatColor, setEditCatColor] = useState('#10b981');
   const [catSubmitting, setCatSubmitting] = useState(false);
 
   const filtered = useMemo(
@@ -149,22 +152,13 @@ export function MenuPage() {
     const name = newCatName.trim();
     if (!name) { toast.error('Ingresá un nombre de categoría'); return; }
     if (categories.includes(name)) { toast.error('Ya existe esa categoría'); return; }
-    // Las categorías son implícitas — se crean agregando un ítem o haciendo un ítem "plantilla"
-    // Para el CRUD de categorías, creamos un ítem oculto/deshabilitado como marcador
-    // o simplemente guardamos la categoría en un ítem existente.
-    // La forma más simple: se agrega directamente como opción — el admin luego le asigna ítems.
+
     setCatSubmitting(true);
     try {
-      // Crear un ítem placeholder deshabilitado para que la categoría exista
-      await menuApi.create({
-        name:     `[Placeholder ${name}]`,
-        category: name,
-        price:    0,
-        enabled:  false,
-      });
+      await menuCategoriesApi.create({ name, color: newCatColor, order: categoryEntities.length });
       setNewCatName('');
       setCatModalOpen(false);
-      toast.success(`Categoría "${name}" creada. Podés asignarle ítems ahora.`);
+      toast.success(`Categoría "${name}" creada`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     } finally {
@@ -172,38 +166,58 @@ export function MenuPage() {
     }
   }
 
-  async function handleRenameCategory() {
-    if (!editingCat || !editCatValue.trim()) return;
+  async function handleRenameCategory(id: number, oldName: string) {
     const newName = editCatValue.trim();
-    if (newName === editingCat) { setEditingCat(null); return; }
-    if (categories.includes(newName)) { toast.error('Ya existe una categoría con ese nombre'); return; }
+    if (!newName) return;
+    if (newName === oldName && editCatColor === categoryEntities.find(c => c.id === id)?.color) {
+      setEditingCatId(null);
+      return;
+    }
+    if (newName !== oldName && categories.includes(newName)) {
+      toast.error('Ya existe una categoría con ese nombre'); return;
+    }
 
     setCatSubmitting(true);
-    const itemsInCat = items.filter(i => i.category === editingCat);
     try {
-      // Renombrar la categoría actualizando todos los ítems que la usan
-      await Promise.all(itemsInCat.map(i => menuApi.update(i.id, { category: newName })));
-      setEditingCat(null);
+      await menuCategoriesApi.update(id, { name: newName, color: editCatColor });
+      setEditingCatId(null);
       setEditCatValue('');
-      toast.success(`Categoría renombrada a "${newName}" (${itemsInCat.length} ítems actualizados)`);
+      toast.success(`Categoría actualizada`);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error al renombrar');
+      toast.error(err instanceof ApiError ? err.message : 'Error al actualizar');
     } finally {
       setCatSubmitting(false);
     }
   }
 
-  async function handleDeleteCategory(cat: string) {
-    const count = items.filter(i => i.category === cat).length;
+  async function handleDeleteCategory(id: number, name: string) {
+    const count = items.filter(i => i.category === name).length;
     if (count > 0) {
-      if (!await confirm({ title: `¿Eliminar categoría "${cat}"?`, description: `Tiene ${count} ítems. ¿Eliminarlos también?`, variant: 'destructive', confirmLabel: 'Eliminar' })) return;
-      try {
-        await Promise.all(items.filter(i => i.category === cat).map(i => menuApi.remove(i.id)));
-      } catch (err) {
-        toast.error(err instanceof ApiError ? err.message : 'Error al eliminar ítems'); return;
-      }
+      toast.error(`No se puede borrar: "${name}" tiene ${count} ${count === 1 ? 'ítem' : 'ítems'} asignados`);
+      return;
     }
-    toast.success(`Categoría "${cat}" eliminada`);
+    if (!await confirm({ title: `¿Eliminar categoría "${name}"?`, variant: 'destructive', confirmLabel: 'Eliminar' })) return;
+    try {
+      await menuCategoriesApi.remove(id);
+      toast.success(`Categoría "${name}" eliminada`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error al eliminar');
+    }
+  }
+
+  async function handleReorderCategory(index: number, delta: number) {
+    const target = index + delta;
+    if (target < 0 || target >= categoryEntities.length) return;
+    const a = categoryEntities[index];
+    const b = categoryEntities[target];
+    try {
+      await Promise.all([
+        menuCategoriesApi.update(a.id, { order: b.order }),
+        menuCategoriesApi.update(b.id, { order: a.order }),
+      ]);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error al reordenar');
+    }
   }
 
   if (!isAdmin) {
@@ -214,7 +228,7 @@ export function MenuPage() {
     );
   }
 
-  if (loading) {
+  if (loading || categoriesLoading) {
     return <div className="flex items-center justify-center py-24"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
@@ -258,46 +272,62 @@ export function MenuPage() {
             </Button>
           </div>
 
-          {categories.length === 0 ? (
+          {categoryEntities.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">No hay categorías. Creá la primera.</p>
           ) : (
             <div className="space-y-2">
-              {categories.map(cat => {
-                const count = items.filter(i => i.category === cat).length;
-                const isEditing = editingCat === cat;
+              {categoryEntities.map((cat, idx) => {
+                const count = items.filter(i => i.category === cat.name).length;
+                const isEditing = editingCatId === cat.id;
                 return (
-                  <div key={cat} className="flex items-center gap-3 rounded-xl border border-border bg-background/50 px-4 py-3">
-                    <BookOpen className="h-4 w-4 shrink-0 text-emerald-400" />
+                  <div key={cat.id} className="flex items-center gap-3 rounded-xl border border-border bg-background/50 px-4 py-3">
+                    <div className="flex shrink-0 flex-col">
+                      <button onClick={() => handleReorderCategory(idx, -1)} disabled={idx === 0}
+                        className="text-muted-foreground hover:text-foreground disabled:opacity-20">
+                        <ArrowUp className="h-3 w-3" />
+                      </button>
+                      <button onClick={() => handleReorderCategory(idx, 1)} disabled={idx === categoryEntities.length - 1}
+                        className="text-muted-foreground hover:text-foreground disabled:opacity-20">
+                        <ArrowDown className="h-3 w-3" />
+                      </button>
+                    </div>
+                    {isEditing ? (
+                      <input type="color" value={editCatColor} onChange={e => setEditCatColor(e.target.value)}
+                        className="h-6 w-6 shrink-0 cursor-pointer rounded border border-border bg-transparent" />
+                    ) : (
+                      <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ background: cat.color }} />
+                    )}
                     {isEditing ? (
                       <Input
                         autoFocus
                         value={editCatValue}
                         onChange={e => setEditCatValue(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') handleRenameCategory(); if (e.key === 'Escape') setEditingCat(null); }}
+                        onKeyDown={e => { if (e.key === 'Enter') handleRenameCategory(cat.id, cat.name); if (e.key === 'Escape') setEditingCatId(null); }}
                         className="h-8 flex-1 text-sm"
                         disabled={catSubmitting}
                       />
                     ) : (
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{cat}</p>
+                        <p className="text-sm font-medium">{cat.name}</p>
                         <p className="text-xs text-muted-foreground">{count} {count === 1 ? 'ítem' : 'ítems'}</p>
                       </div>
                     )}
                     <div className="flex items-center gap-1">
                       {isEditing ? (
                         <>
-                          <Button size="sm" onClick={handleRenameCategory} disabled={catSubmitting}>
+                          <Button size="sm" onClick={() => handleRenameCategory(cat.id, cat.name)} disabled={catSubmitting}>
                             {catSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Guardar'}
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setEditingCat(null)}>Cancelar</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingCatId(null)}>Cancelar</Button>
                         </>
                       ) : (
                         <>
-                          <Button variant="ghost" size="icon" onClick={() => { setEditingCat(cat); setEditCatValue(cat); }}>
+                          <Button variant="ghost" size="icon"
+                            onClick={() => { setEditingCatId(cat.id); setEditCatValue(cat.name); setEditCatColor(cat.color); }}>
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="icon" className="text-rose-400 hover:text-rose-300"
-                            onClick={() => handleDeleteCategory(cat)}>
+                            onClick={() => handleDeleteCategory(cat.id, cat.name)}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </>
@@ -472,12 +502,21 @@ export function MenuPage() {
               Las categorías organizan el menú. Después podés asignarle ítems.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="catName">Nombre de la categoría *</Label>
-            <Input id="catName" autoFocus value={newCatName}
-              onChange={e => setNewCatName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleCreateCategory()}
-              disabled={catSubmitting} placeholder="Platos principales, Bebidas, Postres..." />
+          <div className="flex items-end gap-3">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="catName">Nombre de la categoría *</Label>
+              <Input id="catName" autoFocus value={newCatName}
+                onChange={e => setNewCatName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCreateCategory()}
+                disabled={catSubmitting} placeholder="Platos principales, Bebidas, Postres..." />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="catColor">Color</Label>
+              <input id="catColor" type="color" value={newCatColor}
+                onChange={e => setNewCatColor(e.target.value)}
+                disabled={catSubmitting}
+                className="h-10 w-14 cursor-pointer rounded-xl border border-border bg-transparent" />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCatModalOpen(false)} disabled={catSubmitting}>Cancelar</Button>
