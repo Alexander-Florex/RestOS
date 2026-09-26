@@ -169,7 +169,8 @@ export function LoginPage() {
               </Button>
             </form>
 
-            {/* Cuentas demo */}
+            {/* Cuentas demo: solo en desarrollo (Vite elimina el bloque en el build de producción) */}
+            {import.meta.env.DEV && (
             <div className="mt-6 border-t border-border pt-5">
               <p className="mb-3 text-center text-xs uppercase tracking-wider text-muted-foreground">
                 Cuentas demo (tap para autocompletar)
@@ -192,6 +193,7 @@ export function LoginPage() {
                 ))}
               </div>
             </div>
+            )}
           </CardContent>
         </Card>
 

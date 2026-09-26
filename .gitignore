@@ -36,3 +36,7 @@ apps/backend/prisma/migrations/dev.db*
 
 # Uploads
 apps/backend/uploads/
+
+# Compilados sueltos de scripts de Prisma (se corren con tsx)
+apps/backend/prisma/*.js
+apps/backend/prisma/*.js.map

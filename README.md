@@ -52,16 +52,33 @@ JWT_SECRET="cambiame-por-algo-largo-y-aleatorio"
 ### 4. Inicializar la base de datos
 
 ```bash
-# Crea la base + corre migraciones + inserta datos demo
+# Desarrollo: corre migraciones + inserta datos demo
+# Producción (NODE_ENV=production): solo `prisma migrate deploy`, sin seed
 npm run db:setup
 ```
 
-Equivalente a:
+En desarrollo equivale a:
 
 ```bash
 npm run db:migrate   # corre Prisma migrate
 npm run db:seed      # inserta usuarios y datos demo
 ```
+
+> ⚠️ El seed **borra todas las tablas**. Se cancela solo si `NODE_ENV=production`
+> o si la base ya tiene restaurantes. Para pisar una base de desarrollo con datos:
+> `npm run db:seed -w @restos/backend -- --force` (no tiene efecto en producción).
+
+### Alta del cliente (producción)
+
+Nunca usar el seed. Después de `npx prisma migrate deploy`:
+
+```bash
+cd apps/backend
+npx tsx prisma/reset-restaurant.ts --name "Nombre del local" \
+  --admin-user admin --admin-pass "contraseña-segura" --admin-name "Nombre"
+```
+
+El resto de los usuarios se crean desde la sección **Usuarios** del panel.
 
 ### 5. Levantar el proyecto
 
@@ -72,7 +89,7 @@ npm run dev
 - Backend: http://localhost:3001
 - Frontend: http://localhost:5173
 
-### Cuentas demo (creadas por el seed)
+### Cuentas demo (creadas por el seed, solo desarrollo)
 
 | Usuario     | Contraseña   | Rol            |
 |-------------|--------------|----------------|
@@ -80,7 +97,8 @@ npm run dev
 | `mesero1`   | `waiter123`  | Mesero         |
 | `personal1` | `staff123`   | Personal       |
 
-> ⚠️ Cambiar antes de pasar a producción.
+> Estas cuentas no existen en producción, y los botones de autocompletar del login
+> solo aparecen en el entorno de desarrollo.
 
 ## Scripts útiles
 
@@ -91,7 +109,7 @@ npm run dev
 | `npm run dev:frontend`  | Solo frontend                                 |
 | `npm run build`         | Build de producción de ambos                  |
 | `npm run db:migrate`    | Aplica migraciones de Prisma                  |
-| `npm run db:seed`       | Re-poblar con datos demo                      |
+| `npm run db:seed`       | Poblar con datos demo (solo dev, base vacía)  |
 | `npm run db:studio`     | Abre Prisma Studio (GUI para inspeccionar DB) |
 
 ## Estado del proyecto

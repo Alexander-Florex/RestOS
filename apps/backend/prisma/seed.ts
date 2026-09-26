@@ -1,15 +1,30 @@
 // ──────────────────────────────────────────────
-// Seed — Datos iniciales de demo
-// Corre: npm run db:seed
+// Seed — Datos iniciales de demo (SOLO DESARROLLO)
+// Corre: npm run db:seed            (base vacía)
+//        npm run db:seed -- --force (pisa una base de desarrollo con datos)
+// En producción no corre nunca: para el alta del cliente usar
+// prisma/reset-restaurant.ts.
 // ──────────────────────────────────────────────
 import 'dotenv/config';
 import { PrismaClient, UserRole, TableStatus, StockStatus, InventoryCategory, StaffRole, ReservationStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { checkSeedAllowed } from './seed-guard.js';
 
 const prisma = new PrismaClient();
 const ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
 
 async function main() {
+  const guard = checkSeedAllowed({
+    nodeEnv: process.env.NODE_ENV,
+    restaurantCount: await prisma.restaurant.count(),
+    force: process.argv.includes('--force'),
+  });
+  if (!guard.ok) {
+    console.error(`⛔ Seed cancelado. ${guard.reason}`);
+    process.exitCode = 1;
+    return;
+  }
+
   console.log('🌱  Iniciando seed...\n');
 
   // ── Limpieza (orden importa por foreign keys) ──
@@ -160,7 +175,7 @@ async function main() {
     return d;
   };
 
-  const reservationsData = [
+  const reservationsData: Array<{ customerName: string; customerPhone: string | null; partySize: number; reservedAt: Date; tableId: number | null; duration: number; notes?: string; status: ReservationStatus }> = [
     { customerName: 'Familia Pérez',  customerPhone: '+54 11 4444-1001', partySize: 4, reservedAt: at(0, 20, 30), tableId: 3,    duration: 120, notes: 'Cumpleaños',         status: ReservationStatus.CONFIRMED },
     { customerName: 'Luis Méndez',    customerPhone: '+54 11 4444-1002', partySize: 2, reservedAt: at(0, 21, 0),  tableId: 5,    duration: 90,                                status: ReservationStatus.CONFIRMED },
     { customerName: 'Carla Ferreira', customerPhone: '+54 11 4444-1003', partySize: 6, reservedAt: at(1, 13, 0),  tableId: null, duration: 120, notes: 'Almuerzo de trabajo', status: ReservationStatus.CONFIRMED },
