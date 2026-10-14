@@ -16,9 +16,9 @@ export const RESERVATION_STATUS_STYLE: Record<ReservationStatus, {
   text: string; bg: string; border: string; dot: string;
 }> = {
   PENDING:   { text: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   dot: 'bg-amber-500' },
-  CONFIRMED: { text: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    dot: 'bg-blue-500' },
-  SEATED:    { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', dot: 'bg-emerald-500' },
-  COMPLETED: { text: 'text-muted-foreground', bg: 'bg-secondary/30', border: 'border-border', dot: 'bg-muted-foreground' },
+  CONFIRMED: { text: 'text-sky-400',    bg: 'bg-sky-500/10',    border: 'border-sky-500/30',    dot: 'bg-sky-500' },
+  SEATED:    { text: 'text-brand-400', bg: 'bg-brand-500/10', border: 'border-brand-500/30', dot: 'bg-brand-500' },
+  COMPLETED: { text: 'text-muted-foreground', bg: 'bg-white/[0.04]', border: 'border-border', dot: 'bg-muted-foreground' },
   CANCELLED: { text: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    dot: 'bg-rose-500' },
   NO_SHOW:   { text: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    dot: 'bg-rose-500' },
 };

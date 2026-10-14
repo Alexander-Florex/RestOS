@@ -6,7 +6,7 @@
 // ──────────────────────────────────────────────
 import { Router } from 'express';
 import { menuController } from './menu.controller.js';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requirePermission } from '../../middleware/auth.js';
 import { asyncHandler } from '../../lib/async-handler.js';
 
 const router = Router();
@@ -15,11 +15,11 @@ router.use(authenticate);
 router.get('/',    asyncHandler(menuController.list));
 router.get('/:id', asyncHandler(menuController.getById));
 
-router.post('/',         requireRole('ADMIN'), asyncHandler(menuController.create));
-router.patch('/:id',     requireRole('ADMIN'), asyncHandler(menuController.update));
-router.delete('/:id',    requireRole('ADMIN'), asyncHandler(menuController.remove));
+router.post('/',         requirePermission('menu.manage'), asyncHandler(menuController.create));
+router.patch('/:id',     requirePermission('menu.manage'), asyncHandler(menuController.update));
+router.delete('/:id',    requirePermission('menu.manage'), asyncHandler(menuController.remove));
 
-router.post('/:id/toggle',     requireRole('ADMIN', 'STAFF'), asyncHandler(menuController.toggleEnabled));
-router.patch('/:id/stock',     requireRole('ADMIN', 'STAFF'), asyncHandler(menuController.setStock));
+router.post('/:id/toggle',     requirePermission('menu.availability'), asyncHandler(menuController.toggleEnabled));
+router.patch('/:id/stock',     requirePermission('menu.availability'), asyncHandler(menuController.setStock));
 
 export { router as menuRouter };

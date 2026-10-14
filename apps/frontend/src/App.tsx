@@ -1,9 +1,9 @@
 // ──────────────────────────────────────────────
 // App.tsx — Root component
-// Routea por rol: WAITER → vista móvil; ADMIN/STAFF → dashboard.
+// Routea por permisos: sin "app.dashboard" → vista móvil; con él → panel.
 // ──────────────────────────────────────────────
 import { Toaster } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { BrandMark } from './components/ui/motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -11,13 +11,16 @@ import { WaiterMobileView } from './components/WaiterMobileView';
 import { ConfirmDialogProvider } from './components/ui/confirm-dialog';
 
 function AuthGate() {
-  const { user, loading } = useAuth();
+  const { user, loading, can } = useAuth();
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
+      <div className="flex h-[100dvh] items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-muted-foreground">
+          <BrandMark animated className="h-14 w-14" />
+          <div className="h-1 w-24 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full w-full animate-shimmer bg-[linear-gradient(90deg,transparent,#fb6a26,transparent)] bg-[length:200%_100%]" />
+          </div>
           <p className="text-sm">Cargando sesión...</p>
         </div>
       </div>
@@ -26,10 +29,10 @@ function AuthGate() {
 
   if (!user) return <LoginPage />;
 
-  // Los meseros van directo a su vista móvil
-  if (user.role === 'WAITER') return <WaiterMobileView />;
+  // Sin acceso al panel (por ejemplo, Mesero): vista móvil de toma de pedidos
+  if (!can('app.dashboard')) return <WaiterMobileView />;
 
-  // Admin y staff comparten el mismo dashboard (los permisos finos viven en cada componente)
+  // El resto usa el panel; cada sección se muestra según los permisos del rol
   return <DashboardPage />;
 }
 
@@ -40,12 +43,16 @@ export default function App() {
         <AuthGate />
         <Toaster
           theme="dark"
-          position="top-right"
+          position="top-center"
           toastOptions={{
             style: {
-              background: 'hsl(222 47% 9%)',
-              border: '1px solid hsl(217 33% 22%)',
-              color: 'white',
+              background: 'hsl(20 12% 9% / 0.92)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgb(255 255 255 / 0.08)',
+              borderRadius: '18px',
+              color: 'hsl(36 33% 96%)',
+              fontFamily: 'inherit',
+              boxShadow: '0 20px 40px -16px rgb(0 0 0 / 0.8)',
             },
           }}
         />

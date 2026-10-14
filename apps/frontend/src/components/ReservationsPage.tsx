@@ -179,9 +179,10 @@ export function ReservationsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Reservas</h2>
+          <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-400"><span className="h-px w-6 bg-gradient-to-r from-brand-400 to-transparent" />Servicio</p>
+          <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Reservas</h2>
           <p className="text-sm text-muted-foreground">
             {reservations.length} {reservations.length === 1 ? 'reserva' : 'reservas'} en este día
           </p>
@@ -193,7 +194,7 @@ export function ReservationsPage() {
       </div>
 
       {/* Selector de día */}
-      <div className="mb-6 flex items-center justify-between rounded-2xl border border-border bg-card p-3">
+      <div className="mb-6 flex items-center justify-between glass rounded-3xl p-3">
         <Button variant="ghost" size="icon" onClick={() => shiftDay(-1)} aria-label="Día anterior">
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -213,7 +214,7 @@ export function ReservationsPage() {
                 d.setHours(0, 0, 0, 0);
                 setSelectedDate(d);
               }}
-              className="mt-1 text-[10px] uppercase tracking-wider text-emerald-400 hover:underline"
+              className="mt-1 text-[10px] uppercase tracking-wider text-brand-400 hover:underline"
             >
               Volver a hoy
             </button>
@@ -239,12 +240,12 @@ export function ReservationsPage() {
                 'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
                 filter === s
                   ? `${style.border} ${style.bg} ${style.text}`
-                  : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+                  : 'border-border bg-white/[0.06] text-muted-foreground hover:text-foreground'
               )}
             >
               <span className={cn('h-1.5 w-1.5 rounded-full', style.dot)} />
               {RESERVATION_STATUS_LABEL[s]}
-              <span className="rounded-full bg-background/50 px-1.5 text-[10px] tabular-nums">{count}</span>
+              <span className="rounded-full bg-white/[0.03] px-1.5 text-[10px] tabular-nums">{count}</span>
             </button>
           );
         })}
@@ -252,7 +253,7 @@ export function ReservationsPage() {
 
       {/* Listado timeline */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-sm text-muted-foreground">
           No hay reservas para este día con este filtro
         </div>
       ) : (
@@ -544,14 +545,14 @@ function FilterChip({
       className={cn(
         'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
         active
-          ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-          : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+          ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+          : 'border-border bg-white/[0.06] text-muted-foreground hover:text-foreground'
       )}
     >
       {label}
       <span className={cn(
         'rounded-full px-1.5 text-[10px] tabular-nums',
-        active ? 'bg-emerald-500/20' : 'bg-background/50'
+        active ? 'bg-brand-500/20' : 'bg-white/[0.03]'
       )}>{count}</span>
     </button>
   );

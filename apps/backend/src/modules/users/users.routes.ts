@@ -1,15 +1,15 @@
 // ──────────────────────────────────────────────
 // users.routes.ts — Endpoints de gestión de usuarios (login)
-// Solo ADMIN.
+// Requiere el permiso users.manage.
 // ──────────────────────────────────────────────
 import { Router } from 'express';
 import { usersController } from './users.controller.js';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requirePermission } from '../../middleware/auth.js';
 import { asyncHandler } from '../../lib/async-handler.js';
 
 const router = Router();
 router.use(authenticate);
-router.use(requireRole('ADMIN'));
+router.use(requirePermission('users.manage'));
 
 router.get('/',      asyncHandler(usersController.list));
 router.get('/:id',   asyncHandler(usersController.getById));

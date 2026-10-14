@@ -4,12 +4,12 @@
 // ──────────────────────────────────────────────
 import { Router } from 'express';
 import { staffController } from './staff.controller.js';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requirePermission } from '../../middleware/auth.js';
 import { asyncHandler } from '../../lib/async-handler.js';
 
 const router = Router();
 router.use(authenticate);
-router.use(requireRole('ADMIN'));
+router.use(requirePermission('staff.manage'));
 
 router.get('/',     asyncHandler(staffController.list));
 router.get('/:id',  asyncHandler(staffController.getById));

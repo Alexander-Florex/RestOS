@@ -39,8 +39,8 @@ const EMPTY_ITEM: ItemForm = {
 };
 
 export function MenuPage() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { user, can } = useAuth();
+  const isAdmin = can('menu.manage');
   const confirm = useConfirm();
 
   const { items, loading } = useMenu();
@@ -222,8 +222,8 @@ export function MenuPage() {
 
   if (!isAdmin) {
     return (
-      <div className="rounded-2xl border border-border bg-card p-12 text-center">
-        <p className="text-sm text-muted-foreground">Solo los administradores pueden gestionar el menú.</p>
+      <div className="glass rounded-3xl p-12 text-center">
+        <p className="text-sm text-muted-foreground">Tu rol no tiene permiso para editar la carta.</p>
       </div>
     );
   }
@@ -235,9 +235,10 @@ export function MenuPage() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Menú</h2>
+          <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-400"><span className="h-px w-6 bg-gradient-to-r from-brand-400 to-transparent" />Carta y stock</p>
+          <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Menú</h2>
           <p className="text-sm text-muted-foreground">
             {items.filter(i => i.enabled).length} ítems activos · {categories.length} categorías
           </p>
@@ -260,10 +261,10 @@ export function MenuPage() {
 
       {/* VISTA CATEGORÍAS */}
       {view === 'categories' && (
-        <div className="mb-6 rounded-2xl border border-border bg-card p-5">
+        <div className="mb-6 glass rounded-3xl p-5">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-sm font-semibold">
-              <Tag className="h-4 w-4 text-emerald-400" />
+              <Tag className="h-4 w-4 text-brand-400" />
               Categorías del menú
             </h3>
             <Button size="sm" onClick={() => { setNewCatName(''); setCatModalOpen(true); }}>
@@ -280,7 +281,7 @@ export function MenuPage() {
                 const count = items.filter(i => i.category === cat.name).length;
                 const isEditing = editingCatId === cat.id;
                 return (
-                  <div key={cat.id} className="flex items-center gap-3 rounded-xl border border-border bg-background/50 px-4 py-3">
+                  <div key={cat.id} className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3">
                     <div className="flex shrink-0 flex-col">
                       <button onClick={() => handleReorderCategory(idx, -1)} disabled={idx === 0}
                         className="text-muted-foreground hover:text-foreground disabled:opacity-20">
@@ -352,13 +353,13 @@ export function MenuPage() {
 
       {/* Tabla de ítems */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-sm text-muted-foreground">
           No hay ítems en esta categoría. Creá el primero con "+ Nuevo ítem".
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-border">
           <table className="w-full text-sm">
-            <thead className="bg-secondary/30 text-xs uppercase tracking-wider text-muted-foreground">
+            <thead className="bg-white/[0.04] text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 text-left font-medium">Nombre</th>
                 <th className="px-4 py-3 text-left font-medium">Categoría</th>
@@ -372,7 +373,7 @@ export function MenuPage() {
               {filtered.map(item => {
                 const ss = STOCK_STYLE[item.stock as StockStatus];
                 return (
-                  <tr key={item.id} className={cn('hover:bg-secondary/20', !item.enabled && 'opacity-50')}>
+                  <tr key={item.id} className={cn('hover:bg-white/[0.025]', !item.enabled && 'opacity-50')}>
                     <td className="px-4 py-3">
                       <p className="font-medium">{item.name}</p>
                       {item.description && (
@@ -380,9 +381,9 @@ export function MenuPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="rounded-full bg-secondary/50 px-2 py-0.5 text-xs">{item.category}</span>
+                      <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-xs">{item.category}</span>
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-emerald-400">
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-brand-400">
                       {formatMoney(item.price)}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -393,7 +394,7 @@ export function MenuPage() {
                     <td className="px-4 py-3 text-center">
                       <button onClick={() => handleToggleItem(item)}>
                         {item.enabled
-                          ? <ToggleRight className="mx-auto h-5 w-5 text-emerald-400" />
+                          ? <ToggleRight className="mx-auto h-5 w-5 text-brand-400" />
                           : <ToggleLeft className="mx-auto h-5 w-5 text-muted-foreground" />
                         }
                       </button>
@@ -469,11 +470,11 @@ export function MenuPage() {
                 <Label>Estado</Label>
                 <button type="button"
                   onClick={() => setItemForm(f => ({ ...f, enabled: !f.enabled }))}
-                  className="flex h-10 w-full items-center justify-between rounded-xl border border-border bg-background/50 px-3 text-sm"
+                  className="flex h-10 w-full items-center justify-between rounded-2xl border border-white/[0.07] bg-white/[0.025] px-3 text-sm"
                   disabled={submitting}>
                   <span>{itemForm.enabled ? 'Activo' : 'Inactivo'}</span>
                   {itemForm.enabled
-                    ? <ToggleRight className="h-5 w-5 text-emerald-400" />
+                    ? <ToggleRight className="h-5 w-5 text-brand-400" />
                     : <ToggleLeft className="h-5 w-5 text-muted-foreground" />
                   }
                 </button>
@@ -495,7 +496,7 @@ export function MenuPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Tag className="h-4 w-4 text-emerald-400" />
+              <Tag className="h-4 w-4 text-brand-400" />
               Nueva categoría
             </DialogTitle>
             <DialogDescription>
@@ -538,11 +539,11 @@ function CatChip({ active, onClick, label, count }: {
     <button onClick={onClick} className={cn(
       'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
       active
-        ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-        : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+        ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+        : 'border-border bg-white/[0.06] text-muted-foreground hover:text-foreground'
     )}>
       {label}
-      <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', active ? 'bg-emerald-500/20' : 'bg-background/50')}>
+      <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', active ? 'bg-brand-500/20' : 'bg-white/[0.03]')}>
         {count}
       </span>
     </button>

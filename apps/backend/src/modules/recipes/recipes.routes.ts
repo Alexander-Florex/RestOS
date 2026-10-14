@@ -4,11 +4,11 @@
 // ──────────────────────────────────────────────
 import { Router } from 'express';
 import { recipesController } from './recipes.controller.js';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requirePermission } from '../../middleware/auth.js';
 import { asyncHandler } from '../../lib/async-handler.js';
 
 const router = Router();
-router.use(authenticate, requireRole('ADMIN'));
+router.use(authenticate, requirePermission('recipes.manage'));
 
 router.get('/',       asyncHandler(recipesController.list));
 router.get('/:id',    asyncHandler(recipesController.getById));

@@ -4,13 +4,17 @@
 // Flujo de cobro:
 // 1. Mesa con orders abiertos
 // 2. POST /api/sales con { tableId, paymentMethod, amount, notes?, imageBase64? }
-// 3. Calcula total desde orders abiertos
-// 4. Si hay imagen base64, la guarda en /uploads/sales/<timestamp>-<rand>.<ext>
-// 5. En una transacción:
-//    - Crea el registro de Sale
-//    - Borra los Orders (que cascada borra OrderItems)
+// 3. Si hay imagen base64, la guarda en /uploads/sales/<timestamp>-<rand>.<ext>
+//    (se borra si el cobro falla)
+// 4. En una transacción:
+//    - Bloquea la fila de la mesa (lockTable) y valida que tenga cuenta abierta;
+//      un segundo cobro simultáneo espera el lock y recibe 409
+//    - Calcula el total en centavos desde los orders (leídos DESPUÉS del lock)
+//    - Exige amount >= total (no se aceptan cobros parciales)
+//    - Crea el registro de Sale + snapshot de items
+//    - Borra los Orders de la mesa (que cascada borra OrderItems)
 //    - Cierra la mesa (vuelve a AVAILABLE, limpia guestCount/openedAt)
-// 6. Emite sale:registered y table:changed
+// 5. Emite sale:registered y table:changed
 // ──────────────────────────────────────────────
 import { PaymentMethod, TableStatus, type Sale } from '@prisma/client';
 import path from 'node:path';
@@ -18,6 +22,8 @@ import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
+import { lockTable } from '../../lib/table-lock.js';
+import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads', 'sales');
@@ -54,6 +60,14 @@ async function saveBase64Image(b64: string): Promise<string> {
 
   return `/uploads/sales/${filename}`;
 }
+
+/** Borra una imagen guardada por saveBase64Image (si el cobro no se concretó). */
+async function removeSavedImage(url: string) {
+  await fs.rm(path.join(UPLOADS_DIR, path.basename(url)), { force: true });
+}
+
+/** Estados en los que la mesa tiene una cuenta abierta que se puede cobrar. */
+const PAYABLE_STATUSES: TableStatus[] = [TableStatus.OCCUPIED, TableStatus.BILL_REQUESTED];
 
 function emitSaleRegistered(restaurantId: number, sale: Sale) {
   ioRestaurant(restaurantId).emit(SocketEvents.SALE_REGISTERED, sale);
@@ -103,121 +117,138 @@ export const salesService = {
   /**
    * Registra venta + cierra mesa + borra orders, todo en una transacción.
    * Guarda un snapshot de items en sale_items para reportes posteriores.
+   *
+   * Concurrencia: la mesa se bloquea con SELECT ... FOR UPDATE antes de leer
+   * sus pedidos. Un segundo cobro de la misma mesa espera y recibe 409; un
+   * pedido nuevo (orders.service también bloquea la mesa) entra antes o
+   * después del cobro, nunca en el medio.
    */
   async create(restaurantId: number, input: CreateSaleInput): Promise<Sale> {
-    const table = await prisma.table.findFirst({
-      where: { id: input.tableId, restaurantId },
-      include: {
-        orders: {
-          include: {
-            items: { include: { menuItem: true } },
-          },
-        },
-      },
-    });
-    if (!table) throw HttpError.notFound('Mesa no encontrada');
-    if (table.status === TableStatus.AVAILABLE) {
-      throw HttpError.badRequest('La mesa no tiene cuenta abierta');
-    }
-
-    // Calcular total real desde los items + construir snapshot agregado
-    // (un mismo item puede aparecer en varios pedidos: lo sumamos en un único SaleItem)
-    let total = 0;
-    const snapshot = new Map<string, {
-      menuItemId: number | null;
-      itemName: string;
-      category: string;
-      quantity: number;
-      price: number;
-    }>();
-
-    for (const order of table.orders) {
-      for (const item of order.items) {
-        const lineTotal = Number(item.price) * item.quantity;
-        total += lineTotal;
-        // Clave de agrupación: menuItemId + price (mismo item con mismo precio se agrupa)
-        const key = `${item.menuItemId ?? `name:${item.itemName}`}-${item.price}`;
-        const existing = snapshot.get(key);
-        if (existing) {
-          existing.quantity += item.quantity;
-        } else {
-          snapshot.set(key, {
-            menuItemId: item.menuItemId,
-            itemName: item.itemName,
-            category: item.menuItem?.category ?? 'unknown',
-            quantity: item.quantity,
-            price: Number(item.price),
-          });
-        }
-      }
-    }
-
-    if (input.amount < 0) {
+    const amountCents = toCents(input.amount);
+    if (amountCents < 0) {
       throw HttpError.badRequest('El monto cobrado no puede ser negativo');
     }
 
-    // Guardar imagen si vino
+    // Guardar imagen si vino (fuera de la transacción: es I/O de disco)
     let imageUrl: string | null = null;
     if (input.imageBase64) {
       imageUrl = await saveBase64Image(input.imageBase64);
     }
 
-    const tableNumber = table.number;
-    const orderIds = table.orders.map(o => o.id);
+    try {
+      const { sale, updatedTable } = await prisma.$transaction(async (tx) => {
+        // 1. Bloquear la mesa: tiene que ser la primera lectura de la transacción
+        const locked = await lockTable(tx, restaurantId, input.tableId);
+        if (!locked) throw HttpError.notFound('Mesa no encontrada');
+        if (!PAYABLE_STATUSES.includes(locked.status)) {
+          throw HttpError.conflict('La mesa ya fue cobrada o no tiene una cuenta abierta');
+        }
 
-    // Transacción: crear sale + saleItems + borrar orders + cerrar mesa
-    const { sale, updatedTable } = await prisma.$transaction(async (tx) => {
-      const sale = await tx.sale.create({
-        data: {
-          restaurantId,
-          tableId: input.tableId,
-          tableNumber,
-          paymentMethod: input.paymentMethod,
-          amount: input.amount,
-          total,
-          notes: input.notes ?? null,
-          imageUrl,
-          registeredById: input.registeredById ?? null,
-          closedAt: new Date(),
-        },
-      });
-
-      // Snapshot de items consumidos (para reportes)
-      if (snapshot.size > 0) {
-        await tx.saleItem.createMany({
-          data: Array.from(snapshot.values()).map(s => ({
-            saleId: sale.id,
-            menuItemId: s.menuItemId,
-            itemName: s.itemName,
-            category: s.category,
-            quantity: s.quantity,
-            price: s.price,
-            subtotal: s.price * s.quantity,
-          })),
+        // 2. Leer pedidos con la mesa ya bloqueada
+        const orders = await tx.order.findMany({
+          where: { tableId: input.tableId, restaurantId },
+          include: { items: { include: { menuItem: true } } },
         });
-      }
 
-      if (orderIds.length > 0) {
-        // Cascade borra OrderItems
-        await tx.order.deleteMany({ where: { id: { in: orderIds } } });
-      }
+        // Calcular total real desde los items + construir snapshot agregado
+        // (un mismo item puede aparecer en varios pedidos: lo sumamos en un único SaleItem)
+        let totalCents = 0;
+        const snapshot = new Map<string, {
+          menuItemId: number | null;
+          itemName: string;
+          category: string;
+          quantity: number;
+          priceCents: number;
+        }>();
 
-      const updatedTable = await tx.table.update({
-        where: { id: input.tableId },
-        data: {
-          status: TableStatus.AVAILABLE,
-          guestCount: null,
-          openedAt: null,
-        },
+        for (const order of orders) {
+          for (const item of order.items) {
+            const priceCents = toCents(item.price);
+            totalCents += priceCents * item.quantity;
+            // Clave de agrupación: menuItemId + price (mismo item con mismo precio se agrupa)
+            const key = `${item.menuItemId ?? `name:${item.itemName}`}-${priceCents}`;
+            const existing = snapshot.get(key);
+            if (existing) {
+              existing.quantity += item.quantity;
+            } else {
+              snapshot.set(key, {
+                menuItemId: item.menuItemId,
+                itemName: item.itemName,
+                category: item.menuItem?.category ?? 'unknown',
+                quantity: item.quantity,
+                priceCents,
+              });
+            }
+          }
+        }
+
+        // 3. No se aceptan cobros parciales. Si entró un pedido mientras se
+        //    cobraba, el total subió y el monto de la pantalla ya no alcanza.
+        if (amountCents < totalCents) {
+          throw HttpError.badRequest(
+            `El monto cobrado (${formatCents(amountCents)}) no cubre el total de la cuenta ` +
+            `(${formatCents(totalCents)}). Si se agregaron pedidos, revisá la cuenta y volvé a cobrar.`,
+          );
+        }
+
+        // 4. Cerrar la mesa (el where por estado es una segunda garantía además del lock)
+        const closed = await tx.table.updateMany({
+          where: { id: input.tableId, restaurantId, status: { in: PAYABLE_STATUSES } },
+          data: {
+            status: TableStatus.AVAILABLE,
+            guestCount: null,
+            openedAt: null,
+          },
+        });
+        if (closed.count !== 1) {
+          throw HttpError.conflict('La mesa ya fue cobrada o no tiene una cuenta abierta');
+        }
+
+        const sale = await tx.sale.create({
+          data: {
+            restaurantId,
+            tableId: input.tableId,
+            tableNumber: locked.number,
+            paymentMethod: input.paymentMethod,
+            amount: fromCents(amountCents),
+            total: fromCents(totalCents),
+            notes: input.notes ?? null,
+            imageUrl,
+            registeredById: input.registeredById ?? null,
+            closedAt: new Date(),
+          },
+        });
+
+        // Snapshot de items consumidos (para reportes)
+        if (snapshot.size > 0) {
+          await tx.saleItem.createMany({
+            data: Array.from(snapshot.values()).map(s => ({
+              saleId: sale.id,
+              menuItemId: s.menuItemId,
+              itemName: s.itemName,
+              category: s.category,
+              quantity: s.quantity,
+              price: fromCents(s.priceCents),
+              subtotal: fromCents(s.priceCents * s.quantity),
+            })),
+          });
+        }
+
+        // Borrar TODOS los pedidos de la mesa (cascade borra OrderItems)
+        await tx.order.deleteMany({ where: { tableId: input.tableId, restaurantId } });
+
+        const updatedTable = await tx.table.findUniqueOrThrow({ where: { id: input.tableId } });
+        return { sale, updatedTable };
       });
 
-      return { sale, updatedTable };
-    });
+      emitSaleRegistered(restaurantId, sale);
+      emitTableChanged(restaurantId, updatedTable);
 
-    emitSaleRegistered(restaurantId, sale);
-    emitTableChanged(restaurantId, updatedTable);
-
-    return sale;
+      return sale;
+    } catch (err) {
+      if (imageUrl) await removeSavedImage(imageUrl).catch(() => {});
+      throw err;
+    }
   },
 
   /**
@@ -240,13 +271,18 @@ export const salesService = {
       CARD:     { count: 0, amount: 0 },
       TRANSFER: { count: 0, amount: 0 },
     };
-    let total = 0;
+    let totalCents = 0;
+    const byMethodCents: Record<PaymentMethod, number> = { CASH: 0, CARD: 0, TRANSFER: 0 };
     for (const s of sales) {
-      const amount = Number(s.amount);
-      total += amount;
+      // amount es lo que entregó el cliente (incluye el vuelto): lo cobrado es min(amount, total)
+      const collected = collectedCents(s);
+      totalCents += collected;
       byMethod[s.paymentMethod].count += 1;
-      byMethod[s.paymentMethod].amount += amount;
+      byMethodCents[s.paymentMethod] += collected;
     }
-    return { total, count: sales.length, byMethod };
+    for (const m of Object.keys(byMethodCents) as PaymentMethod[]) {
+      byMethod[m].amount = fromCents(byMethodCents[m]);
+    }
+    return { total: fromCents(totalCents), count: sales.length, byMethod };
   },
 };

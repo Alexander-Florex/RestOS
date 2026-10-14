@@ -2,7 +2,7 @@
 // admin-helpers.ts — Labels y estilos de inventario y staff
 // ──────────────────────────────────────────────
 import { Apple, GlassWater, Package, Wrench } from 'lucide-react';
-import type { InventoryCategory, InventoryItem, StaffRole, UserRole } from './api';
+import type { InventoryCategory, InventoryItem, StaffRole } from './api';
 
 // ── Inventario ──
 export const INVENTORY_CATEGORY_LABEL: Record<InventoryCategory, string> = {
@@ -27,10 +27,10 @@ export const INVENTORY_CATEGORY_ICON: Record<InventoryCategory, typeof Apple> = 
 };
 
 export const INVENTORY_CATEGORY_STYLE: Record<InventoryCategory, { text: string; bg: string; border: string }> = {
-  FOOD:      { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
-  BEVERAGE:  { text: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30'    },
+  FOOD:      { text: 'text-brand-400', bg: 'bg-brand-500/10', border: 'border-brand-500/30' },
+  BEVERAGE:  { text: 'text-sky-400',    bg: 'bg-sky-500/10',    border: 'border-sky-500/30'    },
   SUPPLIES:  { text: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/30'   },
-  EQUIPMENT: { text: 'text-purple-400',  bg: 'bg-purple-500/10',  border: 'border-purple-500/30'  },
+  EQUIPMENT: { text: 'text-violet-400',  bg: 'bg-violet-500/10',  border: 'border-violet-500/30'  },
 };
 
 /** Calcula el nivel de stock relativo al mínimo. */
@@ -63,10 +63,10 @@ export const STAFF_ROLE_OPTIONS = [
 ] as const;
 
 export const STAFF_ROLE_STYLE: Record<StaffRole, { text: string; bg: string; border: string }> = {
-  WAITER:  { text: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30'    },
+  WAITER:  { text: 'text-sky-400',    bg: 'bg-sky-500/10',    border: 'border-sky-500/30'    },
   CHEF:    { text: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/30'   },
-  MANAGER: { text: 'text-purple-400',  bg: 'bg-purple-500/10',  border: 'border-purple-500/30'  },
-  CASHIER: { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  MANAGER: { text: 'text-violet-400',  bg: 'bg-violet-500/10',  border: 'border-violet-500/30'  },
+  CASHIER: { text: 'text-brand-400', bg: 'bg-brand-500/10', border: 'border-brand-500/30' },
 };
 
 /** Devuelve "JG" desde "Juan García". */
@@ -77,21 +77,18 @@ export function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-// ── Usuarios (cuentas de login) ──
-export const USER_ROLE_LABEL: Record<UserRole, string> = {
-  ADMIN:  'Administrador',
-  STAFF:  'Personal',
-  WAITER: 'Mesero',
-};
+// ── Roles (cuentas de login) ──
+const ROLE_STYLES = {
+  ADMIN:   { text: 'text-brand-300',  bg: 'bg-brand-500/10',  border: 'border-brand-500/30'  },
+  CASHIER: { text: 'text-amber-300',  bg: 'bg-amber-500/10',  border: 'border-amber-500/30'  },
+  WAITER:  { text: 'text-sky-300',    bg: 'bg-sky-500/10',    border: 'border-sky-500/30'    },
+  CUSTOM:  { text: 'text-violet-300', bg: 'bg-violet-500/10', border: 'border-violet-500/30' },
+  NONE:    { text: 'text-muted-foreground', bg: 'bg-white/[0.04]', border: 'border-white/10' },
+} as const;
 
-export const USER_ROLE_OPTIONS = [
-  { value: 'ADMIN'  as UserRole, label: 'Administrador' },
-  { value: 'STAFF'  as UserRole, label: 'Personal' },
-  { value: 'WAITER' as UserRole, label: 'Mesero' },
-] as const;
-
-export const USER_ROLE_STYLE: Record<UserRole, { text: string; bg: string; border: string }> = {
-  ADMIN:  { text: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30'    },
-  STAFF:  { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
-  WAITER: { text: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30'    },
-};
+/** Colores del rol: los de sistema tienen el suyo; los creados por el admin, violeta. */
+export function roleStyle(role: { key: string | null } | null | undefined) {
+  if (!role) return ROLE_STYLES.NONE;
+  if (role.key === 'ADMIN' || role.key === 'CASHIER' || role.key === 'WAITER') return ROLE_STYLES[role.key];
+  return ROLE_STYLES.CUSTOM;
+}

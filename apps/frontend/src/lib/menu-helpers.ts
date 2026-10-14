@@ -30,7 +30,7 @@ export const STOCK_LABEL: Record<StockStatus, string> = {
 };
 
 export const STOCK_STYLE: Record<StockStatus, { text: string; bg: string; border: string; dot: string }> = {
-  IN_STOCK:     { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', dot: 'bg-emerald-500' },
+  IN_STOCK:     { text: 'text-brand-400', bg: 'bg-brand-500/10', border: 'border-brand-500/30', dot: 'bg-brand-500' },
   LOW_STOCK:    { text: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   dot: 'bg-amber-500'   },
   OUT_OF_STOCK: { text: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    dot: 'bg-rose-500'    },
 };

@@ -6,7 +6,7 @@
 // ──────────────────────────────────────────────
 import { Router } from 'express';
 import { tablesController } from './tables.controller.js';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requirePermission } from '../../middleware/auth.js';
 import { asyncHandler } from '../../lib/async-handler.js';
 
 const router = Router();
@@ -19,16 +19,16 @@ router.get('/',     asyncHandler(tablesController.list));
 router.get('/:id',  asyncHandler(tablesController.getById));
 
 // ── CRUD estructural — solo ADMIN ──
-router.post('/',                requireRole('ADMIN'), asyncHandler(tablesController.create));
-router.patch('/:id',            requireRole('ADMIN'), asyncHandler(tablesController.update));
-router.delete('/:id',           requireRole('ADMIN'), asyncHandler(tablesController.remove));
-router.post('/:id/toggle',      requireRole('ADMIN'), asyncHandler(tablesController.toggleEnabled));
+router.post('/',                requirePermission('tables.manage'), asyncHandler(tablesController.create));
+router.patch('/:id',            requirePermission('tables.manage'), asyncHandler(tablesController.update));
+router.delete('/:id',           requirePermission('tables.manage'), asyncHandler(tablesController.remove));
+router.post('/:id/toggle',      requirePermission('tables.manage'), asyncHandler(tablesController.toggleEnabled));
 
 // ── Acciones de estado — ADMIN o STAFF ──
-router.post('/:id/open',                requireRole('ADMIN', 'STAFF'), asyncHandler(tablesController.open));
-router.post('/:id/request-bill',        requireRole('ADMIN', 'STAFF'), asyncHandler(tablesController.requestBill));
-router.post('/:id/close',               requireRole('ADMIN', 'STAFF'), asyncHandler(tablesController.close));
-router.post('/:id/reserve',             requireRole('ADMIN', 'STAFF'), asyncHandler(tablesController.reserve));
-router.post('/:id/cancel-reservation',  requireRole('ADMIN', 'STAFF'), asyncHandler(tablesController.cancelReservation));
+router.post('/:id/open',                requirePermission('tables.operate'), asyncHandler(tablesController.open));
+router.post('/:id/request-bill',        requirePermission('tables.operate'), asyncHandler(tablesController.requestBill));
+router.post('/:id/close',               requirePermission('tables.operate'), asyncHandler(tablesController.close));
+router.post('/:id/reserve',             requirePermission('tables.operate'), asyncHandler(tablesController.reserve));
+router.post('/:id/cancel-reservation',  requirePermission('tables.operate'), asyncHandler(tablesController.cancelReservation));
 
 export { router as tablesRouter };

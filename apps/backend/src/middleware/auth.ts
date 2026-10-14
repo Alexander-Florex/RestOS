@@ -4,6 +4,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import { verifyToken, type JwtPayload } from '../lib/jwt.js';
 import { HttpError } from '../lib/http-error.js';
+import type { Permission } from '../lib/permissions.js';
+import { rolesService } from '../modules/roles/roles.service.js';
 
 // Extiende el Request de Express con el user autenticado
 declare global {
@@ -34,18 +36,25 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
 }
 
 /**
- * Restringe el endpoint a los roles indicados.
+ * Restringe el endpoint a usuarios cuyo rol tenga AL MENOS UNO de los permisos indicados.
+ * Lee el rol desde la base (caché corta), así los cambios de permisos y las bajas
+ * de usuarios se aplican sin esperar a que venza el token.
  * Usar siempre después de authenticate.
  *
- * Ejemplo: router.delete('/foo', authenticate, requireRole('ADMIN'), handler);
+ * Ejemplo: router.post('/', authenticate, requirePermission('sales.charge'), handler);
  */
-export function requireRole(...roles: Array<JwtPayload['role']>) {
+export function requirePermission(...perms: Permission[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) return next(HttpError.unauthorized());
-    if (!roles.includes(req.user.role)) {
-      return next(HttpError.forbidden('No tenés permiso para esta acción'));
-    }
-    next();
+    rolesService.getAccess(req.user.userId, req.user.restaurantId)
+      .then((access) => {
+        if (!access.active) return next(HttpError.unauthorized('Sesión inválida'));
+        if (!perms.some(p => access.permissions.includes(p))) {
+          return next(HttpError.forbidden('No tenés permiso para esta acción'));
+        }
+        next();
+      })
+      .catch(next);
   };
 }
 

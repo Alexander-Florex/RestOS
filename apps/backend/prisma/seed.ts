@@ -1,15 +1,31 @@
 // ──────────────────────────────────────────────
-// Seed — Datos iniciales de demo
-// Corre: npm run db:seed
+// Seed — Datos iniciales de demo (SOLO DESARROLLO)
+// Corre: npm run db:seed            (base vacía)
+//        npm run db:seed -- --force (pisa una base de desarrollo con datos)
+// En producción no corre nunca: para el alta del cliente usar
+// prisma/reset-restaurant.ts.
 // ──────────────────────────────────────────────
 import 'dotenv/config';
 import { PrismaClient, UserRole, TableStatus, StockStatus, InventoryCategory, StaffRole, ReservationStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { checkSeedAllowed } from './seed-guard.js';
+import { SYSTEM_ROLES, type SystemRoleKey } from '../src/lib/permissions.js';
 
 const prisma = new PrismaClient();
 const ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
 
 async function main() {
+  const guard = checkSeedAllowed({
+    nodeEnv: process.env.NODE_ENV,
+    restaurantCount: await prisma.restaurant.count(),
+    force: process.argv.includes('--force'),
+  });
+  if (!guard.ok) {
+    console.error(`⛔ Seed cancelado. ${guard.reason}`);
+    process.exitCode = 1;
+    return;
+  }
+
   console.log('🌱  Iniciando seed...\n');
 
   // ── Limpieza (orden importa por foreign keys) ──
@@ -39,11 +55,19 @@ async function main() {
   const restaurantId = restaurant.id;
   console.log(`🏠 Restaurante creado: ${restaurant.name} (id=${restaurantId})`);
 
+  // ── ROLES DE SISTEMA (Administrador, Mesero, Cajero) ──
+  const roleIds = {} as Record<SystemRoleKey, number>;
+  for (const key of Object.keys(SYSTEM_ROLES) as SystemRoleKey[]) {
+    const def = SYSTEM_ROLES[key];
+    const role = await prisma.role.create({ data: { restaurantId, key, name: def.name, permissions: [...def.permissions] } });
+    roleIds[key] = role.id;
+  }
+
   // ── USUARIOS (los que loguean al sistema) ──
   const users = [
-    { username: 'admin',     email: 'admin@resto.com', name: 'Administrador',   role: UserRole.ADMIN,  plain: 'admin123'  },
-    { username: 'mesero1',   email: 'maria@resto.com', name: 'María Rodríguez', role: UserRole.WAITER, plain: 'waiter123' },
-    { username: 'personal1', email: 'juan@resto.com',  name: 'Juan García',     role: UserRole.STAFF,  plain: 'staff123'  },
+    { username: 'admin',     email: 'admin@resto.com', name: 'Administrador',   role: UserRole.ADMIN,  roleId: roleIds.ADMIN,   plain: 'admin123'  },
+    { username: 'mesero1',   email: 'maria@resto.com', name: 'María Rodríguez', role: UserRole.WAITER, roleId: roleIds.WAITER,  plain: 'waiter123' },
+    { username: 'personal1', email: 'juan@resto.com',  name: 'Juan García',     role: UserRole.STAFF,  roleId: roleIds.CASHIER, plain: 'staff123'  },
   ];
 
   for (const u of users) {
@@ -55,6 +79,7 @@ async function main() {
         email: u.email,
         name: u.name,
         role: u.role,
+        roleId: u.roleId,
         password,
       },
     });
@@ -160,7 +185,7 @@ async function main() {
     return d;
   };
 
-  const reservationsData = [
+  const reservationsData: Array<{ customerName: string; customerPhone: string | null; partySize: number; reservedAt: Date; tableId: number | null; duration: number; notes?: string; status: ReservationStatus }> = [
     { customerName: 'Familia Pérez',  customerPhone: '+54 11 4444-1001', partySize: 4, reservedAt: at(0, 20, 30), tableId: 3,    duration: 120, notes: 'Cumpleaños',         status: ReservationStatus.CONFIRMED },
     { customerName: 'Luis Méndez',    customerPhone: '+54 11 4444-1002', partySize: 2, reservedAt: at(0, 21, 0),  tableId: 5,    duration: 90,                                status: ReservationStatus.CONFIRMED },
     { customerName: 'Carla Ferreira', customerPhone: '+54 11 4444-1003', partySize: 6, reservedAt: at(1, 13, 0),  tableId: null, duration: 120, notes: 'Almuerzo de trabajo', status: ReservationStatus.CONFIRMED },

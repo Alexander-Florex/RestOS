@@ -22,6 +22,7 @@ import { sectionsRouter } from './modules/sections/sections.routes.js';
 import { printingRouter } from './modules/printing/printing.routes.js';
 import { takeawayRouter } from './modules/takeaway/takeaway.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
+import { rolesRouter } from './modules/roles/roles.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { prisma } from './lib/prisma.js';
 import path from 'node:path';
@@ -74,6 +75,7 @@ export function buildApp(): Express {
   app.use('/api/printing',     printingRouter);
   app.use('/api/takeaway',     takeawayRouter);
   app.use('/api/users',        usersRouter);
+  app.use('/api/roles',        rolesRouter);
 
   // ── 404 y manejo de errores (siempre al final) ──
   app.use(notFoundHandler);

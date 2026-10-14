@@ -30,8 +30,9 @@ interface TableDetailModalProps {
 }
 
 export function TableDetailModal({ table, open, onClose }: TableDetailModalProps) {
-  const { user } = useAuth();
-  const isAdminOrStaff = user?.role === 'ADMIN' || user?.role === 'STAFF';
+  const { can } = useAuth();
+  const canOperate = can('tables.operate');
+  const canCharge = can('sales.charge');
 
   const [openingMode, setOpeningMode] = useState(false);
   const [guestCount, setGuestCount] = useState(1);
@@ -94,8 +95,8 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
             >
               <Minus className="h-4 w-4" />
             </Button>
-            <div className="flex h-24 w-24 items-center justify-center rounded-2xl border-2 border-emerald-500/40 bg-emerald-500/5">
-              <span className="text-4xl font-bold text-emerald-400 tabular-nums">{guestCount}</span>
+            <div className="flex h-24 w-24 items-center justify-center rounded-2xl border-2 border-brand-500/40 bg-brand-500/5">
+              <span className="text-4xl font-bold text-brand-400 tabular-nums">{guestCount}</span>
             </div>
             <Button
               variant="outline" size="icon"
@@ -158,7 +159,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
 
           {/* Info de la mesa */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-border bg-background/50 p-3">
+            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Users className="h-3 w-3" /> Comensales
               </div>
@@ -166,7 +167,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                 {table.guestCount !== null ? `${table.guestCount} / ${table.capacity}` : `— / ${table.capacity}`}
               </p>
             </div>
-            <div className="rounded-xl border border-border bg-background/50 p-3">
+            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Clock className="h-3 w-3" /> Tiempo
               </div>
@@ -176,10 +177,10 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
 
           {/* Pedidos de la mesa */}
           {showOrdersSection && (
-            <div className="mt-4 rounded-xl border border-border bg-background/50 p-4">
+            <div className="mt-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <ShoppingBag className="h-4 w-4 text-emerald-400" />
+                  <ShoppingBag className="h-4 w-4 text-brand-400" />
                   <p className="text-sm font-semibold">Pedidos de la mesa</p>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -212,7 +213,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                       return (
                         <div key={order.id} className={cn(
                           'rounded-lg border p-3',
-                          isLatest ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-border'
+                          isLatest ? 'border-brand-500/30 bg-brand-500/5' : 'border-border'
                         )}>
                           {/* Header del pedido */}
                           <div className="mb-2 flex items-center justify-between gap-2">
@@ -221,7 +222,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                                 Pedido #{order.id}
                               </span>
                               {isLatest && (
-                                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-400">
+                                <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand-400">
                                   Último
                                 </span>
                               )}
@@ -231,8 +232,8 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                                 </span>
                               )}
                             </div>
-                            {/* Botón imprimir — solo ADMIN/STAFF */}
-                            {isAdminOrStaff && (
+                            {/* Botón imprimir — quien opera mesas */}
+                            {canOperate && (
                               <button
                                 onClick={() => {
                                   const printerName = printerPrefs.getPrinter();
@@ -247,7 +248,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                                     .then(() => toast.success(`Pedido #${order.id} enviado a cocina`))
                                     .catch(err => toast.error(err?.message ?? 'Error al imprimir'));
                                 }}
-                                className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-emerald-500/40 hover:text-emerald-400"
+                                className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-brand-500/40 hover:text-brand-400"
                                 title={`Reimprimir pedido #${order.id} en cocina`}
                               >
                                 <Printer className="h-3 w-3" />
@@ -290,7 +291,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                   {/* Total global */}
                   <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
                     <span className="text-sm font-semibold">Total</span>
-                    <span className="text-lg font-bold text-emerald-400 tabular-nums">
+                    <span className="text-lg font-bold text-brand-400 tabular-nums">
                       {formatMoney(total)}
                     </span>
                   </div>
@@ -299,8 +300,8 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
             </div>
           )}
 
-          {/* Acciones para ADMIN y STAFF */}
-          {isAdminOrStaff && (
+          {/* Acciones de quien opera mesas (abrir, pedir cuenta, liberar, reservar). Cobrar requiere sales.charge. */}
+          {canOperate && (
             <div className="mt-5 space-y-2">
               {table.status === 'AVAILABLE' && (
                 <>
@@ -337,10 +338,12 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                   </Button>
                   {hasOrders ? (
                     <>
-                      <Button className="w-full" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
-                        <CreditCard className="h-4 w-4" />
-                        Cobrar y cerrar mesa
-                      </Button>
+                      {canCharge && (
+                        <Button className="w-full" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
+                          <CreditCard className="h-4 w-4" />
+                          Cobrar y cerrar mesa
+                        </Button>
+                      )}
                       <PrintButton
                         label="Imprimir pedido"
                         variant="outline"
@@ -372,10 +375,12 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                 <>
                   {hasOrders ? (
                     <>
-                      <Button className="w-full" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
-                        <CreditCard className="h-4 w-4" />
-                        Cobrar y cerrar mesa
-                      </Button>
+                      {canCharge && (
+                        <Button className="w-full" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
+                          <CreditCard className="h-4 w-4" />
+                          Cobrar y cerrar mesa
+                        </Button>
+                      )}
                       <PrintButton
                         label="Imprimir pedido"
                         variant="outline"
@@ -425,42 +430,23 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
             </div>
           )}
 
-          {/* Acciones para WAITER — puede pedir cuenta y cobrar (sin imprimir) */}
-          {!isAdminOrStaff && user?.role === 'WAITER' && (
+          {/* Sin permiso para operar mesas: puede cobrar si su rol lo permite */}
+          {!canOperate && (
             <div className="mt-5 space-y-2">
-              {(table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED') && hasOrders && (
-                <>
-                  {table.status === 'OCCUPIED' && (
-                    <Button
-                      variant="outline" className="w-full"
-                      disabled={submitting}
-                      onClick={() => runAction(
-                        () => tablesApi.requestBill(table.id),
-                        `Cuenta pedida en mesa ${table.number}`
-                      )}
-                    >
-                      <Receipt className="h-4 w-4" />
-                      Pedir cuenta
-                    </Button>
-                  )}
-                  <Button
-                    className="w-full"
-                    onClick={() => setCloseModalOpen(true)}
-                    disabled={submitting}
-                  >
-                    <CreditCard className="h-4 w-4" />
-                    Cobrar y cerrar mesa
-                  </Button>
-                </>
+              {(table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED') && hasOrders && canCharge && (
+                <Button className="w-full" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
+                  <CreditCard className="h-4 w-4" />
+                  Cobrar y cerrar mesa
+                </Button>
               )}
-              {!hasOrders && (table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED') && (
-                <p className="rounded-lg border border-dashed border-border px-3 py-2 text-center text-xs text-muted-foreground">
-                  La mesa no tiene pedidos registrados
+              {(table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED') && hasOrders && !canCharge && (
+                <p className="rounded-2xl border border-dashed border-white/10 px-3 py-2.5 text-center text-xs text-muted-foreground">
+                  El cobro lo hace caja.
                 </p>
               )}
-              {table.status === 'AVAILABLE' && (
-                <p className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-center text-xs text-muted-foreground">
-                  Mesa libre — usá la vista de mesero para tomar pedidos
+              {!hasOrders && (table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED') && (
+                <p className="rounded-2xl border border-dashed border-white/10 px-3 py-2.5 text-center text-xs text-muted-foreground">
+                  La mesa no tiene pedidos registrados
                 </p>
               )}
             </div>

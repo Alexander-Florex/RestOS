@@ -24,6 +24,7 @@ model Restaurant {
   updatedAt DateTime @updatedAt
 
   users          User[]
+  roles          Role[]
   sections       Section[]
   tables         Table[]
   menuItems      MenuItem[]
@@ -50,7 +51,10 @@ model User {
   email        String
   password     String
   name         String
+  /// Legado: se mantiene sincronizado con roleId (ADMIN / WAITER sin panel / STAFF). Los permisos salen de roleId.
   role         UserRole   @default(STAFF)
+  roleId       Int?
+  roleRef      Role?      @relation(fields: [roleId], references: [id], onDelete: SetNull)
   active       Boolean    @default(true)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -62,7 +66,28 @@ model User {
   @@unique([restaurantId, username])
   @@unique([restaurantId, email])
   @@index([restaurantId])
+  @@index([roleId])
   @@map("users")
+}
+
+/// Rol configurable por restaurante. Los roles de sistema (key != null) no se borran;
+/// el de ADMIN tiene siempre todos los permisos.
+model Role {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  key          String?
+  permissions  Json
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  users User[]
+
+  @@unique([restaurantId, name])
+  @@unique([restaurantId, key])
+  @@index([restaurantId])
+  @@map("roles")
 }
 
 enum UserRole {

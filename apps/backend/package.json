@@ -12,8 +12,10 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
+    "test": "tsx --test prisma/seed-guard.test.ts test/permissions.test.ts",
+    "test:db": "tsx --test --test-concurrency=1 test/sales.db.test.ts test/roles.db.test.ts",
     "db:studio": "prisma studio",
-    "db:setup": "prisma migrate dev --name init && tsx prisma/seed.ts"
+    "db:setup": "tsx prisma/setup.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

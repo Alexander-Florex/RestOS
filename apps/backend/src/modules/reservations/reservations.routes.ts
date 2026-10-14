@@ -4,7 +4,7 @@
 // ──────────────────────────────────────────────
 import { Router } from 'express';
 import { reservationsController } from './reservations.controller.js';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requirePermission } from '../../middleware/auth.js';
 import { asyncHandler } from '../../lib/async-handler.js';
 
 const router = Router();
@@ -16,7 +16,7 @@ router.get('/upcoming',  asyncHandler(reservationsController.upcoming));
 router.get('/:id',       asyncHandler(reservationsController.getById));
 
 // Modificación: ADMIN o STAFF
-router.use(requireRole('ADMIN', 'STAFF'));
+router.use(requirePermission('reservations.manage'));
 
 router.post('/',                       asyncHandler(reservationsController.create));
 router.patch('/:id',                   asyncHandler(reservationsController.update));

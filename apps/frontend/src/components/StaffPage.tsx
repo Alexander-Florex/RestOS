@@ -80,7 +80,7 @@ function ArcaWidget({ member }: { member: StaffMember }) {
 
   if (!member.cuit) {
     return (
-      <span className="rounded-full border border-dashed border-border px-2.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+      <span className="rounded-full border border-dashed border-white/10 px-2.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
         Sin CUIT
       </span>
     );
@@ -95,10 +95,10 @@ function ArcaWidget({ member }: { member: StaffMember }) {
         className={cn(
           'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider transition-colors',
           hasData && isActive
-            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15'
+            ? 'border-brand-500/30 bg-brand-500/10 text-brand-400 hover:bg-brand-500/15'
             : hasData && !isActive
               ? 'border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/15'
-              : 'border-border bg-secondary/30 text-muted-foreground hover:text-foreground'
+              : 'border-border bg-white/[0.04] text-muted-foreground hover:text-foreground'
         )}
       >
         {loading ? (
@@ -118,7 +118,7 @@ function ArcaWidget({ member }: { member: StaffMember }) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {isActive
-                ? <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                ? <ShieldCheck className="h-5 w-5 text-brand-400" />
                 : <ShieldX className="h-5 w-5 text-rose-400" />
               }
               Estado ARCA — {member.name}
@@ -134,19 +134,19 @@ function ArcaWidget({ member }: { member: StaffMember }) {
               <div className={cn(
                 'flex items-center gap-3 rounded-xl border px-4 py-3',
                 isActive
-                  ? 'border-emerald-500/30 bg-emerald-500/5'
+                  ? 'border-brand-500/30 bg-brand-500/5'
                   : isError
                     ? 'border-amber-500/30 bg-amber-500/5'
                     : 'border-rose-500/30 bg-rose-500/5'
               )}>
                 {isActive
-                  ? <ShieldCheck className="h-6 w-6 shrink-0 text-emerald-400" />
+                  ? <ShieldCheck className="h-6 w-6 shrink-0 text-brand-400" />
                   : isError
                     ? <AlertTriangle className="h-6 w-6 shrink-0 text-amber-400" />
                     : <ShieldX className="h-6 w-6 shrink-0 text-rose-400" />
                 }
                 <div>
-                  <p className={cn('font-semibold', isActive ? 'text-emerald-400' : isError ? 'text-amber-400' : 'text-rose-400')}>
+                  <p className={cn('font-semibold', isActive ? 'text-brand-400' : isError ? 'text-amber-400' : 'text-rose-400')}>
                     {data.estadoClave.replace(/_/g, ' ')}
                   </p>
                   {data.nombre && (
@@ -161,13 +161,13 @@ function ArcaWidget({ member }: { member: StaffMember }) {
               {/* Info fiscal */}
               {!isError && (
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-border bg-background/50 p-3">
+                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Condición</p>
                     <p className="mt-1 text-sm font-medium">
                       {isMono ? 'Monotributista' : data.impuestos.length > 0 ? 'Responsable Inscripto' : 'Sin impuestos'}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-border bg-background/50 p-3">
+                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Categoría</p>
                     <p className="mt-1 text-sm font-medium">
                       {monocat ?? (isMono ? 'Monotributo' : '—')}
@@ -182,8 +182,8 @@ function ArcaWidget({ member }: { member: StaffMember }) {
                   <p className="text-xs uppercase tracking-wider text-muted-foreground">Impuestos registrados</p>
                   <div className="max-h-28 overflow-y-auto space-y-1">
                     {data.impuestos.map((imp) => (
-                      <div key={imp.idImpuesto} className="flex items-center gap-2 rounded-lg bg-secondary/30 px-3 py-1.5 text-xs">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      <div key={imp.idImpuesto} className="flex items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-1.5 text-xs">
+                        <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
                         {imp.descripcionImpuesto}
                       </div>
                     ))}
@@ -240,8 +240,8 @@ const EMPTY_FORM: FormState = {
 };
 
 export function StaffPage() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { user, can } = useAuth();
+  const isAdmin = can('staff.manage');
   const confirm = useConfirm();
 
   const { members, loading } = useStaff();
@@ -268,8 +268,8 @@ export function StaffPage() {
 
   if (!isAdmin) {
     return (
-      <div className="rounded-2xl border border-border bg-card p-12 text-center">
-        <p className="text-sm text-muted-foreground">Solo los administradores pueden gestionar el personal.</p>
+      <div className="glass rounded-3xl p-12 text-center">
+        <p className="text-sm text-muted-foreground">Tu rol no tiene permiso para gestionar el personal.</p>
       </div>
     );
   }
@@ -359,9 +359,10 @@ export function StaffPage() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Personal</h2>
+          <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-400"><span className="h-px w-6 bg-gradient-to-r from-brand-400 to-transparent" />Equipo</p>
+          <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Personal</h2>
           <p className="text-sm text-muted-foreground">
             {activeCount} {activeCount === 1 ? 'activo' : 'activos'}
             {inactiveCount > 0 && ` · ${inactiveCount} inactivos`}
@@ -400,7 +401,7 @@ export function StaffPage() {
 
       {/* Grid de miembros */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-sm text-muted-foreground">
           {search ? 'No hay resultados para esa búsqueda' : 'No hay miembros en este filtro'}
         </div>
       ) : (
@@ -411,7 +412,7 @@ export function StaffPage() {
               <div
                 key={m.id}
                 className={cn(
-                  'flex flex-col gap-3 rounded-2xl border border-border bg-card p-4',
+                  'flex flex-col gap-3 glass rounded-3xl p-4',
                   !m.active && 'opacity-60'
                 )}
               >
@@ -463,7 +464,7 @@ export function StaffPage() {
                 <div className="flex items-center justify-end gap-1 border-t border-border pt-3">
                   <Button variant="ghost" size="icon" onClick={() => handleToggle(m)} title={m.active ? 'Dar de baja' : 'Reactivar'}>
                     {m.active
-                      ? <ToggleRight className="h-5 w-5 text-emerald-400" />
+                      ? <ToggleRight className="h-5 w-5 text-brand-400" />
                       : <ToggleLeft className="h-5 w-5 text-muted-foreground" />
                     }
                   </Button>
@@ -537,14 +538,14 @@ export function StaffPage() {
               </p>
             </div>
 
-            <div className="flex items-center justify-between rounded-xl border border-border bg-background/50 px-3 py-2.5">
+            <div className="flex items-center justify-between rounded-2xl border border-white/[0.07] bg-white/[0.025] px-3 py-2.5">
               <div>
                 <p className="text-sm font-medium">Estado activo</p>
                 <p className="text-xs text-muted-foreground">Los inactivos no aparecen por defecto</p>
               </div>
               <button type="button" onClick={() => setForm(f => ({ ...f, active: !f.active }))} disabled={submitting}>
                 {form.active
-                  ? <ToggleRight className="h-6 w-6 text-emerald-400" />
+                  ? <ToggleRight className="h-6 w-6 text-brand-400" />
                   : <ToggleLeft className="h-6 w-6 text-muted-foreground" />
                 }
               </button>
@@ -571,11 +572,11 @@ function FilterChip({ active, onClick, label, count, muted }: {
     <button onClick={onClick} className={cn(
       'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
       active
-        ? muted ? 'border-muted-foreground/40 bg-secondary text-foreground' : 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-        : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+        ? muted ? 'border-muted-foreground/40 bg-secondary text-foreground' : 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+        : 'border-border bg-white/[0.06] text-muted-foreground hover:text-foreground'
     )}>
       {label}
-      <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', active && !muted ? 'bg-emerald-500/20' : 'bg-background/50')}>
+      <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', active && !muted ? 'bg-brand-500/20' : 'bg-white/[0.03]')}>
         {count}
       </span>
     </button>

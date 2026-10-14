@@ -3,18 +3,17 @@
 // ──────────────────────────────────────────────
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { UserRole } from '@prisma/client';
 import { usersService } from './users.service.js';
 import { HttpError } from '../../lib/http-error.js';
 
-const roleEnum = z.nativeEnum(UserRole);
+const roleId = z.coerce.number({ invalid_type_error: 'Elegí un rol' }).int().positive('Elegí un rol');
 
 const createSchema = z.object({
   username: z.string().trim().min(3, 'Mínimo 3 caracteres').max(50),
   email:    z.string().email('Email inválido').trim(),
   password: z.string().min(4, 'Mínimo 4 caracteres'),
   name:     z.string().trim().min(1, 'Nombre requerido'),
-  role:     roleEnum,
+  roleId,
   active:   z.boolean().optional(),
 });
 
@@ -23,7 +22,7 @@ const updateSchema = z.object({
   email:    z.string().email('Email inválido').trim().optional(),
   password: z.string().min(4, 'Mínimo 4 caracteres').optional(),
   name:     z.string().trim().min(1).optional(),
-  role:     roleEnum.optional(),
+  roleId:   roleId.optional(),
   active:   z.boolean().optional(),
 });
 
