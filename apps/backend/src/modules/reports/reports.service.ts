@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { PaymentMethod } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
+import { collectedCents, fromCents } from '../../lib/money.js';
 
 export interface ReportRange {
   from: Date;
@@ -62,7 +63,8 @@ export const reportsService = {
     });
 
     const totalSold = sales.reduce((sum, s) => sum + Number(s.total), 0);
-    const totalCollected = sales.reduce((sum, s) => sum + Number(s.amount), 0);
+    // amount incluye el vuelto en efectivo: lo cobrado de cada venta es min(amount, total)
+    const totalCollected = fromCents(sales.reduce((sum, s) => sum + collectedCents(s), 0));
     const salesCount = sales.length;
     const averageTicket = salesCount > 0 ? totalSold / salesCount : 0;
 

@@ -14,6 +14,7 @@
 import { TableStatus, type Order, type OrderItem, type Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
+import { lockTable } from '../../lib/table-lock.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 // Order con sus items y la mesa, listo para enviar al frontend
@@ -41,6 +42,26 @@ export interface CreateOrderInput {
   notes?: string;
   items: CreateOrderItemInput[];
   createdById?: number;
+}
+
+/** Valida que la mesa pueda recibir un pedido (y abrirse si está libre). */
+function assertTableAcceptsOrder(
+  table: { status: TableStatus; capacity: number },
+  guestCount: number | undefined,
+) {
+  if (table.status === TableStatus.RESERVED) {
+    throw HttpError.badRequest('La mesa está reservada — abrila antes de tomar pedido');
+  }
+
+  // Si la mesa está libre, debe abrirse con guestCount
+  if (table.status === TableStatus.AVAILABLE) {
+    if (!guestCount || guestCount < 1) {
+      throw HttpError.badRequest('La mesa está libre. Especificá la cantidad de comensales para abrirla.');
+    }
+    if (guestCount > table.capacity) {
+      throw HttpError.badRequest(`La mesa tiene capacidad para ${table.capacity} comensales`);
+    }
+  }
 }
 
 export const ordersService = {
@@ -88,22 +109,10 @@ export const ordersService = {
       throw HttpError.badRequest('El pedido debe tener al menos un item');
     }
 
-    // Validar la mesa
+    // Validación temprana de la mesa (se repite dentro de la transacción con la fila bloqueada)
     const table = await prisma.table.findFirst({ where: { id: input.tableId, restaurantId } });
     if (!table) throw HttpError.notFound('Mesa no encontrada');
-    if (table.status === TableStatus.RESERVED) {
-      throw HttpError.badRequest('La mesa está reservada — abrila antes de tomar pedido');
-    }
-
-    // Si la mesa está libre, debe abrirse con guestCount
-    if (table.status === TableStatus.AVAILABLE) {
-      if (!input.guestCount || input.guestCount < 1) {
-        throw HttpError.badRequest('La mesa está libre. Especificá la cantidad de comensales para abrirla.');
-      }
-      if (input.guestCount > table.capacity) {
-        throw HttpError.badRequest(`La mesa tiene capacidad para ${table.capacity} comensales`);
-      }
-    }
+    assertTableAcceptsOrder(table, input.guestCount);
 
     // Tomar snapshot de precios actuales y nombres de los items del menú
     const menuItemIds = input.items.map(i => i.menuItemId);
@@ -129,8 +138,15 @@ export const ordersService = {
       }
     }
 
-    // Transacción: crear order + abrir mesa si corresponde
+    // Transacción: bloquear mesa + crear order + abrir mesa si corresponde.
+    // El lock pone este pedido en fila con un cobro simultáneo de la misma mesa
+    // (ver lib/table-lock.ts): si la mesa se cobró mientras tanto, se revalida
+    // como mesa libre en vez de dejar un pedido huérfano.
     const result = await prisma.$transaction(async (tx) => {
+      const locked = await lockTable(tx, restaurantId, input.tableId);
+      if (!locked) throw HttpError.notFound('Mesa no encontrada');
+      assertTableAcceptsOrder(locked, input.guestCount);
+
       const order = await tx.order.create({
         data: {
           restaurantId,
@@ -155,7 +171,7 @@ export const ordersService = {
 
       // Si la mesa estaba libre, abrirla
       let updatedTable: Prisma.TableGetPayload<{}> | null = null;
-      if (table.status === TableStatus.AVAILABLE) {
+      if (locked.status === TableStatus.AVAILABLE) {
         updatedTable = await tx.table.update({
           where: { id: input.tableId },
           data: {
