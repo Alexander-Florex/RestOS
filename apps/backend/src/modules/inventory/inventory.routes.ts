@@ -5,22 +5,22 @@
 // ──────────────────────────────────────────────
 import { Router } from 'express';
 import { inventoryController } from './inventory.controller.js';
-import { authenticate, requireRole } from '../../middleware/auth.js';
+import { authenticate, requirePermission } from '../../middleware/auth.js';
 import { asyncHandler } from '../../lib/async-handler.js';
 
 const router = Router();
 router.use(authenticate);
-router.use(requireRole('ADMIN', 'STAFF'));
+router.use(requirePermission('inventory.view'));
 
 router.get('/',     asyncHandler(inventoryController.list));
 router.get('/:id',  asyncHandler(inventoryController.getById));
 
-router.post('/',           requireRole('ADMIN'), asyncHandler(inventoryController.create));
-router.patch('/:id',       requireRole('ADMIN'), asyncHandler(inventoryController.update));
-router.delete('/:id',      requireRole('ADMIN'), asyncHandler(inventoryController.remove));
+router.post('/',           requirePermission('inventory.manage'), asyncHandler(inventoryController.create));
+router.patch('/:id',       requirePermission('inventory.manage'), asyncHandler(inventoryController.update));
+router.delete('/:id',      requirePermission('inventory.manage'), asyncHandler(inventoryController.remove));
 
 // ADMIN y STAFF pueden reabastecer / consumir (operativo del día)
-router.post('/:id/restock', asyncHandler(inventoryController.restock));
-router.post('/:id/consume', asyncHandler(inventoryController.consume));
+router.post('/:id/restock', requirePermission('inventory.adjust'), asyncHandler(inventoryController.restock));
+router.post('/:id/consume', requirePermission('inventory.adjust'), asyncHandler(inventoryController.consume));
 
 export { router as inventoryRouter };

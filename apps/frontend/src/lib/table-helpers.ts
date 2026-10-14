@@ -17,34 +17,40 @@ export const TABLE_STATUS_STYLE: Record<TableStatus, {
   text: string;
   dot: string;
   glow: string;
+  /** Color hex del estado, para gradientes y animaciones. */
+  hex: string;
 }> = {
   AVAILABLE: {
-    border: 'border-emerald-500/40 hover:border-emerald-500/70',
-    bg:     'bg-emerald-500/5',
-    text:   'text-emerald-400',
-    dot:    'bg-emerald-500',
-    glow:   'shadow-[0_0_24px_-8px_rgba(16,185,129,0.4)]',
+    border: 'border-emerald-400/25 hover:border-emerald-400/60',
+    bg:     'bg-gradient-to-br from-emerald-500/[0.08] to-transparent',
+    text:   'text-emerald-300',
+    dot:    'bg-emerald-400',
+    glow:   'hover:shadow-[0_12px_40px_-12px_rgba(52,211,153,0.45)]',
+    hex:    '#34d399',
   },
   OCCUPIED: {
-    border: 'border-blue-500/40 hover:border-blue-500/70',
-    bg:     'bg-blue-500/5',
-    text:   'text-blue-400',
-    dot:    'bg-blue-500',
-    glow:   'shadow-[0_0_24px_-8px_rgba(59,130,246,0.4)]',
+    border: 'border-brand-400/35 hover:border-brand-400/70',
+    bg:     'bg-gradient-to-br from-brand-500/[0.16] to-brand-500/[0.02]',
+    text:   'text-brand-300',
+    dot:    'bg-brand-400',
+    glow:   'shadow-[0_12px_40px_-16px_rgba(251,106,38,0.55)]',
+    hex:    '#fb6a26',
   },
   BILL_REQUESTED: {
-    border: 'border-amber-500/50 hover:border-amber-500/80',
-    bg:     'bg-amber-500/10',
-    text:   'text-amber-400',
-    dot:    'bg-amber-500 animate-pulse',
-    glow:   'shadow-[0_0_24px_-8px_rgba(245,158,11,0.5)]',
+    border: 'border-amber-300/50 hover:border-amber-300/90',
+    bg:     'bg-gradient-to-br from-amber-400/[0.2] to-amber-400/[0.03]',
+    text:   'text-amber-200',
+    dot:    'bg-amber-300 animate-pulse',
+    glow:   'shadow-[0_12px_44px_-12px_rgba(252,211,77,0.6)]',
+    hex:    '#fcd34d',
   },
   RESERVED: {
-    border: 'border-purple-500/40 hover:border-purple-500/70',
-    bg:     'bg-purple-500/5',
-    text:   'text-purple-400',
-    dot:    'bg-purple-500',
-    glow:   'shadow-[0_0_24px_-8px_rgba(168,85,247,0.4)]',
+    border: 'border-violet-400/30 hover:border-violet-400/70',
+    bg:     'bg-gradient-to-br from-violet-500/[0.12] to-transparent',
+    text:   'text-violet-300',
+    dot:    'bg-violet-400',
+    glow:   'hover:shadow-[0_12px_40px_-12px_rgba(167,139,250,0.45)]',
+    hex:    '#a78bfa',
   },
 };
 

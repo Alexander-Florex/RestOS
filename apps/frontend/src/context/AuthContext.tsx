@@ -3,13 +3,16 @@
 // ──────────────────────────────────────────────
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { authApi, tokenStorage, restaurantIdStorage, type AuthUser, ApiError } from '../lib/api';
-import { connectSocket, disconnectSocket } from '../lib/socket';
+import { connectSocket, disconnectSocket, getSocket, SocketEvents } from '../lib/socket';
+import { can as canUser, type Permission } from '../lib/permissions';
 
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   login: (restaurantId: number, username: string, password: string) => Promise<void>;
   logout: () => void;
+  /** true si el usuario logueado tiene alguno de los permisos. */
+  can: (...perms: Permission[]) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -39,6 +42,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
+  // Si el administrador cambia el rol o desactiva al usuario conectado, refrescar sus permisos
+  const userId = user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    const socket = getSocket();
+    const onChanged = (changed: { id: number }) => {
+      if (changed.id !== userId) return;
+      authApi.me()
+        .then(({ user }) => setUser(user))
+        .catch(() => { tokenStorage.clear(); disconnectSocket(); setUser(null); });
+    };
+    socket.on(SocketEvents.USER_CHANGED, onChanged);
+    return () => { socket.off(SocketEvents.USER_CHANGED, onChanged); };
+  }, [userId]);
+
   const login = useCallback(async (restaurantId: number, username: string, password: string) => {
     try {
       const { user, token } = await authApi.login(restaurantId, username, password);
@@ -59,8 +77,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const can = useCallback((...perms: Permission[]) => canUser(user, ...perms), [user]);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, can }}>
       {children}
     </AuthContext.Provider>
   );

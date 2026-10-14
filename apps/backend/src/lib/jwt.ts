@@ -8,6 +8,7 @@ export interface JwtPayload {
   userId: number;
   restaurantId: number;
   username: string;
+  /** Legado e informativo: los permisos se resuelven en la base (requirePermission). */
   role: 'ADMIN' | 'WAITER' | 'STAFF';
 }
 

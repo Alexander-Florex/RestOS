@@ -332,7 +332,7 @@ export function TableAdminPanel() {
       <div>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <Settings2 className="h-4 w-4 text-emerald-400" />
+            <Settings2 className="h-4 w-4 text-brand-400" />
             Secciones
           </h3>
           <Button size="sm" onClick={() => { setEditingSection(null); setSectionFormOpen(true); }}>
@@ -342,14 +342,14 @@ export function TableAdminPanel() {
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {sections.length === 0 && (
-            <p className="col-span-full rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            <p className="col-span-full rounded-xl border border-dashed border-white/10 p-4 text-center text-xs text-muted-foreground">
               Sin secciones. Creá la primera para organizar las mesas.
             </p>
           )}
           {sections.map(s => {
             const count = tables.filter(t => t.sectionId === s.id).length;
             return (
-              <div key={s.id} className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5">
+              <div key={s.id} className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.03] px-3 py-2.5">
                 <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: s.color }} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{s.name}</p>
@@ -392,7 +392,7 @@ export function TableAdminPanel() {
 
         <div className="overflow-hidden rounded-2xl border border-border">
           <table className="w-full text-sm">
-            <thead className="bg-secondary/30 text-xs uppercase tracking-wider text-muted-foreground">
+            <thead className="bg-white/[0.04] text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-3 py-2.5 text-left font-medium">Nº</th>
                 <th className="px-3 py-2.5 text-left font-medium">Sección</th>
@@ -413,8 +413,8 @@ export function TableAdminPanel() {
                 filteredTables.map(t => {
                   const section = t.sectionId ? sectionMap.get(t.sectionId) : null;
                   return (
-                    <tr key={t.id} className={cn('hover:bg-secondary/20', !t.enabled && 'opacity-50')}>
-                      <td className="px-3 py-3 font-bold tabular-nums text-emerald-400">
+                    <tr key={t.id} className={cn('hover:bg-white/[0.025]', !t.enabled && 'opacity-50')}>
+                      <td className="px-3 py-3 font-bold tabular-nums text-brand-400">
                         N° {t.number}
                       </td>
                       <td className="px-3 py-3">
@@ -439,7 +439,7 @@ export function TableAdminPanel() {
                       <td className="px-3 py-3 text-center">
                         <button onClick={() => handleToggleTable(t)} title={t.enabled ? 'Deshabilitar' : 'Habilitar'}>
                           {t.enabled
-                            ? <ToggleRight className="mx-auto h-5 w-5 text-emerald-400" />
+                            ? <ToggleRight className="mx-auto h-5 w-5 text-brand-400" />
                             : <ToggleLeft className="mx-auto h-5 w-5 text-muted-foreground" />
                           }
                         </button>

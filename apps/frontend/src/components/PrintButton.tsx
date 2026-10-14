@@ -130,7 +130,7 @@ export function PrintButton({
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Printer className="h-5 w-5 text-emerald-400" />
+              <Printer className="h-5 w-5 text-brand-400" />
               Configurar impresora
             </DialogTitle>
             <DialogDescription>
@@ -198,8 +198,8 @@ export function PrintButton({
                       className={cn(
                         'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm text-left transition-colors',
                         selectedPrinter === p.name
-                          ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-                          : 'border-border bg-secondary/30 hover:bg-secondary/60'
+                          ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+                          : 'border-border bg-white/[0.04] hover:bg-white/[0.07]'
                       )}
                     >
                       <Printer className="h-4 w-4 shrink-0" />
@@ -280,7 +280,7 @@ export function PrinterConfigButton() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Printer className="h-5 w-5 text-emerald-400" />
+              <Printer className="h-5 w-5 text-brand-400" />
               Configuración de impresora
             </DialogTitle>
           </DialogHeader>
@@ -310,8 +310,8 @@ export function PrinterConfigButton() {
                           className={cn(
                             'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors',
                             selected === p.name
-                              ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-                              : 'border-border bg-secondary/30 hover:bg-secondary/60'
+                              ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+                              : 'border-border bg-white/[0.04] hover:bg-white/[0.07]'
                           )}
                         >
                           <Printer className="h-4 w-4 shrink-0" />

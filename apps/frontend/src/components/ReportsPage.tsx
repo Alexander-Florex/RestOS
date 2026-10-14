@@ -127,9 +127,10 @@ export function ReportsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Reportes</h2>
+          <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-400"><span className="h-px w-6 bg-gradient-to-r from-brand-400 to-transparent" />Negocio</p>
+          <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Reportes</h2>
           <p className="text-sm text-muted-foreground">Ventas por día y por mes</p>
         </div>
         <div className="flex gap-2">
@@ -146,13 +147,13 @@ export function ReportsPage() {
       </div>
 
       {/* Tabs de modo */}
-      <div className="mb-6 flex gap-2 rounded-2xl border border-border bg-card p-1.5">
+      <div className="mb-6 flex gap-2 glass rounded-3xl p-1.5">
         {([['daily','Hoy / Día'], ['monthly', 'Por mes'], ['custom', 'Rango']] as const).map(([mode, label]) => (
           <button key={mode} onClick={() => setViewMode(mode)}
             className={cn(
               'flex-1 rounded-xl py-2 text-xs font-medium transition-colors',
               viewMode === mode
-                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                ? 'bg-brand-500/10 text-brand-400 border border-brand-500/30'
                 : 'text-muted-foreground hover:text-foreground'
             )}>
             {label}
@@ -162,16 +163,16 @@ export function ReportsPage() {
 
       {/* Selector de día */}
       {viewMode === 'daily' && (
-        <div className="mb-6 flex items-center justify-between rounded-2xl border border-border bg-card p-3">
+        <div className="mb-6 flex items-center justify-between glass rounded-3xl p-3">
           <Button variant="ghost" size="icon" onClick={() => shiftDay(-1)}><ChevronLeft className="h-4 w-4" /></Button>
           <div className="text-center">
-            {isToday && <p className="text-[10px] uppercase tracking-wider text-emerald-400 font-medium">Hoy</p>}
+            {isToday && <p className="text-[10px] uppercase tracking-wider text-brand-400 font-medium">Hoy</p>}
             <p className="text-base font-semibold capitalize">
               {selectedDay.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long' })}
             </p>
             {!isToday && (
               <button onClick={() => { const d = new Date(); d.setHours(0,0,0,0); setSelectedDay(d); }}
-                className="text-[10px] text-emerald-400 hover:underline">Volver a hoy</button>
+                className="text-[10px] text-brand-400 hover:underline">Volver a hoy</button>
             )}
           </div>
           <Button variant="ghost" size="icon" onClick={() => shiftDay(1)} disabled={isToday}><ChevronRight className="h-4 w-4" /></Button>
@@ -180,16 +181,16 @@ export function ReportsPage() {
 
       {/* Selector de mes */}
       {viewMode === 'monthly' && (
-        <div className="mb-6 flex items-center justify-between rounded-2xl border border-border bg-card p-3">
+        <div className="mb-6 flex items-center justify-between glass rounded-3xl p-3">
           <Button variant="ghost" size="icon" onClick={() => shiftMonth(-1)}><ChevronLeft className="h-4 w-4" /></Button>
           <div className="text-center">
-            {isCurrentMonth && <p className="text-[10px] uppercase tracking-wider text-emerald-400 font-medium">Mes actual</p>}
+            {isCurrentMonth && <p className="text-[10px] uppercase tracking-wider text-brand-400 font-medium">Mes actual</p>}
             <p className="text-base font-semibold">
               {MONTH_NAMES[selectedMonth.month]} {selectedMonth.year}
             </p>
             {!isCurrentMonth && (
               <button onClick={() => { const d = new Date(); setSelectedMonth({ year: d.getFullYear(), month: d.getMonth() }); }}
-                className="text-[10px] text-emerald-400 hover:underline">Mes actual</button>
+                className="text-[10px] text-brand-400 hover:underline">Mes actual</button>
             )}
           </div>
           <Button variant="ghost" size="icon" onClick={() => shiftMonth(1)} disabled={isCurrentMonth}><ChevronRight className="h-4 w-4" /></Button>
@@ -198,7 +199,7 @@ export function ReportsPage() {
 
       {/* Selector rango personalizado */}
       {viewMode === 'custom' && (
-        <div className="mb-6 rounded-2xl border border-border bg-card p-4">
+        <div className="mb-6 glass rounded-3xl p-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Desde</label>
@@ -221,7 +222,7 @@ export function ReportsPage() {
           <Loader2 className="h-6 w-6 animate-spin" />
         </div>
       ) : !report || report.totals.salesCount === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center">
+        <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center">
           <p className="text-sm text-muted-foreground">
             {viewMode === 'daily'
               ? isToday ? 'No hay ventas registradas hoy todavía.' : 'No hubo ventas ese día.'
@@ -243,12 +244,12 @@ export function ReportsPage() {
           </div>
 
           {/* Breakdown por método de pago — el más importante según lo pedido */}
-          <div className="mb-6 rounded-2xl border border-border bg-card p-5">
+          <div className="mb-6 glass rounded-3xl p-5">
             <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold">
-              <Sun className="h-4 w-4 text-emerald-400" />
+              <Sun className="h-4 w-4 text-brand-400" />
               Recaudación por método de pago
               {viewMode === 'daily' && isToday && (
-                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-400">Hoy</span>
+                <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-brand-400">Hoy</span>
               )}
             </h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -260,7 +261,7 @@ export function ReportsPage() {
                 return (
                   <div key={method}
                     className={cn('rounded-xl border p-4 transition-colors',
-                      amount > 0 ? 'border-border bg-background/50' : 'border-dashed border-border opacity-40')}>
+                      amount > 0 ? 'border-border bg-white/[0.03]' : 'border-dashed border-white/10 opacity-40')}>
                     <div className="flex items-center gap-2 mb-3">
                       <span className="h-2.5 w-2.5 rounded-full" style={{ background: PAYMENT_COLOR[method] }} />
                       <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -275,7 +276,7 @@ export function ReportsPage() {
                       {pct > 0 && ` · ${pct.toFixed(1)}%`}
                     </p>
                     {amount > 0 && (
-                      <div className="mt-2 h-1.5 w-full rounded-full bg-secondary/50">
+                      <div className="mt-2 h-1.5 w-full rounded-full bg-white/[0.06]">
                         <div className="h-full rounded-full transition-all duration-500"
                           style={{ width: `${pct}%`, background: PAYMENT_COLOR[method] }} />
                       </div>
@@ -288,23 +289,23 @@ export function ReportsPage() {
 
           {/* Tickets del día — listado de cuentas cerradas, solo en vista diaria */}
           {viewMode === 'daily' && tickets.length > 0 && (
-            <div className="mb-6 rounded-2xl border border-border bg-card p-5">
+            <div className="mb-6 glass rounded-3xl p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
-                  <Receipt className="h-4 w-4 text-emerald-400" />
+                  <Receipt className="h-4 w-4 text-brand-400" />
                   Tickets del día ({tickets.length})
                 </h3>
                 {report!.byTable.length > 1 && (
                   <div className="flex flex-wrap gap-1.5">
                     <button onClick={() => setTicketTableFilter(null)}
                       className={cn('rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
-                        ticketTableFilter === null ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-muted-foreground hover:text-foreground border border-transparent')}>
+                        ticketTableFilter === null ? 'bg-brand-500/10 text-brand-400 border border-brand-500/30' : 'text-muted-foreground hover:text-foreground border border-transparent')}>
                       Todas
                     </button>
                     {report!.byTable.map(t => (
                       <button key={t.tableNumber} onClick={() => setTicketTableFilter(t.tableNumber)}
                         className={cn('rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
-                          ticketTableFilter === t.tableNumber ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-muted-foreground hover:text-foreground border border-transparent')}>
+                          ticketTableFilter === t.tableNumber ? 'bg-brand-500/10 text-brand-400 border border-brand-500/30' : 'text-muted-foreground hover:text-foreground border border-transparent')}>
                         Mesa {t.tableNumber} ({t.count})
                       </button>
                     ))}
@@ -349,7 +350,7 @@ export function ReportsPage() {
                   <tfoot>
                     <tr className="border-t border-border font-semibold">
                       <td colSpan={5} className="pt-2 text-right text-xs uppercase tracking-wider text-muted-foreground">Total</td>
-                      <td className="pt-2 text-right tabular-nums text-emerald-400">
+                      <td className="pt-2 text-right tabular-nums text-brand-400">
                         {formatMoney(
                           tickets
                             .filter(t => ticketTableFilter === null || t.tableNumber === ticketTableFilter)
@@ -365,9 +366,9 @@ export function ReportsPage() {
 
           {/* Comparación con mes anterior — solo en vista mensual */}
           {viewMode === 'monthly' && prevMonthReport && (
-            <div className="mb-6 rounded-2xl border border-border bg-card p-5">
+            <div className="mb-6 glass rounded-3xl p-5">
               <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold">
-                <BarChart3 className="h-4 w-4 text-blue-400" />
+                <BarChart3 className="h-4 w-4 text-sky-400" />
                 Comparación con {MONTH_NAMES[selectedMonth.month === 0 ? 11 : selectedMonth.month - 1]}
               </h3>
               <div className="space-y-3">
@@ -392,7 +393,7 @@ export function ReportsPage() {
                         </span>
                         {row.prev > 0 && (
                           <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium tabular-nums',
-                            up ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400')}>
+                            up ? 'bg-brand-500/10 text-brand-400' : 'bg-rose-500/10 text-rose-400')}>
                             {up ? '+' : ''}{pct.toFixed(1)}%
                           </span>
                         )}
@@ -406,14 +407,14 @@ export function ReportsPage() {
 
           {/* Gráfico por día (solo en rango personalizado o mensual) */}
           {(viewMode === 'monthly' || viewMode === 'custom') && report.byDay.length > 1 && (
-            <div className="mb-6 rounded-2xl border border-border bg-card p-5">
+            <div className="mb-6 glass rounded-3xl p-5">
               <h3 className="mb-4 text-sm font-semibold">Ventas por día</h3>
               <DailyChart data={report.byDay} />
             </div>
           )}
 
           {/* Top items */}
-          <div className="rounded-2xl border border-border bg-card p-5">
+          <div className="glass rounded-3xl p-5">
             <div className="mb-4 flex items-center gap-2">
               <Trophy className="h-4 w-4 text-amber-400" />
               <h3 className="text-sm font-semibold">Top 10 ítems más vendidos</h3>
@@ -428,11 +429,11 @@ export function ReportsPage() {
                   const maxQty = topItems[0].quantity;
                   const widthPct = maxQty > 0 ? (item.quantity / maxQty) * 100 : 0;
                   return (
-                    <div key={`${item.itemName}-${idx}`} className="relative overflow-hidden rounded-lg bg-secondary/30 p-3">
-                      <div className="absolute inset-y-0 left-0 bg-emerald-500/15" style={{ width: `${widthPct}%` }} />
+                    <div key={`${item.itemName}-${idx}`} className="relative overflow-hidden rounded-lg bg-white/[0.04] p-3">
+                      <div className="absolute inset-y-0 left-0 bg-brand-500/15" style={{ width: `${widthPct}%` }} />
                       <div className="relative flex items-center justify-between">
                         <div className="flex items-center gap-3 min-w-0">
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-card font-bold tabular-nums text-emerald-400">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-card font-bold tabular-nums text-brand-400">
                             {idx + 1}
                           </span>
                           <div className="min-w-0">
@@ -445,7 +446,7 @@ export function ReportsPage() {
                             <span className="font-bold">{item.quantity}</span>
                             <span className="text-xs text-muted-foreground"> uds</span>
                           </span>
-                          <span className="tabular-nums font-semibold text-emerald-400 w-24 text-right">
+                          <span className="tabular-nums font-semibold text-brand-400 w-24 text-right">
                             {formatMoney(item.revenue)}
                           </span>
                         </div>
@@ -466,12 +467,12 @@ function KpiCard({ icon: Icon, label, value, sublabel, highlight }: {
   icon: typeof DollarSign; label: string; value: string; sublabel: string; highlight?: boolean;
 }) {
   return (
-    <div className={cn('rounded-2xl border p-4', highlight ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border bg-card')}>
+    <div className={cn('rounded-2xl border p-4', highlight ? 'border-brand-500/40 bg-brand-500/5' : 'border-border bg-card')}>
       <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-        <Icon className={cn('h-4 w-4', highlight && 'text-emerald-400')} />
+        <Icon className={cn('h-4 w-4', highlight && 'text-brand-400')} />
         {label}
       </div>
-      <p className={cn('mt-2 text-2xl font-bold tabular-nums', highlight ? 'text-emerald-400' : 'text-foreground')}>{value}</p>
+      <p className={cn('mt-2 text-2xl font-bold tabular-nums', highlight ? 'text-brand-400' : 'text-foreground')}>{value}</p>
       <p className="mt-1 text-xs text-muted-foreground truncate">{sublabel}</p>
     </div>
   );

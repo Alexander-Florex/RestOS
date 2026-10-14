@@ -42,7 +42,7 @@ export function NotificationToggle() {
       onClick={toggle}
       title={enabled ? 'Silenciar notificaciones' : 'Activar notificaciones'}
       aria-label={enabled ? 'Silenciar notificaciones' : 'Activar notificaciones'}
-      className={cn(enabled && 'text-emerald-400')}
+      className={cn(enabled && 'text-brand-400')}
     >
       {enabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
     </Button>

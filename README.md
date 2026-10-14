@@ -95,10 +95,38 @@ npm run dev
 |-------------|--------------|----------------|
 | `admin`     | `admin123`   | Administrador  |
 | `mesero1`   | `waiter123`  | Mesero         |
-| `personal1` | `staff123`   | Personal       |
+| `personal1` | `staff123`   | Cajero         |
 
 > Estas cuentas no existen en producción, y los botones de autocompletar del login
 > solo aparecen en el entorno de desarrollo.
+
+## Roles y permisos
+
+Cada restaurante tiene tres roles base: **Administrador** (todos los permisos, no se puede editar), **Mesero** (solo toma pedidos, vista móvil) y **Cajero** (panel, cobra, ventas y reportes). Desde **Roles** el administrador crea roles nuevos y elige sus permisos.
+
+- El catálogo de permisos vive en `apps/backend/src/lib/permissions.ts`; las rutas lo exigen con `requirePermission(...)`.
+- Los permisos se leen de la base en cada request (caché de 15 s): cambiar un rol o desactivar un usuario se aplica sin volver a iniciar sesión.
+- Sin el permiso `app.dashboard`, la persona entra a la vista móvil de mesero.
+- Cobrar (`sales.charge`) es solo de Administrador y Cajero.
+- La columna `users.role` se conserva por compatibilidad y se sincroniza sola; los permisos salen de `users.roleId`.
+
+## Tests
+
+```bash
+# Unitarios (sin base de datos)
+npm test -w @restos/backend
+
+# Integración contra MySQL: usan una base aparte (restos_test, puerto 3307).
+# Primera vez:
+docker run -d --name restos-test-db -e MYSQL_ROOT_PASSWORD=test \
+  -e MYSQL_DATABASE=restos_test -p 3307:3306 mysql:8.0
+# Las siguientes: docker start restos-test-db
+npm run test:db -w @restos/backend
+```
+
+Los tests de integración aplican las migraciones y **borran todos los datos** de la base
+de test. Para usar otra base, definí `TEST_DATABASE_URL`; tiene que terminar en `_test`
+o los tests se niegan a correr.
 
 ## Scripts útiles
 
@@ -136,7 +164,7 @@ npm run dev
 - Inventario: CRUD, búsqueda, filtros por categoría (Alimentos, Bebidas, Insumos, Equipo), indicador de stock bajo automático (cuando `quantity < minStock`), acción rápida "Reabastecer" que suma cantidad y actualiza `lastRestocked`
 - Personal: CRUD, vista de tarjetas con avatar de iniciales, filtros por rol (Mesero, Cocinero, Encargado, Cajero), toggle activo/inactivo, validación de email único
 - Eventos Socket.io para ambos módulos (sincronización en vivo entre clientes)
-- Permisos: inventario abierto a ADMIN/STAFF (CRUD solo ADMIN); personal solo para ADMIN
+- Permisos: ver la sección **Roles y permisos**
 
 **Fase 6 ✅** — Reservas + Reportes + Notificaciones
 - **Reservas**: entidad `Reservation` con cliente, fecha/hora, tamaño de grupo, mesa asignada opcional y estado (PENDING / CONFIRMED / SEATED / COMPLETED / CANCELLED / NO_SHOW). Selector de día con navegación, lista cronológica con alertas para las próximas 30 min. Acciones contextuales: marcar mesa como reservada, sentar comensales (ocupa la mesa automáticamente con `partySize`), cancelar, no-show.

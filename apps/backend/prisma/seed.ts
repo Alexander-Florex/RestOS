@@ -9,6 +9,7 @@ import 'dotenv/config';
 import { PrismaClient, UserRole, TableStatus, StockStatus, InventoryCategory, StaffRole, ReservationStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { checkSeedAllowed } from './seed-guard.js';
+import { SYSTEM_ROLES, type SystemRoleKey } from '../src/lib/permissions.js';
 
 const prisma = new PrismaClient();
 const ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
@@ -54,11 +55,19 @@ async function main() {
   const restaurantId = restaurant.id;
   console.log(`🏠 Restaurante creado: ${restaurant.name} (id=${restaurantId})`);
 
+  // ── ROLES DE SISTEMA (Administrador, Mesero, Cajero) ──
+  const roleIds = {} as Record<SystemRoleKey, number>;
+  for (const key of Object.keys(SYSTEM_ROLES) as SystemRoleKey[]) {
+    const def = SYSTEM_ROLES[key];
+    const role = await prisma.role.create({ data: { restaurantId, key, name: def.name, permissions: [...def.permissions] } });
+    roleIds[key] = role.id;
+  }
+
   // ── USUARIOS (los que loguean al sistema) ──
   const users = [
-    { username: 'admin',     email: 'admin@resto.com', name: 'Administrador',   role: UserRole.ADMIN,  plain: 'admin123'  },
-    { username: 'mesero1',   email: 'maria@resto.com', name: 'María Rodríguez', role: UserRole.WAITER, plain: 'waiter123' },
-    { username: 'personal1', email: 'juan@resto.com',  name: 'Juan García',     role: UserRole.STAFF,  plain: 'staff123'  },
+    { username: 'admin',     email: 'admin@resto.com', name: 'Administrador',   role: UserRole.ADMIN,  roleId: roleIds.ADMIN,   plain: 'admin123'  },
+    { username: 'mesero1',   email: 'maria@resto.com', name: 'María Rodríguez', role: UserRole.WAITER, roleId: roleIds.WAITER,  plain: 'waiter123' },
+    { username: 'personal1', email: 'juan@resto.com',  name: 'Juan García',     role: UserRole.STAFF,  roleId: roleIds.CASHIER, plain: 'staff123'  },
   ];
 
   for (const u of users) {
@@ -70,6 +79,7 @@ async function main() {
         email: u.email,
         name: u.name,
         role: u.role,
+        roleId: u.roleId,
         password,
       },
     });

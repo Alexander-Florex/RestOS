@@ -72,7 +72,8 @@ export function SalesHistoryPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Ventas</h2>
+          <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-400"><span className="h-px w-6 bg-gradient-to-r from-brand-400 to-transparent" />Negocio</p>
+          <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Ventas</h2>
           <p className="text-sm text-muted-foreground">Historial completo + resumen del día</p>
         </div>
         <Button variant="outline" size="sm" onClick={load}>
@@ -114,8 +115,8 @@ export function SalesHistoryPage() {
           className={cn(
             'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
             filter === 'ALL'
-              ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-              : 'border-border bg-secondary/50 text-muted-foreground'
+              ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+              : 'border-border bg-white/[0.06] text-muted-foreground'
           )}
         >
           Todas · {sales.length}
@@ -129,8 +130,8 @@ export function SalesHistoryPage() {
               className={cn(
                 'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
                 filter === opt.value
-                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-                  : 'border-border bg-secondary/50 text-muted-foreground'
+                  ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+                  : 'border-border bg-white/[0.06] text-muted-foreground'
               )}
             >
               {opt.label} · {count}
@@ -141,13 +142,13 @@ export function SalesHistoryPage() {
 
       {/* Tabla de ventas */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-sm text-muted-foreground">
           No hay ventas {filter !== 'ALL' && `de tipo "${PAYMENT_LABEL[filter as PaymentMethod]}"`} todavía
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-border">
           <table className="w-full">
-            <thead className="bg-secondary/30 text-xs uppercase tracking-wider text-muted-foreground">
+            <thead className="bg-white/[0.04] text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-3 py-2.5 text-left font-medium">Fecha</th>
                 <th className="px-3 py-2.5 text-left font-medium">Mesa</th>
@@ -162,7 +163,7 @@ export function SalesHistoryPage() {
               {filtered.map(sale => {
                 const Icon = PAYMENT_ICON[sale.paymentMethod];
                 return (
-                  <tr key={sale.id} className="text-sm hover:bg-secondary/20">
+                  <tr key={sale.id} className="text-sm hover:bg-white/[0.025]">
                     <td className="px-3 py-3 text-muted-foreground tabular-nums">
                       {formatDateTime(sale.closedAt)}
                     </td>
@@ -170,7 +171,7 @@ export function SalesHistoryPage() {
                       N° {sale.tableNumber}
                     </td>
                     <td className="px-3 py-3">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/50 px-2 py-0.5 text-xs">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] px-2 py-0.5 text-xs">
                         <Icon className="h-3 w-3" />
                         {PAYMENT_LABEL[sale.paymentMethod]}
                       </span>
@@ -178,7 +179,7 @@ export function SalesHistoryPage() {
                     <td className="px-3 py-3 text-right tabular-nums">
                       {formatMoney(sale.total)}
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums font-semibold text-emerald-400">
+                    <td className="px-3 py-3 text-right tabular-nums font-semibold text-brand-400">
                       {formatMoney(sale.amount)}
                     </td>
                     <td className="max-w-[180px] truncate px-3 py-3 text-xs text-muted-foreground">
@@ -188,7 +189,7 @@ export function SalesHistoryPage() {
                       {sale.imageUrl ? (
                         <button
                           onClick={() => setPreviewImage(sale.imageUrl)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-400 hover:bg-emerald-500/10"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-brand-400 hover:bg-brand-500/10"
                           title="Ver comprobante"
                         >
                           <ImageIcon className="h-4 w-4" />
@@ -239,15 +240,15 @@ function StatCard({
   return (
     <div className={cn(
       'rounded-2xl border bg-card p-4 transition-colors',
-      highlight ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border'
+      highlight ? 'border-brand-500/40 bg-brand-500/5' : 'border-border'
     )}>
       <div className="flex items-center gap-2">
-        <Icon className={cn('h-4 w-4', highlight ? 'text-emerald-400' : 'text-muted-foreground')} />
+        <Icon className={cn('h-4 w-4', highlight ? 'text-brand-400' : 'text-muted-foreground')} />
         <p className="text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
       </div>
       <p className={cn(
         'mt-2 text-xl font-bold tabular-nums',
-        highlight ? 'text-emerald-400' : 'text-foreground'
+        highlight ? 'text-brand-400' : 'text-foreground'
       )}>
         {value}
       </p>

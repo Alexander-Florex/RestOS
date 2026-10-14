@@ -21,7 +21,6 @@ import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { printerPrefs } from './PrintButton';
 import { useAuth } from '../context/AuthContext';
-import { useConfirm } from './ui/confirm-dialog';
 import { cn } from '../lib/utils';
 
 interface CloseTableModalProps {
@@ -46,8 +45,7 @@ function fileToBase64(file: File): Promise<string> {
 export function CloseTableModal({
   table, open, onClose, onSuccess, orders, total,
 }: CloseTableModalProps) {
-  const { user } = useAuth();
-  const confirm = useConfirm();
+  const { user, can } = useAuth();
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [amount, setAmount] = useState<string>('');
   const [notes, setNotes] = useState('');
@@ -94,12 +92,10 @@ export function CloseTableModal({
       toast.error('Ingresá un monto válido');
       return;
     }
-    if (numericAmount < total) {
-      const proceed = await confirm({
-        title: 'Monto menor al total',
-        description: `El monto cobrado (${formatMoney(numericAmount)}) es menor al total (${formatMoney(total)}). ¿Confirmás de todos modos?`,
-      });
-      if (!proceed) return;
+    // No se aceptan cobros parciales (el backend también lo rechaza). Comparamos en centavos.
+    if (Math.round(numericAmount * 100) < Math.round(total * 100)) {
+      toast.error(`El monto cobrado (${formatMoney(numericAmount)}) no cubre el total (${formatMoney(total)})`);
+      return;
     }
 
     setSubmitting(true);
@@ -113,8 +109,8 @@ export function CloseTableModal({
       });
       toast.success(`Mesa ${table.number} cobrada: ${formatMoney(numericAmount)}`);
 
-      // Imprimir ticket de caja solo si es ADMIN o STAFF (no para meseros)
-      const canPrint = user?.role === 'ADMIN' || user?.role === 'STAFF';
+      // Imprimir ticket de caja: solo quien tiene permiso de cobrar
+      const canPrint = can('sales.charge');
       const printerName = printerPrefs.getPrinter();
       if (canPrint && printerName) {
         try {
@@ -140,6 +136,12 @@ export function CloseTableModal({
 
       onSuccess();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // Otro dispositivo ya cobró esta mesa: cerramos el modal y refrescamos
+        toast.error(`La mesa ${table.number} ya fue cobrada desde otro dispositivo`);
+        onSuccess();
+        return;
+      }
       toast.error(err instanceof ApiError ? err.message : 'Error al cobrar la mesa');
     } finally {
       setSubmitting(false);
@@ -151,7 +153,7 @@ export function CloseTableModal({
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-emerald-400" />
+            <CreditCard className="h-5 w-5 text-brand-400" />
             Cobrar mesa N° {table.number}
           </DialogTitle>
           <DialogDescription>
@@ -160,7 +162,7 @@ export function CloseTableModal({
         </DialogHeader>
 
         {/* Desglose */}
-        <div className="rounded-xl border border-border bg-background/50 p-4">
+        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
           <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
             Detalle de consumo
           </p>
@@ -178,7 +180,7 @@ export function CloseTableModal({
           </div>
           <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
             <span className="text-sm font-semibold">Total a cobrar</span>
-            <span className="text-2xl font-bold text-emerald-400 tabular-nums">
+            <span className="text-2xl font-bold text-brand-400 tabular-nums">
               {formatMoney(total)}
             </span>
           </div>
@@ -199,8 +201,8 @@ export function CloseTableModal({
                   className={cn(
                     'flex items-center justify-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-colors',
                     paymentMethod === opt.value
-                      ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-                      : 'border-border bg-secondary/30 text-muted-foreground hover:border-foreground/30'
+                      ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+                      : 'border-border bg-white/[0.04] text-muted-foreground hover:border-foreground/30'
                   )}
                 >
                   {opt.value === 'CASH' && <Banknote className="h-4 w-4" />}
@@ -216,7 +218,7 @@ export function CloseTableModal({
             <div className="flex items-center justify-between">
               <Label htmlFor="amount">Monto cobrado</Label>
               {paymentMethod === 'CASH' && change > 0 && (
-                <span className="text-xs text-emerald-400">
+                <span className="text-xs text-brand-400">
                   Vuelto: {formatMoney(change)}
                 </span>
               )}
@@ -270,7 +272,7 @@ export function CloseTableModal({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={submitting}
-                className="flex h-24 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-secondary/20 text-sm text-muted-foreground hover:border-emerald-500/40 hover:text-foreground transition-colors"
+                className="flex h-24 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-white/10 bg-white/[0.025] text-sm text-muted-foreground hover:border-brand-500/40 hover:text-foreground transition-colors"
               >
                 <ImageIcon className="h-4 w-4" />
                 Subir imagen del comprobante

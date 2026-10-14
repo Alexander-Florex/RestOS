@@ -164,9 +164,10 @@ export function RecipesPage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Recetas y costos</h2>
+          <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-400"><span className="h-px w-6 bg-gradient-to-r from-brand-400 to-transparent" />Costos</p>
+          <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Recetas y costos</h2>
           <p className="text-sm text-muted-foreground">{recipes.length} {recipes.length === 1 ? 'receta' : 'recetas'}</p>
         </div>
         <Button onClick={openCreate}>
@@ -176,7 +177,7 @@ export function RecipesPage() {
       </div>
 
       {recipes.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-sm text-muted-foreground">
           No hay recetas cargadas. Creá la primera para calcular costos y precio sugerido.
         </div>
       ) : (
@@ -185,9 +186,9 @@ export function RecipesPage() {
             const { cost } = recipe;
             const diff = cost.priceDiff;
             return (
-              <div key={recipe.id} className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
+              <div key={recipe.id} className="flex flex-col gap-3 glass rounded-3xl p-4">
                 <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-brand-500/10 text-brand-400">
                     <ChefHat className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -199,7 +200,7 @@ export function RecipesPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 rounded-xl bg-secondary/30 p-3 text-xs">
+                <div className="grid grid-cols-2 gap-2 rounded-xl bg-white/[0.04] p-3 text-xs">
                   <div>
                     <p className="text-muted-foreground">Costo total</p>
                     <p className="font-semibold tabular-nums">{formatMoney(cost.costTotal)}</p>
@@ -210,7 +211,7 @@ export function RecipesPage() {
                   </div>
                   <div>
                     <p className="text-muted-foreground">Precio sugerido</p>
-                    <p className="font-semibold tabular-nums text-emerald-400">{formatMoney(cost.suggestedPrice)}</p>
+                    <p className="font-semibold tabular-nums text-brand-400">{formatMoney(cost.suggestedPrice)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Precio en menú</p>
@@ -223,9 +224,9 @@ export function RecipesPage() {
                 {diff !== null && (
                   <div className={cn(
                     'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium',
-                    diff > 0.5 ? 'bg-emerald-500/10 text-emerald-400'
+                    diff > 0.5 ? 'bg-brand-500/10 text-brand-400'
                       : diff < -0.5 ? 'bg-rose-500/10 text-rose-400'
-                      : 'bg-secondary/50 text-muted-foreground'
+                      : 'bg-white/[0.06] text-muted-foreground'
                   )}>
                     {diff > 0.5 ? <TrendingUp className="h-3.5 w-3.5" /> : diff < -0.5 ? <TrendingDown className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
                     {diff > 0.5 && `Vendés ${formatMoney(diff)} por encima del sugerido`}

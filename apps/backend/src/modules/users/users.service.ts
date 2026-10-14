@@ -4,21 +4,25 @@
 // restaurante con protecciones para no dejar el sistema sin admins
 // y para que un admin no se bloquee a sí mismo accidentalmente.
 // ──────────────────────────────────────────────
-import { UserRole, type User } from '@prisma/client';
+import { UserRole, type Role, type User } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 import { env } from '../../config/env.js';
+import { legacyUserRole } from '../../lib/permissions.js';
+import { invalidateAccess, rolesService } from '../roles/roles.service.js';
 
 const ROUNDS = env.BCRYPT_ROUNDS;
 
-export type SafeUser = Omit<User, 'password'>;
+export type SafeUser = Omit<User, 'password'> & { roleName: string | null };
 
-function toSafe(user: User): SafeUser {
-  const { password, ...safe } = user;
-  return safe;
+function toSafe(user: User & { roleRef?: Role | null }): SafeUser {
+  const { password, roleRef, ...safe } = user;
+  return { ...safe, roleName: roleRef?.name ?? null };
 }
+
+const withRole = { roleRef: true } as const;
 
 function emitChanged(restaurantId: number, user: SafeUser) { ioRestaurant(restaurantId).emit(SocketEvents.USER_CHANGED, user); }
 function emitCreated(restaurantId: number, user: SafeUser) { ioRestaurant(restaurantId).emit(SocketEvents.USER_CREATED, user); }
@@ -29,7 +33,7 @@ export interface CreateUserData {
   email: string;
   password: string;
   name: string;
-  role: UserRole;
+  roleId: number;
   active?: boolean;
 }
 
@@ -38,7 +42,7 @@ export interface UpdateUserData {
   email?: string;
   password?: string;
   name?: string;
-  role?: UserRole;
+  roleId?: number;
   active?: boolean;
 }
 
@@ -58,13 +62,14 @@ export const usersService = {
   async list(restaurantId: number): Promise<SafeUser[]> {
     const users = await prisma.user.findMany({
       where: { restaurantId },
+      include: withRole,
       orderBy: [{ active: 'desc' }, { role: 'asc' }, { name: 'asc' }],
     });
     return users.map(toSafe);
   },
 
   async getById(restaurantId: number, id: number): Promise<SafeUser> {
-    const user = await prisma.user.findFirst({ where: { id, restaurantId } });
+    const user = await prisma.user.findFirst({ where: { id, restaurantId }, include: withRole });
     if (!user) throw HttpError.notFound('Usuario no encontrado');
     return toSafe(user);
   },
@@ -80,6 +85,7 @@ export const usersService = {
     });
     if (dupEmail) throw HttpError.conflict('Ya existe un usuario con ese email');
 
+    const role = await rolesService.findForTenant(restaurantId, data.roleId);
     const hashed = await bcrypt.hash(data.password, ROUNDS);
 
     const user = await prisma.user.create({
@@ -89,9 +95,11 @@ export const usersService = {
         email: data.email,
         password: hashed,
         name: data.name,
-        role: data.role,
+        role: legacyUserRole(role),
+        roleId: role.id,
         active: data.active ?? true,
       },
+      include: withRole,
     });
 
     const safe = toSafe(user);
@@ -117,9 +125,12 @@ export const usersService = {
       if (dup) throw HttpError.conflict('Ya existe un usuario con ese email');
     }
 
+    const newRole = data.roleId !== undefined ? await rolesService.findForTenant(restaurantId, data.roleId) : null;
+    const newLegacyRole = newRole ? legacyUserRole(newRole) : undefined;
+
     // Protección: no permitir quitar el rol ADMIN o desactivar al último admin activo.
     const losesAdmin = current.role === UserRole.ADMIN && (
-      (data.role !== undefined && data.role !== UserRole.ADMIN) ||
+      (newLegacyRole !== undefined && newLegacyRole !== UserRole.ADMIN) ||
       (data.active === false)
     );
     if (losesAdmin) {
@@ -131,7 +142,7 @@ export const usersService = {
 
     // Protección: un admin no puede quitarse su propio rol de ADMIN ni desactivarse a sí mismo.
     if (id === requesterId) {
-      if (data.role !== undefined && data.role !== UserRole.ADMIN) {
+      if (current.role === UserRole.ADMIN && newLegacyRole !== undefined && newLegacyRole !== UserRole.ADMIN) {
         throw HttpError.badRequest('No podés cambiar tu propio rol de administrador');
       }
       if (data.active === false) {
@@ -149,11 +160,13 @@ export const usersService = {
         ...(data.username !== undefined ? { username: data.username } : {}),
         ...(data.email    !== undefined ? { email: data.email } : {}),
         ...(data.name     !== undefined ? { name: data.name } : {}),
-        ...(data.role     !== undefined ? { role: data.role } : {}),
+        ...(newRole ? { roleId: newRole.id, role: newLegacyRole } : {}),
         ...(data.active   !== undefined ? { active: data.active } : {}),
         ...passwordUpdate,
       },
+      include: withRole,
     });
+    invalidateAccess(id);
 
     const safe = toSafe(user);
     emitChanged(restaurantId, safe);
@@ -176,6 +189,7 @@ export const usersService = {
     }
 
     await prisma.user.delete({ where: { id } });
+    invalidateAccess(id);
     emitDeleted(restaurantId, id);
   },
 
@@ -197,7 +211,9 @@ export const usersService = {
     const user = await prisma.user.update({
       where: { id },
       data: { active: !current.active },
+      include: withRole,
     });
+    invalidateAccess(id);
 
     const safe = toSafe(user);
     emitChanged(restaurantId, safe);

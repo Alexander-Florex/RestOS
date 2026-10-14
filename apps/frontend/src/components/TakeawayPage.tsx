@@ -19,6 +19,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { PrintButton, printerPrefs } from './PrintButton';
 import { useConfirm } from './ui/confirm-dialog';
+import { useAuth } from '../context/AuthContext';
 import { printingApi } from '../lib/api';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -26,9 +27,9 @@ import {
 import { cn } from '../lib/utils';
 
 const STATUS_STYLE: Record<TakeawayStatus, { text: string; bg: string; border: string; dot: string; label: string }> = {
-  OPEN:      { text: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/40',    dot: 'bg-blue-500',    label: 'En preparación' },
-  READY:     { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/40', dot: 'bg-emerald-500', label: 'Listo' },
-  PAID:      { text: 'text-muted-foreground', bg: 'bg-secondary/30', border: 'border-border', dot: 'bg-muted-foreground', label: 'Cobrado' },
+  OPEN:      { text: 'text-sky-400',    bg: 'bg-sky-500/10',    border: 'border-sky-500/40',    dot: 'bg-sky-500',    label: 'En preparación' },
+  READY:     { text: 'text-brand-400', bg: 'bg-brand-500/10', border: 'border-brand-500/40', dot: 'bg-brand-500', label: 'Listo' },
+  PAID:      { text: 'text-muted-foreground', bg: 'bg-white/[0.04]', border: 'border-border', dot: 'bg-muted-foreground', label: 'Cobrado' },
   CANCELLED: { text: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/40',    dot: 'bg-rose-500',    label: 'Cancelado' },
 };
 
@@ -59,14 +60,14 @@ function PayModal({ order, open, onClose }: { order: TakeawayOrder; open: boolea
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-emerald-400" />
+            <CreditCard className="h-5 w-5 text-brand-400" />
             Cobrar pedido — {order.customerName}
           </DialogTitle>
           <DialogDescription>Confirmá el método de pago y cerrá el pedido</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="rounded-xl border border-border bg-background/50 p-3 space-y-1.5">
+          <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3 space-y-1.5">
             {order.items.map(item => (
               <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
                 <span className="flex-1 truncate">{item.itemName}</span>
@@ -78,7 +79,7 @@ function PayModal({ order, open, onClose }: { order: TakeawayOrder; open: boolea
             ))}
             <div className="flex items-center justify-between border-t border-border pt-2 mt-2">
               <span className="text-sm font-semibold">Total a cobrar</span>
-              <span className="text-lg font-bold text-emerald-400 tabular-nums">{formatMoney(total)}</span>
+              <span className="text-lg font-bold text-brand-400 tabular-nums">{formatMoney(total)}</span>
             </div>
           </div>
 
@@ -91,8 +92,8 @@ function PayModal({ order, open, onClose }: { order: TakeawayOrder; open: boolea
                   className={cn(
                     'flex items-center justify-center gap-1.5 rounded-xl border py-2.5 text-xs font-medium transition-colors',
                     method === opt.value
-                      ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-                      : 'border-border bg-background/50 hover:bg-secondary/50'
+                      ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+                      : 'border-border bg-white/[0.03] hover:bg-white/[0.06]'
                   )}>
                   {opt.label}
                 </button>
@@ -109,9 +110,9 @@ function PayModal({ order, open, onClose }: { order: TakeawayOrder; open: boolea
           </div>
 
           {Number(amount) > total && (
-            <div className="flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between rounded-xl border border-brand-500/30 bg-brand-500/5 px-3 py-2 text-sm">
               <span className="text-muted-foreground">Vuelto</span>
-              <span className="font-semibold tabular-nums text-emerald-400">
+              <span className="font-semibold tabular-nums text-brand-400">
                 {formatMoney(Number(amount) - total)}
               </span>
             </div>
@@ -249,7 +250,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
                       'shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
                       effectiveCat === cat
                         ? 'border-amber-500/50 bg-amber-500/10 text-amber-400'
-                        : 'border-border bg-secondary/30 text-muted-foreground hover:text-foreground'
+                        : 'border-border bg-white/[0.04] text-muted-foreground hover:text-foreground'
                     )}>
                     {cat}
                   </button>
@@ -270,7 +271,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
                         <div key={item.id} className="flex items-center gap-3 px-4 py-3">
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">{item.name}</p>
-                            <p className="text-xs text-emerald-400 tabular-nums">{formatMoney(Number(item.price))}</p>
+                            <p className="text-xs text-brand-400 tabular-nums">{formatMoney(Number(item.price))}</p>
                           </div>
                           {inCart ? (
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -280,7 +281,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
                                 <MessageSquare className="h-3.5 w-3.5" />
                               </button>
                               <button onClick={() => adjust(item, -1)}
-                                className="flex h-7 w-7 items-center justify-center rounded-full border border-border hover:bg-secondary/60">
+                                className="flex h-7 w-7 items-center justify-center rounded-full border border-border hover:bg-white/[0.07]">
                                 <Minus className="h-3 w-3" />
                               </button>
                               <span className="w-5 text-center text-sm font-semibold tabular-nums">{inCart.quantity}</span>
@@ -323,7 +324,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
                       </div>
                       <div className="flex items-center justify-between mt-0.5">
                         <span className="text-muted-foreground">x{ci.quantity}</span>
-                        <span className="tabular-nums text-emerald-400">
+                        <span className="tabular-nums text-brand-400">
                           {formatMoney(Number(ci.menuItem.price) * ci.quantity)}
                         </span>
                       </div>
@@ -338,7 +339,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
                 <div className="border-t border-border px-3 py-2.5 shrink-0">
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-muted-foreground">{cartCount} ítems</span>
-                    <span className="font-bold text-emerald-400 tabular-nums">{formatMoney(cartTotal)}</span>
+                    <span className="font-bold text-brand-400 tabular-nums">{formatMoney(cartTotal)}</span>
                   </div>
                 </div>
               )}
@@ -383,6 +384,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
 // ── Tarjeta de pedido para llevar ───────────────────────────────────────────
 function TakeawayCard({ order, onPay }: { order: TakeawayOrder; onPay: () => void }) {
   const confirm = useConfirm();
+  const { can } = useAuth();
   const [acting, setActing] = useState(false);
   const style = STATUS_STYLE[order.status];
   const total = order.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
@@ -418,8 +420,8 @@ function TakeawayCard({ order, onPay }: { order: TakeawayOrder; onPay: () => voi
     )}>
       {order.status === 'READY' && (
         <span className="absolute -top-1 -right-1 flex h-4 w-4">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500" />
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-4 w-4 bg-brand-500" />
         </span>
       )}
 
@@ -485,14 +487,18 @@ function TakeawayCard({ order, onPay }: { order: TakeawayOrder; onPay: () => voi
                 Listo
               </Button>
             )}
-            <Button size="sm" className="flex-1 text-xs h-8" onClick={onPay} disabled={acting}>
-              <CreditCard className="h-3 w-3" />
-              Cobrar
-            </Button>
-            <button onClick={handleCancel} disabled={acting}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10">
-              <X className="h-3 w-3" />
-            </button>
+            {can('sales.charge') && (
+              <Button size="sm" className="flex-1 text-xs h-8" onClick={onPay} disabled={acting}>
+                <CreditCard className="h-3 w-3" />
+                Cobrar
+              </Button>
+            )}
+            {can('takeaway.cancel') && (
+              <button onClick={handleCancel} disabled={acting} aria-label="Cancelar pedido"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10">
+                <X className="h-3 w-3" />
+              </button>
+            )}
           </div>
         )}
 
@@ -535,11 +541,10 @@ export function TakeawayPage() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-            <span>🥡</span> Para llevar
-          </h2>
+          <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-400"><span className="h-px w-6 bg-gradient-to-r from-brand-400 to-transparent" />Servicio</p>
+          <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Para llevar</h2>
           <p className="text-sm text-muted-foreground">
             {counts.OPEN} en preparación · {counts.READY} listos
             {counts.PAID > 0 && ` · ${counts.PAID} cobrados hoy`}
@@ -574,11 +579,11 @@ export function TakeawayPage() {
               className={cn(
                 'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
                 active
-                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-                  : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+                  ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+                  : 'border-border bg-white/[0.06] text-muted-foreground hover:text-foreground'
               )}>
               {label}
-              <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', active ? 'bg-emerald-500/20' : 'bg-background/50')}>
+              <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', active ? 'bg-brand-500/20' : 'bg-white/[0.03]')}>
                 {count}
               </span>
             </button>
@@ -588,7 +593,7 @@ export function TakeawayPage() {
 
       {/* Grid de pedidos */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-16 text-center">
+        <div className="rounded-2xl border border-dashed border-white/10 p-16 text-center">
           <span className="text-4xl">🥡</span>
           <p className="mt-3 text-sm text-muted-foreground">
             {filterStatus === 'ACTIVE'

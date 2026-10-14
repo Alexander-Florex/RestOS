@@ -1,27 +1,24 @@
 // ──────────────────────────────────────────────
-// permissions.ts — Mapeo de roles a páginas accesibles
+// permissions.ts — Permisos del usuario logueado
+// La lista y los textos viven en el backend (src/lib/permissions.ts,
+// GET /api/roles/permissions). Este tipo debe coincidir con esas claves.
+// El backend valida todo: esto solo decide qué se muestra.
 // ──────────────────────────────────────────────
-import type { UserRole } from './api';
+import type { AuthUser } from './api';
 
-export const ROLE_PAGES: Record<UserRole, readonly string[]> = {
-  ADMIN:  ['dashboard', 'tables', 'menu', 'sales', 'inventory', 'staff', 'users', 'accounting', 'expenses'],
-  STAFF:  ['tables', 'menu', 'sales'],
-  WAITER: ['tables-mobile'], // solo vista móvil de toma de pedidos
-};
+export type Permission =
+  | 'app.dashboard'
+  | 'orders.create' | 'orders.view' | 'orders.delete'
+  | 'tables.operate' | 'tables.manage'
+  | 'reservations.manage'
+  | 'sales.charge' | 'sales.view' | 'reports.view'
+  | 'takeaway.cancel' | 'takeaway.delete'
+  | 'menu.availability' | 'menu.manage'
+  | 'inventory.view' | 'inventory.adjust' | 'inventory.manage'
+  | 'recipes.manage' | 'staff.manage' | 'users.manage';
 
-export function canAccess(role: UserRole, page: string): boolean {
-  return ROLE_PAGES[role]?.includes(page) ?? false;
+/** true si el usuario tiene el permiso. Con varios, alcanza con uno. */
+export function can(user: AuthUser | null | undefined, ...perms: Permission[]): boolean {
+  if (!user) return false;
+  return perms.some(p => user.permissions.includes(p));
 }
-
-export function defaultPageFor(role: UserRole): string {
-  if (role === 'ADMIN')  return 'dashboard';
-  if (role === 'WAITER') return 'tables-mobile';
-  return 'tables';
-}
-
-// Etiquetas en español para mostrar el rol
-export const ROLE_LABELS: Record<UserRole, string> = {
-  ADMIN:  'Administrador',
-  WAITER: 'Mesero',
-  STAFF:  'Personal',
-};

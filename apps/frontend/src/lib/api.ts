@@ -1,6 +1,7 @@
 // ──────────────────────────────────────────────
 // api.ts — Cliente HTTP con auto-token y tipos
 // ──────────────────────────────────────────────
+import type { Permission } from './permissions';
 
 // Base de URL: si está vacía, usa el proxy de Vite (recomendado en dev)
 const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
@@ -80,6 +81,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 // ──────────────────────────────────────────────
 // Tipos compartidos (espejados del backend)
 // ──────────────────────────────────────────────
+/** Columna legada del backend. Para decidir qué puede hacer alguien, usar `permissions`. */
 export type UserRole = 'ADMIN' | 'WAITER' | 'STAFF';
 
 export interface AuthUser {
@@ -88,7 +90,9 @@ export interface AuthUser {
   username: string;
   email: string;
   name: string;
-  role: UserRole;
+  roleId: number;
+  roleName: string;
+  permissions: Permission[];
   active: boolean;
 }
 
@@ -566,7 +570,7 @@ export const staffApi = {
 };
 
 // ──────────────────────────────────────────────
-// Usuarios (cuentas de login) — solo ADMIN
+// Usuarios (cuentas de login) — requiere users.manage
 // ──────────────────────────────────────────────
 export interface AppUser {
   id: number;
@@ -574,6 +578,8 @@ export interface AppUser {
   email: string;
   name: string;
   role: UserRole;
+  roleId: number | null;
+  roleName: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -584,7 +590,7 @@ export interface CreateUserBody {
   email: string;
   password: string;
   name: string;
-  role: UserRole;
+  roleId: number;
   active?: boolean;
 }
 
@@ -593,9 +599,40 @@ export interface UpdateUserBody {
   email?: string;
   password?: string;
   name?: string;
-  role?: UserRole;
+  roleId?: number;
   active?: boolean;
 }
+
+// ──────────────────────────────────────────────
+// Roles y permisos — requiere users.manage
+// ──────────────────────────────────────────────
+export interface AppRole {
+  id: number;
+  name: string;
+  /** ADMIN | WAITER | CASHIER para los roles de sistema; null para los que crea el administrador. */
+  key: string | null;
+  system: boolean;
+  locked: boolean;
+  permissions: Permission[];
+  userCount: number;
+}
+
+export interface PermissionInfo {
+  key: Permission;
+  group: string;
+  label: string;
+  description: string;
+}
+
+export const rolesApi = {
+  permissions: () => request<{ permissions: PermissionInfo[] }>('/roles/permissions'),
+  list: () => request<{ roles: AppRole[] }>('/roles'),
+  create: (data: { name: string; permissions: Permission[] }) =>
+    request<{ role: AppRole }>('/roles', { method: 'POST', body: data }),
+  update: (id: number, data: { name?: string; permissions?: Permission[] }) =>
+    request<{ role: AppRole }>(`/roles/${id}`, { method: 'PATCH', body: data }),
+  remove: (id: number) => request<void>(`/roles/${id}`, { method: 'DELETE' }),
+};
 
 export const usersApi = {
   list: () => request<{ users: AppUser[] }>('/users'),

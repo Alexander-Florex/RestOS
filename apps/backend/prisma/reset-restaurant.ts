@@ -24,6 +24,7 @@
 // ──────────────────────────────────────────────
 import 'dotenv/config';
 import { PrismaClient, UserRole } from '@prisma/client';
+import { SYSTEM_ROLES, type SystemRoleKey } from '../src/lib/permissions.js';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -77,6 +78,14 @@ async function main() {
   });
   console.log(`🏠  Restaurante creado: #${restaurant.id} — "${restaurant.name}"`);
 
+  // Roles de sistema: Administrador, Mesero y Cajero
+  let adminRoleId = 0;
+  for (const key of Object.keys(SYSTEM_ROLES) as SystemRoleKey[]) {
+    const def = SYSTEM_ROLES[key];
+    const role = await prisma.role.create({ data: { restaurantId: restaurant.id, key, name: def.name, permissions: [...def.permissions] } });
+    if (key === 'ADMIN') adminRoleId = role.id;
+  }
+
   const password = await bcrypt.hash(adminPass, ROUNDS);
   const admin = await prisma.user.create({
     data: {
@@ -86,6 +95,7 @@ async function main() {
       password,
       name: adminName,
       role: UserRole.ADMIN,
+      roleId: adminRoleId,
     },
   });
 
@@ -94,7 +104,7 @@ async function main() {
   console.log(`   Usuario           : ${admin.username}`);
   console.log('   Contraseña        : la indicada en --admin-pass');
   console.log('\nDesde el panel, el admin puede crear el menú, secciones/mesas, etc.');
-  console.log('Los demás usuarios (meseros, personal, otros admins) se crean desde la página de Usuarios.');
+  console.log('Los demás usuarios (meseros, cajeros, otros admins) se crean desde la página de Usuarios.');
 }
 
 main()

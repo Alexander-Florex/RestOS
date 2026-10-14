@@ -2,7 +2,9 @@
 // TableMap.tsx — Mapa de mesas con tabs por sección + panel admin
 // ──────────────────────────────────────────────
 import { useMemo, useState } from 'react';
-import { Loader2, RefreshCw, AlertCircle, Settings2 } from 'lucide-react';
+import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
+import { RefreshCw, AlertCircle, Settings2 } from 'lucide-react';
+import { PageHeader } from './ui/motion';
 import { useTables } from '../hooks/useTables';
 import { useSections } from '../hooks/useSections';
 import { TableCard } from './TableCard';
@@ -25,8 +27,8 @@ const STATUS_FILTERS: { value: FilterValue; label: string }[] = [
 ];
 
 export function TableMap() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { user, can } = useAuth();
+  const isAdmin = can('tables.manage');
 
   const { tables, loading, error, refresh } = useTables();
   const { sections } = useSections();
@@ -73,10 +75,10 @@ export function TableMap() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
-          <p className="text-sm">Cargando mesas...</p>
+      <div>
+        <div className="skeleton mb-10 h-12 w-64" />
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          {Array.from({ length: 12 }).map((_, i) => <div key={i} className="skeleton aspect-square rounded-3xl" />)}
         </div>
       </div>
     );
@@ -84,7 +86,7 @@ export function TableMap() {
 
   if (error) {
     return (
-      <div className="mx-auto max-w-md rounded-2xl border border-destructive/40 bg-destructive/10 p-6 text-center">
+      <div className="mx-auto max-w-md rounded-3xl border border-rose-400/30 bg-rose-500/10 p-8 text-center">
         <AlertCircle className="mx-auto h-8 w-8 text-destructive" />
         <p className="mt-3 text-sm text-destructive">{error}</p>
         <Button variant="outline" size="sm" className="mt-4" onClick={refresh}>
@@ -97,40 +99,34 @@ export function TableMap() {
 
   return (
     <div>
-      {/* Header */}
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Mapa de mesas</h2>
-          <p className="text-sm text-muted-foreground">
-            {tablesInView.length} {tablesInView.length === 1 ? 'mesa' : 'mesas'}
-            {' · '}
-            <span className="text-emerald-400">{counts.AVAILABLE} libres</span>
-            {' · '}
-            <span className="text-blue-400">{counts.OCCUPIED} ocupadas</span>
+      <PageHeader
+        eyebrow="Salón en vivo"
+        title="Mapa de mesas"
+        description={
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            <span>{tablesInView.length} {tablesInView.length === 1 ? 'mesa' : 'mesas'}</span>
+            <span className="text-emerald-300">{counts.AVAILABLE} libres</span>
+            <span className="text-brand-300">{counts.OCCUPIED} ocupadas</span>
             {counts.BILL_REQUESTED > 0 && (
-              <>{' · '}<span className="font-medium text-amber-400">{counts.BILL_REQUESTED} con cuenta pedida</span></>
+              <span className="font-semibold text-amber-200">{counts.BILL_REQUESTED} con cuenta pedida</span>
             )}
-            {counts.RESERVED > 0 && (
-              <>{' · '}<span className="text-purple-400">{counts.RESERVED} reservadas</span></>
+            {counts.RESERVED > 0 && <span className="text-violet-300">{counts.RESERVED} reservadas</span>}
+          </div>
+        }
+        actions={
+          <>
+            {isAdmin && (
+              <Button variant={adminMode ? 'default' : 'outline'} size="sm" onClick={() => setAdminMode(v => !v)}>
+                <Settings2 className="h-4 w-4" />
+                {adminMode ? 'Salir del modo admin' : 'Administrar mesas'}
+              </Button>
             )}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {isAdmin && (
-            <Button
-              variant={adminMode ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setAdminMode(v => !v)}
-            >
-              <Settings2 className="h-4 w-4" />
-              {adminMode ? 'Salir del modo admin' : 'Administrar mesas'}
+            <Button variant="outline" size="sm" onClick={refresh} aria-label="Actualizar">
+              <RefreshCw className="h-4 w-4" />
             </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={refresh}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Modo admin: panel CRUD */}
       {adminMode ? (
@@ -146,8 +142,8 @@ export function TableMap() {
                   className={cn(
                     'rounded-full border px-4 py-1.5 text-xs font-medium transition-colors',
                     sectionTab === 'ALL'
-                      ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-                      : 'border-border bg-secondary/30 text-muted-foreground hover:text-foreground'
+                      ? 'border-brand-400/50 bg-brand-500/15 text-brand-200'
+                      : 'border-white/[0.07] bg-white/[0.03] text-muted-foreground hover:text-foreground'
                   )}
                 >
                   Todas
@@ -163,7 +159,7 @@ export function TableMap() {
                         'inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-xs font-medium transition-colors',
                         sectionTab === s.id
                           ? 'border-white/30 text-white'
-                          : 'border-border bg-secondary/30 text-muted-foreground hover:text-foreground'
+                          : 'border-white/[0.07] bg-white/[0.03] text-muted-foreground hover:text-foreground'
                       )}
                       style={sectionTab === s.id ? { background: `${s.color}25`, borderColor: `${s.color}60`, color: s.color } : {}}
                     >
@@ -178,7 +174,8 @@ export function TableMap() {
           )}
 
           {/* Filtros de estado */}
-          <div className="mb-6 flex flex-wrap gap-2">
+          <LayoutGroup id="status-filter">
+          <div className="mb-8 inline-flex max-w-full flex-wrap gap-1 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-1">
             {STATUS_FILTERS.map(f => {
               const active = statusFilter === f.value;
               const count = counts[f.value] ?? 0;
@@ -188,25 +185,31 @@ export function TableMap() {
                   key={f.value}
                   onClick={() => setStatusFilter(f.value)}
                   className={cn(
-                    'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
-                    active
-                      ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-                      : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+                    'relative inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-colors',
+                    active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
-                  {style && <span className={cn('h-1.5 w-1.5 rounded-full', style.dot)} />}
-                  {f.label}
-                  <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', active ? 'bg-emerald-500/20' : 'bg-background/50')}>
+                  {active && (
+                    <motion.span
+                      layoutId="status-pill"
+                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                      className="absolute inset-0 rounded-xl bg-white/[0.08] shadow-[inset_0_1px_0_0_rgb(255_255_255/0.08)] ring-1 ring-white/10"
+                    />
+                  )}
+                  {style && <span className={cn('relative h-1.5 w-1.5 rounded-full', style.dot)} />}
+                  <span className="relative">{f.label}</span>
+                  <span className={cn('relative rounded-full px-1.5 text-[10px] tabular-nums', active ? 'bg-brand-500/25 text-brand-200' : 'bg-white/[0.05]')}>
                     {count}
                   </span>
                 </button>
               );
             })}
           </div>
+          </LayoutGroup>
 
           {/* Grilla de mesas */}
           {filtered.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border p-12 text-center">
+            <div className="rounded-3xl border border-dashed border-white/10 p-14 text-center">
               <p className="text-sm text-muted-foreground">
                 {statusFilter !== 'ALL'
                   ? `No hay mesas en estado "${TABLE_STATUS_LABEL[statusFilter as TableStatus]}" en esta sección.`
@@ -214,11 +217,13 @@ export function TableMap() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-              {filtered.map(t => (
-                <TableCard key={t.id} table={t} onClick={() => setSelected(t)} />
-              ))}
-            </div>
+            <motion.div layout className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              <AnimatePresence mode="popLayout">
+                {filtered.map(t => (
+                  <TableCard key={t.id} table={t} onClick={() => setSelected(t)} />
+                ))}
+              </AnimatePresence>
+            </motion.div>
           )}
 
           {/* Modal */}

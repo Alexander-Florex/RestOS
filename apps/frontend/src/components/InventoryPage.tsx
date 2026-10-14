@@ -48,8 +48,9 @@ const EMPTY_FORM: FormState = {
 };
 
 export function InventoryPage() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { user, can } = useAuth();
+  const isAdmin = can('inventory.manage');
+  const canAdjust = can('inventory.adjust');
   const confirm = useConfirm();
 
   const { items, loading } = useInventory();
@@ -198,9 +199,10 @@ export function InventoryPage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Inventario</h2>
+          <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-400"><span className="h-px w-6 bg-gradient-to-r from-brand-400 to-transparent" />Carta y stock</p>
+          <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Inventario</h2>
           <p className="text-sm text-muted-foreground">
             {items.length} {items.length === 1 ? 'ítem' : 'ítems'} en stock
             {lowCount > 0 && (
@@ -272,7 +274,7 @@ export function InventoryPage() {
 
       {/* Listado de items en grid */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-sm text-muted-foreground">
           {search ? 'No hay resultados para esa búsqueda' : 'No hay ítems en este filtro'}
         </div>
       ) : (
@@ -342,13 +344,15 @@ export function InventoryPage() {
                 </div>
 
                 <div className="flex items-center justify-end gap-1 border-t border-border pt-3">
-                  <Button
-                    variant="outline" size="sm"
-                    onClick={() => { setRestocking(item); setRestockAmount(''); }}
-                  >
-                    <PackagePlus className="h-3.5 w-3.5" />
-                    Reabastecer
-                  </Button>
+                  {canAdjust && (
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={() => { setRestocking(item); setRestockAmount(''); }}
+                    >
+                      <PackagePlus className="h-3.5 w-3.5" />
+                      Reabastecer
+                    </Button>
+                  )}
                   {isAdmin && (
                     <>
                       <Button variant="ghost" size="icon" onClick={() => openEdit(item)} title="Editar">
@@ -466,7 +470,7 @@ export function InventoryPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <PackagePlus className="h-5 w-5 text-emerald-400" />
+              <PackagePlus className="h-5 w-5 text-brand-400" />
               Reabastecer "{restocking?.name}"
             </DialogTitle>
             <DialogDescription>
@@ -488,7 +492,7 @@ export function InventoryPage() {
             />
             {restocking && restockAmount && !Number.isNaN(Number(restockAmount)) && (
               <p className="text-xs text-muted-foreground">
-                Nuevo total: <span className="font-semibold text-emerald-400">
+                Nuevo total: <span className="font-semibold text-brand-400">
                   {restocking.quantity + Number(restockAmount)} {restocking.unit}
                 </span>
               </p>
@@ -522,18 +526,18 @@ function FilterChip({
         active
           ? warning
             ? 'border-amber-500/50 bg-amber-500/10 text-amber-400'
-            : 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
+            : 'border-brand-500/50 bg-brand-500/10 text-brand-400'
           : warning && count > 0
             ? 'border-amber-500/30 bg-amber-500/5 text-amber-400'
-            : 'border-border bg-secondary/50 text-muted-foreground hover:text-foreground'
+            : 'border-border bg-white/[0.06] text-muted-foreground hover:text-foreground'
       )}
     >
       {label}
       <span className={cn(
         'rounded-full px-1.5 text-[10px] tabular-nums',
         active
-          ? warning ? 'bg-amber-500/20' : 'bg-emerald-500/20'
-          : 'bg-background/50'
+          ? warning ? 'bg-amber-500/20' : 'bg-brand-500/20'
+          : 'bg-white/[0.03]'
       )}>
         {count}
       </span>
