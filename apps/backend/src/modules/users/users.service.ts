@@ -8,7 +8,7 @@ import { UserRole, type Role, type User } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
-import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { ioRestaurant, SocketEvents, disconnectUser } from '../../sockets/index.js';
 import { env } from '../../config/env.js';
 import { legacyUserRole } from '../../lib/permissions.js';
 import { invalidateAccess, rolesService } from '../roles/roles.service.js';
@@ -59,6 +59,37 @@ async function countActiveAdmins(restaurantId: number, excludeId?: number): Prom
 }
 
 export const usersService = {
+  /**
+   * Solo un Administrador puede dar el rol Administrador o tocar la cuenta de otro
+   * Administrador (editar, cambiar contraseña, desactivar o borrar). Sin esto,
+   * alguien con un rol con "Gestionar usuarios" podría convertirse en admin
+   * o tomar la cuenta del dueño.
+   */
+  async assertCanManage(
+    restaurantId: number,
+    requesterId: number,
+    target: { userId?: number; roleId?: number },
+  ): Promise<void> {
+    const access = await rolesService.getAccess(requesterId, restaurantId);
+    if (access.isAdmin) return;
+
+    if (target.roleId !== undefined) {
+      const role = await rolesService.findForTenant(restaurantId, target.roleId);
+      if (role.key === 'ADMIN') {
+        throw HttpError.forbidden('Solo un Administrador puede asignar el rol Administrador');
+      }
+    }
+    if (target.userId !== undefined) {
+      const user = await prisma.user.findFirst({
+        where: { id: target.userId, restaurantId },
+        select: { roleRef: { select: { key: true } }, role: true },
+      });
+      if (user && (user.roleRef?.key === 'ADMIN' || user.role === UserRole.ADMIN)) {
+        throw HttpError.forbidden('Solo un Administrador puede modificar la cuenta de otro Administrador');
+      }
+    }
+  },
+
   async list(restaurantId: number): Promise<SafeUser[]> {
     const users = await prisma.user.findMany({
       where: { restaurantId },
@@ -167,6 +198,7 @@ export const usersService = {
       include: withRole,
     });
     invalidateAccess(id);
+    if (!user.active) disconnectUser(id);
 
     const safe = toSafe(user);
     emitChanged(restaurantId, safe);
@@ -190,6 +222,7 @@ export const usersService = {
 
     await prisma.user.delete({ where: { id } });
     invalidateAccess(id);
+    disconnectUser(id);
     emitDeleted(restaurantId, id);
   },
 
@@ -214,6 +247,7 @@ export const usersService = {
       include: withRole,
     });
     invalidateAccess(id);
+    if (!user.active) disconnectUser(id);
 
     const safe = toSafe(user);
     emitChanged(restaurantId, safe);

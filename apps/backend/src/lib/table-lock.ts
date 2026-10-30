@@ -17,6 +17,7 @@ export interface LockedTable {
   number: number;
   status: TableStatus;
   capacity: number;
+  enabled: boolean;
 }
 
 /** Bloquea la mesa y devuelve su estado actual, o null si no existe en ese restaurante. */
@@ -26,9 +27,12 @@ export async function lockTable(
   tableId: number,
 ): Promise<LockedTable | null> {
   const rows = await tx.$queryRaw<LockedTable[]>`
-    SELECT id, number, status, capacity
+    SELECT id, number, status, capacity, enabled
     FROM tables
     WHERE id = ${tableId} AND restaurantId = ${restaurantId}
     FOR UPDATE`;
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  // MySQL devuelve el booleano como 0/1 en consultas crudas
+  return { ...row, enabled: Boolean(Number(row.enabled)) };
 }

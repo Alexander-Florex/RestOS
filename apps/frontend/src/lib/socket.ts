@@ -74,7 +74,7 @@ export const SocketEvents = {
   SECTION_DELETED:         'section:deleted',
   // Para llevar
   TAKEAWAY_CREATED:        'takeaway:created',
-  TAKEAWAY_CHANGED:        'takeaway:changed',
+  TAKEAWAY_UPDATED:        'takeaway:updated',
   TAKEAWAY_DELETED:        'takeaway:deleted',
   // Reservas
   RESERVATION_CHANGED:     'reservation:changed',

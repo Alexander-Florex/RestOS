@@ -15,6 +15,7 @@ import { TableStatus, type Order, type OrderItem, type Prisma } from '@prisma/cl
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
+import { toCents, fromCents } from '../../lib/money.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 // Order con sus items y la mesa, listo para enviar al frontend
@@ -95,13 +96,13 @@ export const ordersService = {
       where: { restaurantId, tableId },
       include: { items: true },
     });
-    let total = 0;
+    let totalCents = 0;
     for (const order of orders) {
       for (const item of order.items) {
-        total += Number(item.price) * item.quantity;
+        totalCents += toCents(item.price) * item.quantity;
       }
     }
-    return total;
+    return fromCents(totalCents);
   },
 
   async create(restaurantId: number, input: CreateOrderInput): Promise<OrderWithItems> {
@@ -192,9 +193,18 @@ export const ordersService = {
   },
 
   /** Elimina un pedido individual. Solo permitido si la mesa sigue abierta (sin venta). */
+  /**
+   * Bloquea la mesa igual que el cobro: si se está cobrando, la anulación espera
+   * y, cuando el cobro termina, el pedido ya no existe (404). Así no se cobra
+   * un pedido que se acaba de anular.
+   */
   async remove(restaurantId: number, id: number): Promise<void> {
     const order = await ordersService.getById(restaurantId, id);
-    await prisma.order.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await lockTable(tx, restaurantId, order.tableId);
+      const { count } = await tx.order.deleteMany({ where: { id, restaurantId } });
+      if (count !== 1) throw HttpError.notFound('Pedido no encontrado (la mesa ya pudo haberse cobrado)');
+    });
     emitOrderDeleted(restaurantId, id, order.tableId);
   },
 };

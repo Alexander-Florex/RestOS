@@ -1,14 +1,39 @@
 // ──────────────────────────────────────────────
 // tables.service.ts — Lógica de negocio de mesas
 // ──────────────────────────────────────────────
-import { TableStatus, type Table } from '@prisma/client';
+import { TableStatus, type Prisma, type Table } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
+import { lockTable, type LockedTable } from '../../lib/table-lock.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 function emitTableChanged(restaurantId: number, table: Table) { ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, table); }
 function emitTableCreated(restaurantId: number, table: Table) { ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CREATED, table); }
 function emitTableDeleted(restaurantId: number, id: number)   { ioRestaurant(restaurantId).emit(SocketEvents.TABLE_DELETED, { id }); }
+
+/**
+ * Cambia el estado de una mesa con la fila bloqueada (igual que pedidos y cobro),
+ * así dos acciones simultáneas sobre la misma mesa no se pisan.
+ * `decide` valida el estado actual y devuelve los datos a guardar, o lanza.
+ * Si se pasa `tx`, no emite el evento: lo hace el llamador después del commit.
+ */
+export async function changeTableStatus(
+  restaurantId: number,
+  id: number,
+  decide: (locked: LockedTable) => Prisma.TableUpdateInput,
+  tx?: Prisma.TransactionClient,
+): Promise<Table> {
+  const run = async (t: Prisma.TransactionClient) => {
+    const locked = await lockTable(t, restaurantId, id);
+    if (!locked) throw HttpError.notFound('Mesa no encontrada');
+    return t.table.update({ where: { id }, data: decide(locked) });
+  };
+  // Dentro de una transacción ajena, el aviso por socket lo emite quien hace el commit
+  if (tx) return run(tx);
+  const table = await prisma.$transaction(run);
+  emitTableChanged(restaurantId, table);
+  return table;
+}
 
 export const tablesService = {
   // ── CRUD ──
@@ -106,89 +131,71 @@ export const tablesService = {
 
   /** Abre la mesa. guestCount: mínimo 1, máximo = capacity (sin límite superior artificial). */
   async open(restaurantId: number, id: number, guestCount: number): Promise<Table> {
-    const current = await tablesService.getById(restaurantId, id);
-    if (!current.enabled) throw HttpError.badRequest('Esta mesa está deshabilitada');
-    if (current.status === TableStatus.OCCUPIED) {
-      throw HttpError.badRequest('La mesa ya está ocupada');
-    }
-    if (current.status === TableStatus.BILL_REQUESTED) {
-      throw HttpError.badRequest('La mesa tiene una cuenta pendiente de cobro');
-    }
     if (guestCount < 1) {
       throw HttpError.badRequest('La cantidad de comensales debe ser al menos 1');
     }
-    if (guestCount > current.capacity) {
-      throw HttpError.badRequest(
-        `La mesa tiene capacidad para ${current.capacity} comensales. Si necesitás más, editá la capacidad de la mesa primero.`
-      );
-    }
-
-    const table = await prisma.table.update({
-      where: { id },
-      data: {
-        status: TableStatus.OCCUPIED,
-        guestCount,
-        openedAt: new Date(),
-      },
+    return changeTableStatus(restaurantId, id, (t) => {
+      if (!t.enabled) throw HttpError.badRequest('Esta mesa está deshabilitada');
+      if (t.status === TableStatus.OCCUPIED) throw HttpError.badRequest('La mesa ya está ocupada');
+      if (t.status === TableStatus.BILL_REQUESTED) throw HttpError.badRequest('La mesa tiene una cuenta pendiente de cobro');
+      if (guestCount > t.capacity) {
+        throw HttpError.badRequest(
+          `La mesa tiene capacidad para ${t.capacity} comensales. Si necesitás más, editá la capacidad de la mesa primero.`
+        );
+      }
+      return { status: TableStatus.OCCUPIED, guestCount, openedAt: new Date() };
     });
-    emitTableChanged(restaurantId, table);
-    return table;
   },
 
   /** Marca la mesa como "cuenta pedida". Solo desde OCCUPIED. */
   async requestBill(restaurantId: number, id: number): Promise<Table> {
-    const current = await tablesService.getById(restaurantId, id);
-    if (current.status !== TableStatus.OCCUPIED) {
-      throw HttpError.badRequest('Solo se puede pedir cuenta de una mesa ocupada');
-    }
-    const table = await prisma.table.update({
-      where: { id },
-      data: { status: TableStatus.BILL_REQUESTED },
+    return changeTableStatus(restaurantId, id, (t) => {
+      if (t.status !== TableStatus.OCCUPIED) throw HttpError.badRequest('Solo se puede pedir cuenta de una mesa ocupada');
+      return { status: TableStatus.BILL_REQUESTED };
+    });
+  },
+
+  /**
+   * Libera la mesa sin venta (vuelve a AVAILABLE). Limpia guestCount y openedAt.
+   * Si tiene pedidos se rechaza: hay que cobrarla o anular los pedidos, si no
+   * la venta se pierde y los pedidos pasan a la próxima mesa que se siente.
+   * Bloquea la mesa igual que el alta de pedidos, para que no entre uno en el medio.
+   */
+  async close(restaurantId: number, id: number): Promise<Table> {
+    const table = await prisma.$transaction(async (tx) => {
+      const locked = await lockTable(tx, restaurantId, id);
+      if (!locked) throw HttpError.notFound('Mesa no encontrada');
+      const pending = await tx.order.count({ where: { tableId: id, restaurantId } });
+      if (pending > 0) {
+        throw HttpError.conflict('La mesa tiene pedidos sin cobrar. Cobrala o anulá los pedidos antes de liberarla.');
+      }
+      return tx.table.update({
+        where: { id },
+        data: {
+          status: TableStatus.AVAILABLE,
+          guestCount: null,
+          openedAt: null,
+        },
+      });
     });
     emitTableChanged(restaurantId, table);
     return table;
   },
 
-  /** Libera la mesa (vuelve a AVAILABLE). Limpia guestCount y openedAt. */
-  async close(restaurantId: number, id: number): Promise<Table> {
-    await tablesService.getById(restaurantId, id);
-    const table = await prisma.table.update({
-      where: { id },
-      data: {
-        status: TableStatus.AVAILABLE,
-        guestCount: null,
-        openedAt: null,
-      },
-    });
-    emitTableChanged(restaurantId, table);
-    return table;
-  },
 
   /** Marca la mesa como reservada. Solo desde AVAILABLE. */
   async reserve(restaurantId: number, id: number): Promise<Table> {
-    const current = await tablesService.getById(restaurantId, id);
-    if (current.status !== TableStatus.AVAILABLE) {
-      throw HttpError.badRequest('Solo se puede reservar una mesa libre');
-    }
-    const table = await prisma.table.update({
-      where: { id },
-      data: { status: TableStatus.RESERVED },
+    return changeTableStatus(restaurantId, id, (t) => {
+      if (t.status !== TableStatus.AVAILABLE) throw HttpError.badRequest('Solo se puede reservar una mesa libre');
+      return { status: TableStatus.RESERVED };
     });
-    emitTableChanged(restaurantId, table);
-    return table;
   },
 
   /** Cancela una reserva (vuelve a AVAILABLE). */
   async cancelReservation(restaurantId: number, id: number): Promise<Table> {
-    const current = await tablesService.getById(restaurantId, id);
-    if (current.status !== TableStatus.RESERVED) {
-      throw HttpError.badRequest('La mesa no está reservada');
-    }
-    const table = await prisma.table.update({
-      where: { id },
-      data: { status: TableStatus.AVAILABLE },
+    return changeTableStatus(restaurantId, id, (t) => {
+      if (t.status !== TableStatus.RESERVED) throw HttpError.badRequest('La mesa no está reservada');
+      return { status: TableStatus.AVAILABLE };
     });
-    emitTableChanged(restaurantId, table);
-    return table;
   },
 };

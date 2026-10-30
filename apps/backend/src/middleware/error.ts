@@ -54,13 +54,18 @@ export function errorHandler(
     }
   }
 
+  // Datos con forma inválida que llegaron hasta Prisma (por ejemplo un id "abc"
+  // que quedó como NaN, o un enum desconocido en la query): es un error del pedido, no del servidor.
+  if (err instanceof Prisma.PrismaClientValidationError) {
+    return res.status(400).json({ error: 'Datos inválidos' });
+  }
+
   // ── Fallback ──
+  // El detalle del error queda en el log; al cliente solo se le da en desarrollo.
   console.error('💥 Error no manejado:', err);
+  const isDev = env.NODE_ENV === 'development';
   res.status(500).json({
     error: 'Error interno del servidor',
-    ...(err instanceof Error ? { message: err.message } : {}),
-    ...(env.NODE_ENV === 'development' && err instanceof Error
-      ? { stack: err.stack }
-      : {}),
+    ...(isDev && err instanceof Error ? { message: err.message, stack: err.stack } : {}),
   });
 }

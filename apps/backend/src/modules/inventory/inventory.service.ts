@@ -94,12 +94,13 @@ export const inventoryService = {
 
   /** Reabastece: suma `amount` a la cantidad y actualiza lastRestocked. */
   async restock(restaurantId: number, id: number, amount: number): Promise<InventoryItem> {
-    const current = await inventoryService.getById(restaurantId, id);
+    await inventoryService.getById(restaurantId, id);
     if (amount <= 0) throw HttpError.badRequest('La cantidad a reabastecer debe ser mayor a 0');
+    // increment atómico: dos reposiciones simultáneas no se pisan
     const item = await prisma.inventoryItem.update({
       where: { id },
       data: {
-        quantity: current.quantity + amount,
+        quantity: { increment: amount },
         lastRestocked: new Date(),
       },
     });
@@ -107,15 +108,18 @@ export const inventoryService = {
     return item;
   },
 
-  /** Consume: resta `amount` (sin permitir negativos). Útil para integraciones futuras. */
+  /** Consume: resta `amount`. Rechaza consumir más de lo que hay en vez de dejar el stock en 0 a escondidas. */
   async consume(restaurantId: number, id: number, amount: number): Promise<InventoryItem> {
     const current = await inventoryService.getById(restaurantId, id);
     if (amount <= 0) throw HttpError.badRequest('La cantidad a consumir debe ser mayor a 0');
-    const newQty = Math.max(0, current.quantity - amount);
-    const item = await prisma.inventoryItem.update({
-      where: { id },
-      data: { quantity: newQty },
+    const { count } = await prisma.inventoryItem.updateMany({
+      where: { id, restaurantId, quantity: { gte: amount } },
+      data: { quantity: { decrement: amount } },
     });
+    if (count !== 1) {
+      throw HttpError.badRequest(`No hay stock suficiente de "${current.name}" (quedan ${current.quantity} ${current.unit})`);
+    }
+    const item = await inventoryService.getById(restaurantId, id);
     emitChanged(restaurantId, item);
     return item;
   },

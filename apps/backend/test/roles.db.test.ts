@@ -105,3 +105,20 @@ test('no se puede dejar el restaurante sin administrador', async () => {
   const { restaurant, roles, admin } = await setup();
   await assert.rejects(usersService.update(restaurant.id, admin.id, -1, { roleId: roles.CASHIER.id }), /sin ningún administrador/);
 });
+
+test('un rol con "Gestionar usuarios" no puede volverse Administrador ni tocar al Administrador', async () => {
+  const { restaurant, roles, admin, mesero } = await setup();
+  const encargado = await rolesService.create(restaurant.id, { name: 'Encargado', permissions: ['app.dashboard', 'users.manage'] });
+  await usersService.update(restaurant.id, mesero.id, admin.id, { roleId: encargado.id });
+  invalidateAccess();
+
+  const forbidden = (err: unknown) => err instanceof HttpError && err.statusCode === 403;
+  await assert.rejects(usersService.assertCanManage(restaurant.id, mesero.id, { userId: mesero.id, roleId: roles.ADMIN.id }), forbidden);
+  await assert.rejects(usersService.assertCanManage(restaurant.id, mesero.id, { roleId: roles.ADMIN.id }), forbidden);
+  await assert.rejects(usersService.assertCanManage(restaurant.id, mesero.id, { userId: admin.id }), forbidden);
+  // Sí puede gestionar cuentas que no son de administrador
+  await usersService.assertCanManage(restaurant.id, mesero.id, { roleId: roles.CASHIER.id });
+
+  // El Administrador puede todo
+  await usersService.assertCanManage(restaurant.id, admin.id, { userId: mesero.id, roleId: roles.ADMIN.id });
+});

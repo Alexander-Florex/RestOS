@@ -11,6 +11,7 @@ import { ReservationStatus, TableStatus, type Reservation } from '@prisma/client
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { changeTableStatus } from '../tables/tables.service.js';
 
 function emitChanged(restaurantId: number, reservation: Reservation) { ioRestaurant(restaurantId).emit(SocketEvents.RESERVATION_CHANGED, reservation); }
 function emitCreated(restaurantId: number, reservation: Reservation) { ioRestaurant(restaurantId).emit(SocketEvents.RESERVATION_CREATED, reservation); }
@@ -207,29 +208,28 @@ export const reservationsService = {
       throw HttpError.badRequest('La reserva ya finalizó');
     }
 
-    const table = await prisma.table.findFirst({ where: { id: current.tableId, restaurantId } });
-    if (!table) throw HttpError.notFound('La mesa de la reserva ya no existe');
-    if (table.status === TableStatus.OCCUPIED || table.status === TableStatus.BILL_REQUESTED) {
-      throw HttpError.badRequest('La mesa está ocupada por otros comensales');
-    }
-
-    return await prisma.$transaction(async (tx) => {
-      const reservation = await tx.reservation.update({
-        where: { id },
+    const tableId = current.tableId;
+    // La mesa se bloquea y se revisa dentro de la transacción: si alguien la ocupó
+    // un instante antes, se rechaza en vez de pisar a esos comensales.
+    const { reservation, updatedTable } = await prisma.$transaction(async (tx) => {
+      const updatedTable = await changeTableStatus(restaurantId, tableId, (t) => {
+        if (t.status === TableStatus.OCCUPIED || t.status === TableStatus.BILL_REQUESTED) {
+          throw HttpError.badRequest('La mesa está ocupada por otros comensales');
+        }
+        return { status: TableStatus.OCCUPIED, guestCount: current.partySize, openedAt: new Date() };
+      }, tx);
+      const { count } = await tx.reservation.updateMany({
+        where: { id, restaurantId, status: current.status },
         data: { status: ReservationStatus.SEATED },
       });
-      const updatedTable = await tx.table.update({
-        where: { id: current.tableId! },
-        data: {
-          status: TableStatus.OCCUPIED,
-          guestCount: current.partySize,
-          openedAt: new Date(),
-        },
-      });
-      ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, updatedTable);
-      emitChanged(restaurantId, reservation);
-      return { reservation, tableId: updatedTable.id };
+      if (count !== 1) throw HttpError.conflict('La reserva cambió mientras tanto. Actualizá la pantalla.');
+      const reservation = await tx.reservation.findUniqueOrThrow({ where: { id } });
+      return { reservation, updatedTable };
     });
+
+    ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, updatedTable);
+    emitChanged(restaurantId, reservation);
+    return { reservation, tableId: updatedTable.id };
   },
 
   /** Marca la mesa asignada a la reserva como RESERVED (típico cuando faltan minutos para que lleguen). */
@@ -238,20 +238,14 @@ export const reservationsService = {
     if (!current.tableId) {
       throw HttpError.badRequest('La reserva no tiene mesa asignada');
     }
-    const table = await prisma.table.findFirst({ where: { id: current.tableId, restaurantId } });
-    if (!table) throw HttpError.notFound('La mesa de la reserva ya no existe');
-    if (table.status !== TableStatus.AVAILABLE) {
-      throw HttpError.badRequest('La mesa no está libre. Solo se pueden reservar mesas libres');
-    }
-
-    return await prisma.$transaction(async (tx) => {
-      const updatedTable = await tx.table.update({
-        where: { id: current.tableId! },
-        data: { status: TableStatus.RESERVED },
-      });
-      ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, updatedTable);
-      // No cambiamos el status de la reserva: sigue CONFIRMED hasta que lleguen
-      return current;
+    // Con la mesa bloqueada: si alguien la ocupó un instante antes, se rechaza
+    await changeTableStatus(restaurantId, current.tableId, (t) => {
+      if (t.status !== TableStatus.AVAILABLE) {
+        throw HttpError.badRequest('La mesa no está libre. Solo se pueden reservar mesas libres');
+      }
+      return { status: TableStatus.RESERVED };
     });
+    // No cambiamos el status de la reserva: sigue CONFIRMED hasta que lleguen
+    return current;
   },
 };

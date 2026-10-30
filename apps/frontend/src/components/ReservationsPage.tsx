@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useReservations } from '../hooks/useReservations';
 import { useTables } from '../hooks/useTables';
+import { useAuth } from '../context/AuthContext';
 import {
   reservationsApi, type Reservation, type ReservationStatus, ApiError,
 } from '../lib/api';
@@ -51,6 +52,8 @@ const EMPTY_FORM: FormState = {
 
 export function ReservationsPage() {
   const confirm = useConfirm();
+  const { can } = useAuth();
+  const canManage = can('reservations.manage');
   // Día seleccionado (default: hoy)
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
@@ -187,10 +190,12 @@ export function ReservationsPage() {
             {reservations.length} {reservations.length === 1 ? 'reserva' : 'reservas'} en este día
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          Nueva reserva
-        </Button>
+        {canManage && (
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            Nueva reserva
+          </Button>
+        )}
       </div>
 
       {/* Selector de día */}
@@ -327,7 +332,7 @@ export function ReservationsPage() {
                 </div>
 
                 {/* Acciones */}
-                <div className="flex flex-wrap items-center gap-1">
+                {canManage && <div className="flex flex-wrap items-center gap-1">
                   {r.status === 'CONFIRMED' && r.tableId && (
                     <>
                       <Button
@@ -354,9 +359,13 @@ export function ReservationsPage() {
                     </>
                   )}
                   {r.status === 'CONFIRMED' && !r.tableId && (
-                    <span className="rounded-md border border-dashed border-amber-500/40 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-amber-400">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(r)}
+                      className="rounded-md border border-dashed border-amber-500/40 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-amber-400 transition-colors hover:bg-amber-500/10"
+                    >
                       Asignar mesa
-                    </span>
+                    </button>
                   )}
                   {(r.status === 'CONFIRMED' || r.status === 'PENDING' || r.status === 'SEATED') && (
                     <Button
@@ -397,7 +406,7 @@ export function ReservationsPage() {
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
-                </div>
+                </div>}
               </div>
             );
           })}

@@ -17,7 +17,27 @@ declare global {
 }
 
 /**
- * Verifica que el request traiga un Bearer token válido.
+ * Valida el token y que el usuario siga existiendo y activo (caché corta):
+ * desactivar o borrar un usuario corta su sesión aunque el token no haya vencido.
+ */
+function acceptToken(token: string, req: Request, next: NextFunction) {
+  let payload: JwtPayload;
+  try {
+    payload = verifyToken(token);
+  } catch {
+    return next(HttpError.unauthorized('Token inválido o expirado'));
+  }
+  rolesService.getAccess(payload.userId, payload.restaurantId)
+    .then((access) => {
+      if (!access.active) return next(HttpError.unauthorized('Sesión inválida'));
+      req.user = payload;
+      next();
+    })
+    .catch(next);
+}
+
+/**
+ * Verifica que el request traiga un Bearer token válido de un usuario activo.
  * Adjunta el payload decoded a req.user.
  */
 export function authenticate(req: Request, _res: Response, next: NextFunction) {
@@ -25,14 +45,7 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
   if (!header?.startsWith('Bearer ')) {
     return next(HttpError.unauthorized('Falta token de autorización'));
   }
-
-  const token = header.slice(7).trim();
-  try {
-    req.user = verifyToken(token);
-    next();
-  } catch {
-    next(HttpError.unauthorized('Token inválido o expirado'));
-  }
+  acceptToken(header.slice(7).trim(), req, next);
 }
 
 /**
@@ -73,11 +86,5 @@ export function authenticateFromQuery(req: Request, _res: Response, next: NextFu
   const token = queryToken || headerToken;
 
   if (!token) return next(HttpError.unauthorized('Falta token de autorización'));
-
-  try {
-    req.user = verifyToken(token);
-    next();
-  } catch {
-    next(HttpError.unauthorized('Token inválido o expirado'));
-  }
+  acceptToken(token, req, next);
 }

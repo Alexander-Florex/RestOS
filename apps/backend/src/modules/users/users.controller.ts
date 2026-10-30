@@ -45,6 +45,7 @@ export const usersController = {
   async create(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);
+    await usersService.assertCanManage(req.user.restaurantId, req.user.userId, { roleId: data.roleId });
     const user = await usersService.create(req.user.restaurantId, data);
     res.status(201).json({ user });
   },
@@ -53,6 +54,7 @@ export const usersController = {
     if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
     const data = updateSchema.parse(req.body);
+    await usersService.assertCanManage(req.user.restaurantId, req.user.userId, { userId: id, roleId: data.roleId });
     const user = await usersService.update(req.user.restaurantId, id, req.user.userId, data);
     res.json({ user });
   },
@@ -60,6 +62,7 @@ export const usersController = {
   async remove(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
+    await usersService.assertCanManage(req.user.restaurantId, req.user.userId, { userId: id });
     await usersService.remove(req.user.restaurantId, id, req.user.userId);
     res.status(204).send();
   },
@@ -67,6 +70,7 @@ export const usersController = {
   async toggleActive(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
+    await usersService.assertCanManage(req.user.restaurantId, req.user.userId, { userId: id });
     const user = await usersService.toggleActive(req.user.restaurantId, id, req.user.userId);
     res.json({ user });
   },
