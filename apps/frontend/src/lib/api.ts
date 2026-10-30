@@ -8,6 +8,13 @@ const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 const TOKEN_KEY = 'restos_token';
 
+/** Día calendario elegido en pantalla, como "YYYY-MM-DD" (sin hora ni zona). */
+function dayParam(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 export const tokenStorage = {
   get: () => localStorage.getItem(TOKEN_KEY),
   set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
@@ -365,9 +372,10 @@ export const salesApi = {
   create: (data: CreateSaleBody) =>
     request<{ sale: Sale }>('/sales', { method: 'POST', body: data }),
 
+  /** Sin fecha: el día de hoy según la hora del restaurante. */
   dailyStats: (date?: Date) => {
     const params = new URLSearchParams();
-    if (date) params.set('date', date.toISOString());
+    if (date) params.set('date', dayParam(date));
     const qs = params.toString();
     return request<DailyStats>(`/sales/stats/daily${qs ? `?${qs}` : ''}`);
   },
@@ -767,26 +775,28 @@ export interface DailyTicket {
   items: Array<{ itemName: string; quantity: number; subtotal: number }>;
 }
 
+// Los reportes trabajan por días completos: se manda el día calendario elegido
+// ("YYYY-MM-DD") y el servidor lo interpreta en la hora del restaurante.
 export const reportsApi = {
   salesReport: (from: Date, to: Date) => {
     const params = new URLSearchParams({
-      from: from.toISOString(),
-      to: to.toISOString(),
+      from: dayParam(from),
+      to: dayParam(to),
     });
     return request<SalesReport>(`/reports/sales?${params}`);
   },
 
   topItems: (from: Date, to: Date, limit = 10) => {
     const params = new URLSearchParams({
-      from: from.toISOString(),
-      to: to.toISOString(),
+      from: dayParam(from),
+      to: dayParam(to),
       limit: String(limit),
     });
     return request<{ items: TopItem[] }>(`/reports/top-items?${params}`);
   },
 
   dailyTickets: (date: Date) => {
-    const params = new URLSearchParams({ date: date.toISOString() });
+    const params = new URLSearchParams({ date: dayParam(date) });
     return request<{ tickets: DailyTicket[] }>(`/reports/tickets?${params}`);
   },
 
@@ -794,8 +804,8 @@ export const reportsApi = {
   csvUrl: (from: Date, to: Date): string => {
     const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
     const params = new URLSearchParams({
-      from: from.toISOString(),
-      to: to.toISOString(),
+      from: dayParam(from),
+      to: dayParam(to),
       token: tokenStorage.get() ?? '',
     });
     return `${base}/api/reports/sales.csv?${params}`;

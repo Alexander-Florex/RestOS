@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { PaymentMethod } from '@prisma/client';
 import { salesService } from './sales.service.js';
 import { HttpError } from '../../lib/http-error.js';
+import { dayParam } from '../../lib/date-query.js';
 
 const paymentEnum = z.nativeEnum(PaymentMethod);
 
@@ -26,7 +27,7 @@ const listQuery = z.object({
 });
 
 const statsQuery = z.object({
-  date: z.coerce.date().optional(),
+  date: dayParam.optional(),
 });
 
 export const salesController = {

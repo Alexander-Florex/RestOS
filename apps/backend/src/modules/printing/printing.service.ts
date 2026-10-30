@@ -9,6 +9,7 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { emitPrintRequest } from '../../sockets/index.js';
 import { SaleChannel } from '@prisma/client';
+import { APP_TIME_ZONE } from '../../lib/time.js';
 
 const ESC = 0x1b;
 const GS  = 0x1d;
@@ -28,7 +29,7 @@ const CMD = {
 };
 
 // Hora del local en los tickets, sin depender de la zona horaria del servidor
-const TZ = 'America/Argentina/Buenos_Aires';
+const TZ = APP_TIME_ZONE;
 
 const W = 32; // ancho en fuente normal
 const W2 = 16; // ancho en fuente 2x

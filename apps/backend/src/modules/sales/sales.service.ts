@@ -24,6 +24,7 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
 import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money.js';
+import { localDayKey, localDaysRange, type DayKey } from '../../lib/time.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads', 'sales');
@@ -259,15 +260,15 @@ export const salesService = {
   },
 
   /**
-   * Estadísticas del día: total facturado, conteo, breakdown por método.
+   * Estadísticas de un día local del restaurante (hoy por defecto):
+   * total cobrado, conteo, breakdown por método.
    */
-  async dailyStats(restaurantId: number, date: Date = new Date()): Promise<{
+  async dailyStats(restaurantId: number, day: DayKey = localDayKey(new Date())): Promise<{
     total: number;
     count: number;
     byMethod: Record<PaymentMethod, { count: number; amount: number }>;
   }> {
-    const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999);
+    const { from: dayStart, to: dayEnd } = localDaysRange(day);
 
     const sales = await prisma.sale.findMany({
       where: { restaurantId, closedAt: { gte: dayStart, lte: dayEnd } },

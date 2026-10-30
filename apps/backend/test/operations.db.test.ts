@@ -18,6 +18,7 @@ import { takeawayService } from '../src/modules/takeaway/takeaway.service.js';
 import { inventoryService } from '../src/modules/inventory/inventory.service.js';
 import { reservationsService } from '../src/modules/reservations/reservations.service.js';
 import { reportsService } from '../src/modules/reports/reports.service.js';
+import { localDaysRange } from '../src/lib/time.js';
 
 const httpServer = http.createServer();
 
@@ -267,4 +268,31 @@ test('reportes: el para llevar entra en totales, canal, ranking y CSV', async ()
 
   const csv = await reportsService.salesCsv(restaurantId, range);
   assert.match(csv, /Para llevar,,Ana,CARD/);
+});
+
+// ── Zona horaria ──
+
+test('reportes por día local: una venta a las 22:30 cuenta en ese día, no en el siguiente', async () => {
+  const { restaurantId } = await setup();
+  const sale = (closedAt: string, total: string) => prisma.sale.create({
+    data: { restaurantId, tableNumber: 1, total, amount: total, paymentMethod: 'CASH', closedAt: new Date(closedAt) },
+  });
+  await sale('2026-10-30T01:30:00Z', '100.00'); // 29/10 22:30 en Buenos Aires
+  await sale('2026-10-30T03:30:00Z', '50.00');  // 30/10 00:30 en Buenos Aires
+
+  const day29 = await salesService.dailyStats(restaurantId, '2026-10-29');
+  assert.equal(day29.count, 1);
+  assert.equal(day29.total, 100);
+  const day30 = await salesService.dailyStats(restaurantId, '2026-10-30');
+  assert.equal(day30.count, 1);
+  assert.equal(day30.total, 50);
+
+  const tickets = await reportsService.dailyTickets(restaurantId, localDaysRange('2026-10-29'));
+  assert.equal(tickets.length, 1);
+
+  const report = await reportsService.salesReport(restaurantId, localDaysRange('2026-10-29', '2026-10-30'));
+  assert.deepEqual(report.byDay.map(d => [d.date, d.count]), [['2026-10-29', 1], ['2026-10-30', 1]]);
+
+  const csv = await reportsService.salesCsv(restaurantId, localDaysRange('2026-10-29'));
+  assert.match(csv, /2026-10-29 22:30:00/);
 });

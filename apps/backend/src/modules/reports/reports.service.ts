@@ -4,6 +4,7 @@
 import { PaymentMethod, SaleChannel } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { collectedCents, fromCents } from '../../lib/money.js';
+import { formatLocalDateTime, localDayKey } from '../../lib/time.js';
 
 export interface ReportRange {
   from: Date;
@@ -96,10 +97,10 @@ export const reportsService = {
       percentage: totalSold > 0 ? (data.amount / totalSold) * 100 : 0,
     }));
 
-    // Breakdown por día (YYYY-MM-DD)
+    // Breakdown por día local del restaurante (YYYY-MM-DD)
     const dayMap = new Map<string, { total: number; count: number }>();
     for (const s of sales) {
-      const date = s.closedAt.toISOString().slice(0, 10);
+      const date = localDayKey(s.closedAt);
       const entry = dayMap.get(date) ?? { total: 0, count: 0 };
       entry.total += Number(s.total);
       entry.count++;
@@ -210,7 +211,7 @@ export const reportsService = {
 
     const CHANNEL_LABEL: Record<SaleChannel, string> = { DINE_IN: 'Salon', TAKEAWAY: 'Para llevar' };
     const headers = [
-      'ID', 'Fecha', 'Canal', 'Mesa', 'Cliente', 'Metodo de pago', 'Total', 'Cobrado',
+      'ID', 'Fecha (hora local)', 'Canal', 'Mesa', 'Cliente', 'Metodo de pago', 'Total', 'Cobrado',
       'Cantidad items', 'Items', 'Notas',
     ];
     const rows = sales.map(s => {
@@ -218,7 +219,7 @@ export const reportsService = {
       const itemsCount = s.items.reduce((acc, i) => acc + i.quantity, 0);
       return [
         s.id,
-        s.closedAt.toISOString(),
+        formatLocalDateTime(s.closedAt),
         CHANNEL_LABEL[s.channel],
         s.tableNumber ?? '',
         s.takeawayOrder?.customerName ?? '',
