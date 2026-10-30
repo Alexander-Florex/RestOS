@@ -15,7 +15,6 @@ import type { Permission } from '../lib/permissions';
 import { initials } from '../lib/admin-helpers';
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationToggle } from '../components/NotificationToggle';
-import { PrinterConfigButton } from '../components/PrintButton';
 import { DashboardHome } from '../components/DashboardHome';
 import { TakeawayPage } from '../components/TakeawayPage';
 import { TableMap } from '../components/TableMap';
@@ -91,6 +90,8 @@ export function DashboardPage() {
   const primaryItems = allItems.filter(i => MOBILE_PRIMARY.includes(i.id));
   const moreItems = allItems.filter(i => !MOBILE_PRIMARY.includes(i.id));
   const current = allItems.find(i => i.id === view);
+  // Si el administrador le quita un permiso mientras está en esa sección, vuelve al inicio
+  const shown: View = current ? view : 'dashboard';
 
   function go(v: View) {
     setView(v);
@@ -167,7 +168,6 @@ export function DashboardPage() {
                 Cerrar sesión
               </button>
             </div>
-            <PrinterConfigButton />
           </div>
         </div>
       </aside>
@@ -200,19 +200,19 @@ export function DashboardPage() {
         <main className="flex-1 px-4 pb-28 pt-6 sm:px-6 md:px-10 md:pb-10 md:pt-10">
           <div className="mx-auto w-full max-w-[1400px]">
             <AnimatePresence mode="wait">
-              <PageTransition key={view}>
-                {view === 'dashboard'    && <DashboardHome onNavigate={go} />}
-                {view === 'tables'       && <TableMap />}
-                {view === 'takeaway'     && <TakeawayPage />}
-                {view === 'reservations' && <ReservationsPage />}
-                {view === 'menu'         && <MenuPage />}
-                {view === 'sales'        && <SalesHistoryPage />}
-                {view === 'reports'      && <ReportsPage />}
-                {view === 'inventory'    && <InventoryPage />}
-                {view === 'recipes'      && <RecipesPage />}
-                {view === 'staff'        && <StaffPage />}
-                {view === 'users'        && <UsersPage />}
-                {view === 'roles'        && <RolesPage />}
+              <PageTransition key={shown}>
+                {shown === 'dashboard'    && <DashboardHome onNavigate={go} />}
+                {shown === 'tables'       && <TableMap />}
+                {shown === 'takeaway'     && <TakeawayPage />}
+                {shown === 'reservations' && <ReservationsPage />}
+                {shown === 'menu'         && <MenuPage />}
+                {shown === 'sales'        && <SalesHistoryPage />}
+                {shown === 'reports'      && <ReportsPage />}
+                {shown === 'inventory'    && <InventoryPage />}
+                {shown === 'recipes'      && <RecipesPage />}
+                {shown === 'staff'        && <StaffPage />}
+                {shown === 'users'        && <UsersPage />}
+                {shown === 'roles'        && <RolesPage />}
               </PageTransition>
             </AnimatePresence>
           </div>

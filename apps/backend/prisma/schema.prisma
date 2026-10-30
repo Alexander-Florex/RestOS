@@ -241,9 +241,15 @@ model Sale {
   id             Int           @id @default(autoincrement())
   restaurantId   Int
   restaurant     Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  /// Salón (mesa) o para llevar. Las ventas previas a esta columna son de salón.
+  channel        SaleChannel   @default(DINE_IN)
   tableId        Int?
   table          Table?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  tableNumber    Int
+  /// Número de mesa al cobrar. Vacío en ventas para llevar.
+  tableNumber    Int?
+  /// Pedido para llevar que originó la venta. Único: un pedido no genera dos ventas.
+  takeawayOrderId Int?          @unique
+  takeawayOrder  TakeawayOrder? @relation(fields: [takeawayOrderId], references: [id], onDelete: SetNull)
   paymentMethod  PaymentMethod
   amount         Decimal       @db.Decimal(10, 2)
   total          Decimal       @db.Decimal(10, 2)
@@ -257,6 +263,7 @@ model Sale {
 
   @@index([restaurantId])
   @@index([closedAt])
+  @@index([channel])
   @@map("sales")
 }
 
@@ -281,6 +288,11 @@ enum PaymentMethod {
   CASH
   CARD
   TRANSFER
+}
+
+enum SaleChannel {
+  DINE_IN
+  TAKEAWAY
 }
 
 // ──────────────────────────────────────────────
@@ -432,6 +444,7 @@ model TakeawayOrder {
   createdBy     User?          @relation("TakeawayCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   paidAt        DateTime?
   items         TakeawayItem[]
+  sale          Sale?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

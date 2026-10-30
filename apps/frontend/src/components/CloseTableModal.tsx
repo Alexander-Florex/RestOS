@@ -19,8 +19,6 @@ import {
 } from '../lib/api';
 import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
-import { printerPrefs } from './PrintButton';
-import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 
 interface CloseTableModalProps {
@@ -45,7 +43,6 @@ function fileToBase64(file: File): Promise<string> {
 export function CloseTableModal({
   table, open, onClose, onSuccess, orders, total,
 }: CloseTableModalProps) {
-  const { user, can } = useAuth();
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [amount, setAmount] = useState<string>('');
   const [notes, setNotes] = useState('');
@@ -100,7 +97,7 @@ export function CloseTableModal({
 
     setSubmitting(true);
     try {
-      await salesApi.create({
+      const { sale } = await salesApi.create({
         tableId: table.id,
         paymentMethod,
         amount: numericAmount,
@@ -109,29 +106,16 @@ export function CloseTableModal({
       });
       toast.success(`Mesa ${table.number} cobrada: ${formatMoney(numericAmount)}`);
 
-      // Imprimir ticket de caja: solo quien tiene permiso de cobrar
-      const canPrint = can('sales.charge');
-      const printerName = printerPrefs.getPrinter();
-      if (canPrint && printerName) {
-        try {
-          await printingApi.printCashDirect({
-            printerName,
-            restaurantName: printerPrefs.getRestaurant(),
-            tableNumber:    table.number,
-            items: items.map(i => ({
-              name:     i.itemName,
-              quantity: i.quantity,
-              price:    Number(i.price),
-            })),
-            total,
-            amountPaid:    numericAmount,
-            paymentMethod,
-            notes:         notes.trim() || null,
-          });
-          toast.success('Ticket de caja impreso');
-        } catch (printErr) {
-          toast.error(`Venta registrada. Error al imprimir: ${printErr instanceof ApiError ? printErr.message : 'revisar impresora'}`);
-        }
+      // Ticket de caja: siempre, desde la venta guardada. Imprime el agente local,
+      // no depende de que este dispositivo tenga una impresora elegida.
+      try {
+        await printingApi.printSale(sale.id);
+        toast.success('Ticket de caja enviado a imprimir');
+      } catch (printErr) {
+        toast.error(
+          `Venta registrada, pero el ticket no se imprimió: ${printErr instanceof ApiError ? printErr.message : 'revisá la impresora'}`,
+          { duration: 10_000 },
+        );
       }
 
       onSuccess();

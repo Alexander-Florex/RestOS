@@ -12,7 +12,8 @@ import {
 import { salesApi, reportsApi, type DailyStats, type DailyTicket } from '../lib/api';
 import { useTables } from '../hooks/useTables';
 import { useAuth } from '../context/AuthContext';
-import { formatMoney } from '../lib/format';
+import type { Permission } from '../lib/permissions';
+import { formatMoney, saleOriginLabel } from '../lib/format';
 import { getSocket, SocketEvents } from '../lib/socket';
 import { AnimatedMoney, AnimatedNumber, EASE_OUT, PageHeader, SpotlightCard, Stagger, StaggerItem } from './ui/motion';
 import { cn } from '../lib/utils';
@@ -24,6 +25,8 @@ interface QuickLink {
   label: string;
   hint: string;
   icon: typeof LayoutGrid;
+  /** Si está, el acceso solo aparece para roles con ese permiso (igual que el menú lateral). */
+  perm?: Permission;
 }
 
 const QUICK_LINKS: QuickLink[] = [
@@ -31,7 +34,7 @@ const QUICK_LINKS: QuickLink[] = [
   { view: 'takeaway',     label: 'Para llevar',   hint: 'Pedidos y retiros', icon: ShoppingBag },
   { view: 'reservations', label: 'Reservas',      hint: 'Agenda del día',    icon: CalendarDays },
   { view: 'menu',         label: 'Menú',          hint: 'Carta y precios',   icon: BookOpen },
-  { view: 'reports',      label: 'Reportes',      hint: 'Números del día',   icon: BarChart3 },
+  { view: 'reports',      label: 'Reportes',      hint: 'Números del día',   icon: BarChart3, perm: 'reports.view' },
 ];
 
 function greeting(): string {
@@ -194,10 +197,10 @@ export function DashboardHome({ onNavigate }: { onNavigate: (view: View) => void
                     >
                       <div className="flex items-center gap-3">
                         <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.03] font-display text-sm font-bold tabular-nums">
-                          {t.tableNumber}
+                          {t.tableNumber ?? <ShoppingBag className="h-4 w-4 text-amber-300" />}
                         </span>
                         <div>
-                          <p className="text-sm font-medium">Mesa {t.tableNumber}</p>
+                          <p className="text-sm font-medium">{saleOriginLabel(t)}</p>
                           <p className="text-xs tabular-nums text-muted-foreground">
                             {new Date(t.closedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs
                           </p>
@@ -218,7 +221,7 @@ export function DashboardHome({ onNavigate }: { onNavigate: (view: View) => void
           <div className="glass h-full rounded-3xl p-6">
             <h3 className="mb-5 font-display text-lg font-semibold">Accesos rápidos</h3>
             <div className="grid grid-cols-2 gap-2.5">
-              {QUICK_LINKS.map((link, i) => {
+              {QUICK_LINKS.filter(link => !link.perm || can(link.perm)).map((link, i) => {
                 const Icon = link.icon;
                 return (
                   <motion.button
@@ -294,8 +297,8 @@ function OccupancyRing({ value, occupied, total }: { value: number; occupied: nu
 
 function Legend({ color, label, value }: { color: string; label: string; value: number }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2">
-      <span className="flex items-center gap-2 text-muted-foreground">
+    <div className="flex items-center justify-between gap-2 rounded-xl bg-white/[0.03] px-3 py-2">
+      <span className="flex min-w-0 items-center gap-2 truncate text-muted-foreground">
         <span className={cn('h-2 w-2 rounded-full', color)} />
         {label}
       </span>

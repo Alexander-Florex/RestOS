@@ -318,11 +318,16 @@ export const ordersApi = {
 // Ventas — tipos y API
 // ──────────────────────────────────────────────
 export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER';
+/** Salón (mesa) o para llevar */
+export type SaleChannel = 'DINE_IN' | 'TAKEAWAY';
 
 export interface Sale {
   id: number;
+  channel: SaleChannel;
   tableId: number | null;
-  tableNumber: number;
+  /** null en ventas para llevar */
+  tableNumber: number | null;
+  takeawayOrderId: number | null;
   paymentMethod: PaymentMethod;
   amount: string;
   total: string;
@@ -734,6 +739,8 @@ export interface SalesReport {
     percentage: number;
   }>;
   byDay: Array<{ date: string; total: number; count: number }>;
+  byChannel: Array<{ channel: SaleChannel; count: number; total: number }>;
+  /** Solo salón */
   byTable: Array<{ tableNumber: number; count: number; total: number }>;
 }
 
@@ -747,7 +754,11 @@ export interface TopItem {
 
 export interface DailyTicket {
   id: number;
-  tableNumber: number;
+  channel: SaleChannel;
+  /** null en ventas para llevar */
+  tableNumber: number | null;
+  /** Cliente del pedido para llevar */
+  customerName: string | null;
   closedAt: string;
   total: number;
   amount: number;
@@ -794,54 +805,31 @@ export const reportsApi = {
 // ──────────────────────────────────────────────
 // Impresión — tipos y API
 // ──────────────────────────────────────────────
-export interface PrinterInfo {
-  name: string;
-  isDefault?: boolean;
-  status?: string;
-}
-
-export interface PrintOrderOptions {
-  printerName: string;
-  restaurantName?: string;
-  isKitchenTicket?: boolean;
-  paymentMethod?: string;
-  amountPaid?: number;
-  notes?: string | null;
-}
-
+// Imprime el agente local (no se elige impresora desde el navegador).
+// Los tickets se arman en el backend con los datos guardados.
 export const printingApi = {
-  listPrinters: () =>
-    request<{ printers: PrinterInfo[]; platform: string }>('/printing/printers'),
-
-  printOrder: (orderId: number, opts: PrintOrderOptions) =>
+  // Comanda de cocina de un pedido de mesa
+  printOrder: (orderId: number) =>
     request<{ ok: boolean; message: string }>(`/printing/orders/${orderId}`, {
-      method: 'POST', body: opts,
+      method: 'POST', body: {},
     }),
 
-  printTakeawayOrder: (takeawayId: number, opts: PrintOrderOptions) =>
+  // Comanda de cocina de un pedido para llevar
+  printTakeawayOrder: (takeawayId: number) =>
     request<{ ok: boolean; message: string }>(`/printing/takeaway/${takeawayId}`, {
-      method: 'POST', body: opts,
+      method: 'POST', body: {},
     }),
 
-  // Ticket de caja enviando todos los datos desde el frontend
-  // Usar DESPUÉS de cerrar la venta (los orders ya no existen en BD)
-  printCashDirect: (opts: {
-    printerName: string;
-    restaurantName: string;
-    tableNumber: number;
-    items: Array<{ name: string; quantity: number; price: number }>;
-    total: number;
-    amountPaid: number;
-    paymentMethod: string;
-    notes?: string | null;
-  }) =>
-    request<{ ok: boolean; message: string }>('/printing/cash-direct', {
-      method: 'POST', body: opts,
+  // Ticket de caja de una venta de mesa ya registrada
+  printSale: (saleId: number) =>
+    request<{ ok: boolean; message: string }>(`/printing/sales/${saleId}`, {
+      method: 'POST', body: {},
     }),
 
-  printTableAccount: (tableId: number, opts: Omit<PrintOrderOptions, 'isKitchenTicket'>) =>
-    request<{ ok: boolean; message: string }>(`/printing/tables/${tableId}/account`, {
-      method: 'POST', body: opts,
+  // Ticket de caja de un pedido para llevar ya cobrado
+  printTakeawayReceipt: (takeawayId: number) =>
+    request<{ ok: boolean; message: string }>(`/printing/takeaway/${takeawayId}/receipt`, {
+      method: 'POST', body: {},
     }),
 };
 // ──────────────────────────────────────────────
@@ -900,7 +888,7 @@ export const takeawayApi = {
     request<{ order: TakeawayOrder }>(`/takeaway/${id}/ready`, { method: 'POST' }),
 
   pay: (id: number, data: { paymentMethod: PaymentMethod; amountPaid: number; notes?: string | null }) =>
-    request<{ order: TakeawayOrder }>(`/takeaway/${id}/pay`, { method: 'POST', body: data }),
+    request<{ order: TakeawayOrder; sale: Sale }>(`/takeaway/${id}/pay`, { method: 'POST', body: data }),
 
   cancel: (id: number) =>
     request<{ order: TakeawayOrder }>(`/takeaway/${id}/cancel`, { method: 'POST' }),

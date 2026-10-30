@@ -16,7 +16,7 @@
 //    - Cierra la mesa (vuelve a AVAILABLE, limpia guestCount/openedAt)
 // 5. Emite sale:registered y table:changed
 // ──────────────────────────────────────────────
-import { PaymentMethod, TableStatus, type Sale } from '@prisma/client';
+import { PaymentMethod, SaleChannel, TableStatus, type Sale } from '@prisma/client';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
@@ -182,6 +182,12 @@ export const salesService = {
           }
         }
 
+        // Una mesa abierta sin consumo se libera sin venta (tables/:id/close),
+        // así no quedan ventas de $0 en caja y reportes.
+        if (totalCents === 0) {
+          throw HttpError.badRequest('La mesa no tiene consumos para cobrar. Liberala sin venta.');
+        }
+
         // 3. No se aceptan cobros parciales. Si entró un pedido mientras se
         //    cobraba, el total subió y el monto de la pantalla ya no alcanza.
         if (amountCents < totalCents) {
@@ -208,6 +214,7 @@ export const salesService = {
           data: {
             restaurantId,
             tableId: input.tableId,
+            channel: SaleChannel.DINE_IN,
             tableNumber: locked.number,
             paymentMethod: input.paymentMethod,
             amount: fromCents(amountCents),

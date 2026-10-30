@@ -8,7 +8,7 @@ router.use(authenticate);
 
 router.get('/',                asyncHandler(takeawayController.list));
 router.get('/:id',             asyncHandler(takeawayController.getById));
-router.post('/',               asyncHandler(takeawayController.create));
+router.post('/',               requirePermission('orders.create'), asyncHandler(takeawayController.create));
 router.post('/:id/ready',      asyncHandler(takeawayController.markReady));
 router.post('/:id/pay',        requirePermission('sales.charge'), asyncHandler(takeawayController.pay));
 router.post('/:id/cancel',     requirePermission('takeaway.cancel'), asyncHandler(takeawayController.cancel));

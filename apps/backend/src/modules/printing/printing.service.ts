@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { emitPrintRequest } from '../../sockets/index.js';
+import { SaleChannel } from '@prisma/client';
 
 const ESC = 0x1b;
 const GS  = 0x1d;
@@ -25,6 +26,9 @@ const CMD = {
   FEED_4:      Buffer.from([ESC, 0x64, 0x04]),
   SET_CP858:   Buffer.from([ESC, 0x74, 0x13]), // codepage 858
 };
+
+// Hora del local en los tickets, sin depender de la zona horaria del servidor
+const TZ = 'America/Argentina/Buenos_Aires';
 
 const W = 32; // ancho en fuente normal
 const W2 = 16; // ancho en fuente 2x
@@ -89,7 +93,7 @@ export function buildKitchenTicket(data: {
   const p: Buffer[] = [];
   const push = (...b: Buffer[]) => b.forEach(x => p.push(x));
 
-  const hora = data.printedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  const hora = data.printedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
 
   push(CMD.INIT, CMD.SET_CP858);
   push(CMD.ALIGN_CENTER, CMD.SIZE_TALL, CMD.BOLD_ON);
@@ -149,8 +153,8 @@ export function buildCashTicket(data: {
 
   const money = (n: number) =>
     `$${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const hora  = data.printedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-  const fecha = data.printedAt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hora  = data.printedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+  const fecha = data.printedAt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ });
 
   const PAY: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia' };
   const payLabel = PAY[data.paymentMethod] ?? data.paymentMethod;
@@ -269,7 +273,7 @@ export const printingService = {
   },
 
   // Ticket de COCINA — emite socket al agente local del restaurante
-  async printOrder(opts: { restaurantId: number; orderId: number; printerName: string; restaurantName: string; }): Promise<void> {
+  async printOrder(opts: { restaurantId: number; orderId: number; printerName?: string; restaurantName: string; }): Promise<void> {
     const order = await prisma.order.findFirst({
       where: { id: opts.orderId, restaurantId: opts.restaurantId },
       include: { items: true, table: true },
@@ -292,7 +296,7 @@ export const printingService = {
   },
 
   // Ticket de COCINA para TakeawayOrder — emite socket al agente local
-  async printTakeawayKitchen(opts: { restaurantId: number; takeawayId: number; printerName: string; restaurantName: string }): Promise<void> {
+  async printTakeawayKitchen(opts: { restaurantId: number; takeawayId: number; printerName?: string; restaurantName: string }): Promise<void> {
     const order = await prisma.takeawayOrder.findFirst({
       where: { id: opts.takeawayId, restaurantId: opts.restaurantId },
       include: { items: true },
@@ -310,37 +314,44 @@ export const printingService = {
     console.log(`[Printing] 📡 print:request takeaway kitchen enviado al agente (pedido #${order.id})`);
   },
 
-  // Ticket de CAJA — emite socket al agente local
-  async printCashTicketDirect(opts: {
-    restaurantId: number;
-    printerName: string;
-    restaurantName: string;
-    tableNumber: number;
-    isTakeaway?: boolean;
-    customerName?: string | null;
-    items: Array<{ name: string; quantity: number; price: number }>;
-    total: number;
-    amountPaid: number;
-    paymentMethod: string;
-    notes?: string | null;
-  }): Promise<void> {
+  // Ticket de CAJA de una venta registrada: se arma con lo que quedó guardado,
+  // así el ticket siempre coincide con la venta (y no se pueden imprimir tickets inventados).
+  async printSale(opts: { restaurantId: number; saleId: number }): Promise<void> {
+    const sale = await prisma.sale.findFirst({
+      where: { id: opts.saleId, restaurantId: opts.restaurantId },
+      include: { items: { orderBy: { id: 'asc' } }, takeawayOrder: { select: { customerName: true } } },
+    });
+    if (!sale) throw HttpError.notFound('Venta no encontrada');
+
+    const isTakeaway = sale.channel === SaleChannel.TAKEAWAY;
     emitPrintRequest(opts.restaurantId, {
       type:          'cash',
-      tableNumber:   opts.tableNumber,
-      isTakeaway:    opts.isTakeaway ?? false,
-      customerName:  opts.customerName ?? null,
-      items:         opts.items,
-      total:         opts.total,
-      amountPaid:    opts.amountPaid,
-      paymentMethod: opts.paymentMethod,
-      notes:         opts.notes,
+      tableNumber:   sale.tableNumber ?? 0,
+      isTakeaway,
+      customerName:  isTakeaway ? (sale.takeawayOrder?.customerName ?? null) : null,
+      items:         sale.items.map(i => ({ name: i.itemName, quantity: i.quantity, price: Number(i.price) })),
+      total:         Number(sale.total),
+      amountPaid:    Number(sale.amount),
+      paymentMethod: sale.paymentMethod,
+      notes:         sale.notes,
     });
-    console.log(`[Printing] 📡 print:request cash enviado al agente (mesa ${opts.tableNumber})`);
+    console.log(`[Printing] 📡 print:request cash enviado al agente (venta #${sale.id})`);
+  },
+
+  // Ticket de CAJA de un pedido para llevar: se imprime desde su venta,
+  // que existe solo si el pedido ya se cobró.
+  async printTakeawayReceipt(opts: { restaurantId: number; takeawayId: number }): Promise<void> {
+    const sale = await prisma.sale.findFirst({
+      where: { takeawayOrderId: opts.takeawayId, restaurantId: opts.restaurantId },
+      select: { id: true },
+    });
+    if (!sale) throw HttpError.conflict('El pedido todavía no está cobrado');
+    await printingService.printSale({ restaurantId: opts.restaurantId, saleId: sale.id });
   },
 
   // Mantenido por compatibilidad — busca en BD (solo usar ANTES de cerrar la venta)
   async printTableOrders(opts: {
-    restaurantId: number; tableId: number; printerName: string; restaurantName: string;
+    restaurantId: number; tableId: number; printerName?: string; restaurantName: string;
     paymentMethod?: string; amountPaid?: number; notes?: string | null;
   }): Promise<void> {
     const table = await prisma.table.findFirst({

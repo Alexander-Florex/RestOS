@@ -5,24 +5,10 @@ import { HttpError } from '../../lib/http-error.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
+// printerName es opcional: imprime el agente local, que ya sabe cuál es su impresora.
 const printOrderSchema = z.object({
-  printerName:    z.string().min(1),
+  printerName:    z.string().optional(),
   restaurantName: z.string().default('RestOS'),
-});
-
-const printCashDirectSchema = z.object({
-  printerName:    z.string().min(1),
-  restaurantName: z.string().default('RestOS'),
-  tableNumber:    z.coerce.number().int(),
-  items: z.array(z.object({
-    name:     z.string(),
-    quantity: z.coerce.number().int(),
-    price:    z.coerce.number(),
-  })),
-  total:         z.coerce.number(),
-  amountPaid:    z.coerce.number(),
-  paymentMethod: z.string(),
-  notes:         z.string().optional().nullable(),
 });
 
 export const printingController = {
@@ -48,12 +34,19 @@ export const printingController = {
     res.json({ ok: true, message: `Comanda para llevar #${id} enviada` });
   },
 
-  // Ticket de caja — recibe los datos completos del frontend
-  // Se usa DESPUÉS de cerrar la venta (los orders ya no existen en BD)
-  async printCashDirect(req: Request, res: Response) {
+  // Ticket de caja de una venta registrada — los datos salen de la base
+  async printSale(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
-    const opts = printCashDirectSchema.parse(req.body);
-    await printingService.printCashTicketDirect({ restaurantId: req.user.restaurantId, ...opts });
+    const { id } = idParam.parse(req.params);
+    await printingService.printSale({ restaurantId: req.user.restaurantId, saleId: id });
+    res.json({ ok: true, message: 'Ticket de caja enviado al agente' });
+  },
+
+  // Ticket de caja de un pedido para llevar cobrado — los datos salen de la base
+  async printTakeawayReceipt(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParam.parse(req.params);
+    await printingService.printTakeawayReceipt({ restaurantId: req.user.restaurantId, takeawayId: id });
     res.json({ ok: true, message: 'Ticket de caja enviado al agente' });
   },
 
@@ -62,7 +55,7 @@ export const printingController = {
     if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
     const opts   = z.object({
-      printerName: z.string().min(1),
+      printerName: z.string().optional(),
       restaurantName: z.string().default('RestOS'),
       paymentMethod: z.string().optional(),
       amountPaid: z.coerce.number().optional(),
