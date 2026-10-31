@@ -21,7 +21,8 @@ model Restaurant {
   phone     String?
   address   String?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
+  updatedAt DateTime @default(now()) @updatedAt
 
   users          User[]
   roles          Role[]
@@ -192,7 +193,8 @@ model MenuCategory {
   color        String     @default("#10b981")
   order        Int        @default(0)
   createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
+  updatedAt    DateTime   @default(now()) @updatedAt
 
   @@unique([restaurantId, name])
   @@index([restaurantId])
