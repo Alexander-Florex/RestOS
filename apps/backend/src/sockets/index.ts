@@ -9,6 +9,7 @@ import { verifyToken, type JwtPayload } from '../lib/jwt.js';
 import { rolesService } from '../modules/roles/roles.service.js';
 import { corsOrigins } from '../config/env.js';
 import { SocketEvents } from '../shared/socket-events.js';
+import { logger } from '../lib/logger.js';
 
 let io: SocketIOServer | null = null;
 
@@ -46,7 +47,7 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 
   io.on('connection', (socket: Socket) => {
     const user = socket.data.user as JwtPayload;
-    console.log(`📡 Socket conectado: ${socket.id} (userId: ${user.userId})`);
+    logger.debug('socket_connected', { socketId: socket.id, userId: user.userId });
 
     // Room del restaurante (eventos aislados por tenant) y del usuario
     // (para cortarle la conexión si se lo desactiva o borra).
@@ -54,7 +55,7 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
     socket.join(userRoom(user.userId));
 
     socket.on('disconnect', (reason) => {
-      console.log(`📴 Socket desconectado: ${socket.id} (${reason})`);
+      logger.debug('socket_disconnected', { socketId: socket.id, reason });
     });
   });
 

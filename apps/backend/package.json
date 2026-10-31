@@ -12,7 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "test": "tsx --test prisma/seed-guard.test.ts test/permissions.test.ts test/time.test.ts test/socket-events.test.ts test/login-limiter.test.ts",
+    "test": "tsx --test prisma/seed-guard.test.ts test/permissions.test.ts test/time.test.ts test/socket-events.test.ts test/login-limiter.test.ts test/logger.test.ts",
     "test:db": "tsx --test --test-concurrency=1 test/sales.db.test.ts test/roles.db.test.ts test/operations.db.test.ts test/security.db.test.ts",
     "db:studio": "prisma studio",
     "db:setup": "tsx prisma/setup.ts"

@@ -17,6 +17,8 @@ import { initSocket } from '../src/sockets/index.js';
 import { loginLimiter } from '../src/lib/login-limiter.js';
 import { invalidateAccess, rolesService } from '../src/modules/roles/roles.service.js';
 import { usersService } from '../src/modules/users/users.service.js';
+import { logger } from '../src/lib/logger.js';
+import { errorHandler } from '../src/middleware/error.js';
 
 const server = http.createServer(buildApp());
 let base = '';
@@ -173,4 +175,50 @@ test('body: un JSON mal formado responde 400, no 500', async () => {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"roto":',
   });
   assert.equal(res.status, 400);
+});
+
+// ── Logs y health (tarea 0.7) ──
+
+test('health: 200 con la base respondiendo, sin exponer el entorno', async () => {
+  const res = await fetch(`${base}/api/health`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as Record<string, unknown>;
+  assert.equal(body.status, 'ok');
+  assert.equal(body.db, 'ok');
+  assert.equal(body.env, undefined);
+});
+
+test('cada respuesta trae X-Request-Id; uno entrante inválido se reemplaza', async () => {
+  const own = await fetch(`${base}/api/health`, { headers: { 'X-Request-Id': 'abc12345-proxy' } });
+  assert.equal(own.headers.get('x-request-id'), 'abc12345-proxy');
+  const bad = await fetch(`${base}/api/health`, { headers: { 'X-Request-Id': 'x\'; DROP' } });
+  assert.match(bad.headers.get('x-request-id') ?? '', /^[0-9a-f-]{36}$/);
+});
+
+test('error 500: se registra con el código del pedido y al usuario solo le llega el código', async () => {
+  const lines: string[] = [];
+  const removeSink = logger.addSink({ write: (l) => lines.push(l) });
+  try {
+    let status = 0;
+    let body: Record<string, unknown> = {};
+    const res = {
+      status(s: number) { status = s; return this; },
+      json(b: Record<string, unknown>) { body = b; return this; },
+      setHeader() { return this; },
+    };
+    const req = { requestId: 'deadbeef-1234-4abc-9def-000000000000', method: 'POST', path: '/api/sales', user: { userId: 9, restaurantId: 3 } };
+    errorHandler(new Error('detalle interno de la base'), req as never, res as never, () => {});
+
+    assert.equal(status, 500);
+    assert.match(String(body.error), /código deadbeef/);
+    assert.equal(body.message, undefined); // fuera de desarrollo no viaja el detalle
+
+    const entry = JSON.parse(lines.find(l => l.includes('unhandled_error'))!);
+    assert.equal(entry.requestId, req.requestId);
+    assert.equal(entry.path, '/api/sales');
+    assert.equal(entry.userId, 9);
+    assert.equal(entry.error.message, 'detalle interno de la base');
+  } finally {
+    removeSink();
+  }
 });

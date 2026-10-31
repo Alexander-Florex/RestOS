@@ -6,6 +6,19 @@ import { buildApp } from './server.js';
 import { initSocket } from './sockets/index.js';
 import { env } from './config/env.js';
 import { prisma } from './lib/prisma.js';
+import { logger, LOG_DIR, accessLogStream } from './lib/logger.js';
+
+// Errores que se escaparon de todo manejo: quedan en el log.
+// Una promesa rechazada sin catch se registra y el servidor sigue; una excepción
+// no capturada deja el proceso en estado dudoso, así que se registra y se sale
+// (el servicio del sistema lo reinicia, ver tarea 6.1).
+process.on('unhandledRejection', (reason) => {
+  logger.error('unhandled_rejection', { error: reason });
+});
+process.on('uncaughtException', (err) => {
+  logger.error('uncaught_exception', { error: err });
+  process.exit(1);
+});
 
 async function bootstrap() {
   const app = buildApp();
@@ -15,22 +28,29 @@ async function bootstrap() {
   initSocket(httpServer);
 
   httpServer.listen(env.PORT, () => {
-    console.log('');
-    console.log('  🍽️  RestOS Backend');
-    console.log('  ─────────────────────────────────────');
-    console.log(`  • API:        http://localhost:${env.PORT}/api`);
-    console.log(`  • Socket.io:  ws://localhost:${env.PORT}/socket.io`);
-    console.log(`  • Health:     http://localhost:${env.PORT}/api/health`);
-    console.log(`  • Entorno:    ${env.NODE_ENV}`);
-    console.log('');
+    logger.info('server_started', {
+      port: env.PORT,
+      env: env.NODE_ENV,
+      logDir: accessLogStream ? LOG_DIR : null,
+    });
+    if (env.NODE_ENV !== 'production') {
+      console.log('');
+      console.log('  🍽️  RestOS Backend');
+      console.log('  ─────────────────────────────────────');
+      console.log(`  • API:        http://localhost:${env.PORT}/api`);
+      console.log(`  • Socket.io:  ws://localhost:${env.PORT}/socket.io`);
+      console.log(`  • Health:     http://localhost:${env.PORT}/api/health`);
+      console.log(`  • Entorno:    ${env.NODE_ENV}`);
+      console.log('');
+    }
   });
 
   // ── Graceful shutdown ──
   const shutdown = async (signal: string) => {
-    console.log(`\n${signal} recibido, cerrando...`);
-    httpServer.close(() => console.log('🔌 HTTP cerrado'));
+    logger.info('server_stopping', { signal });
+    httpServer.close();
     await prisma.$disconnect();
-    console.log('🗄️  Prisma desconectado');
+    logger.info('server_stopped', { signal });
     process.exit(0);
   };
 
@@ -39,6 +59,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  console.error('💥 Error al iniciar:', err);
+  logger.error('startup_failed', { error: err });
   process.exit(1);
 });

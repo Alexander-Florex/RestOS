@@ -156,7 +156,7 @@ export const authApi = {
 };
 
 export const healthApi = {
-  check: () => request<{ status: string; env: string; db: string }>('/health', { skipAuth: true }),
+  check: () => request<{ status: string; db: string; uptimeSec?: number }>('/health', { skipAuth: true }),
 };
 
 // ──────────────────────────────────────────────

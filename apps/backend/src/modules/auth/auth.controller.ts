@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { authService } from './auth.service.js';
 import { HttpError } from '../../lib/http-error.js';
 import { loginLimiter, loginUserKey } from '../../lib/login-limiter.js';
+import { logger } from '../../lib/logger.js';
 
 const loginSchema = z.object({
   restaurantId: z.coerce.number().int().positive('restaurantId requerido'),
@@ -39,7 +40,11 @@ export const authController = {
       if (err instanceof HttpError && err.statusCode === 401) {
         loginLimiter.recordFailure(ip, userKey);
         const after = loginLimiter.check(ip, userKey);
-        if (!after.allowed) throw tooMany(after.retryAfterSec);
+        if (!after.allowed) {
+          // Evento de seguridad: sin el usuario ni la contraseña intentada
+          logger.warn('login_locked', { restaurantId, ip, retryAfterSec: after.retryAfterSec, requestId: req.requestId });
+          throw tooMany(after.retryAfterSec);
+        }
       }
       throw err;
     }

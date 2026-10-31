@@ -10,6 +10,7 @@ import { HttpError } from '../../lib/http-error.js';
 import { emitPrintRequest } from '../../sockets/index.js';
 import { SaleChannel } from '@prisma/client';
 import { APP_TIME_ZONE } from '../../lib/time.js';
+import { logger } from '../../lib/logger.js';
 
 const ESC = 0x1b;
 const GS  = 0x1d;
@@ -293,7 +294,7 @@ export const printingService = {
       takeawayName,
       items: order.items.map(i => ({ name: i.itemName, quantity: i.quantity, notes: i.notes })),
     });
-    console.log(`[Printing] 📡 print:request kitchen enviado al agente (orden #${order.id})`);
+    logger.info('print_requested', { kind: 'kitchen', restaurantId: opts.restaurantId, orderId: order.id });
   },
 
   // Ticket de COCINA para TakeawayOrder — emite socket al agente local
@@ -312,7 +313,7 @@ export const printingService = {
       takeawayName:  order.customerName,
       items: order.items.map(i => ({ name: i.itemName, quantity: i.quantity, notes: i.notes })),
     });
-    console.log(`[Printing] 📡 print:request takeaway kitchen enviado al agente (pedido #${order.id})`);
+    logger.info('print_requested', { kind: 'takeaway_kitchen', restaurantId: opts.restaurantId, takeawayId: order.id });
   },
 
   // Ticket de CAJA de una venta registrada: se arma con lo que quedó guardado,
@@ -336,7 +337,7 @@ export const printingService = {
       paymentMethod: sale.paymentMethod,
       notes:         sale.notes,
     });
-    console.log(`[Printing] 📡 print:request cash enviado al agente (venta #${sale.id})`);
+    logger.info('print_requested', { kind: 'cash', restaurantId: opts.restaurantId, saleId: sale.id });
   },
 
   // Ticket de CAJA de un pedido para llevar: se imprime desde su venta,
@@ -389,6 +390,6 @@ export const printingService = {
       paymentMethod: opts.paymentMethod ?? 'CASH',
       notes:         opts.notes,
     });
-    console.log(`[Printing] 📡 print:request cash (BD) enviado al agente (mesa ${table.number})`);
+    logger.info('print_requested', { kind: 'table_account', restaurantId: opts.restaurantId, tableNumber: table.number });
   },
 };

@@ -6,6 +6,8 @@ import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import { HttpError } from '../lib/http-error.js';
 import { env } from '../config/env.js';
+import { logger } from '../lib/logger.js';
+import { shortId } from './request-id.js';
 
 // 404 — ruta no encontrada (montar al final de las rutas)
 export function notFoundHandler(_req: Request, res: Response) {
@@ -15,7 +17,7 @@ export function notFoundHandler(_req: Request, res: Response) {
 // Error handler (4 parámetros — Express lo detecta como error middleware)
 export function errorHandler(
   err: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction
 ) {
@@ -75,11 +77,23 @@ export function errorHandler(
   }
 
   // ── Fallback ──
-  // El detalle del error queda en el log; al cliente solo se le da en desarrollo.
-  console.error('💥 Error no manejado:', err);
+  // El detalle queda en el log (con el código del pedido); al cliente solo se le
+  // da el código para reportarlo, y el mensaje técnico únicamente en desarrollo.
+  logger.error('unhandled_error', {
+    requestId: req.requestId,
+    method: req.method,
+    path: req.path, // sin query string
+    userId: req.user?.userId,
+    restaurantId: req.user?.restaurantId,
+    error: err,
+  });
   const isDev = env.NODE_ENV === 'development';
+  const code = shortId(req.requestId);
   res.status(500).json({
-    error: 'Error interno del servidor',
+    error: code
+      ? `Error interno del servidor (código ${code}). Si se repite, avisá a quien administra el sistema.`
+      : 'Error interno del servidor',
+    requestId: req.requestId,
     ...(isDev && err instanceof Error ? { message: err.message, stack: err.stack } : {}),
   });
 }
