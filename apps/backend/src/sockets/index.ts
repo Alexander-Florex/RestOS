@@ -8,6 +8,7 @@ import type { Server as HttpServer } from 'http';
 import { verifyToken, type JwtPayload } from '../lib/jwt.js';
 import { rolesService } from '../modules/roles/roles.service.js';
 import { corsOrigins } from '../config/env.js';
+import { SocketEvents } from '../shared/socket-events.js';
 
 let io: SocketIOServer | null = null;
 
@@ -78,51 +79,8 @@ export function ioRestaurant(restaurantId: number) {
   return getIO().to(`restaurant-${restaurantId}`);
 }
 
-// ── Eventos emitidos (centralizamos los nombres acá) ──
-export const SocketEvents = {
-  // Mesas
-  TABLE_CHANGED:           'table:changed',
-  TABLE_CREATED:           'table:created',
-  TABLE_DELETED:           'table:deleted',
-  // Menú
-  MENU_ITEM_CHANGED:       'menu-item:changed',
-  MENU_ITEM_CREATED:       'menu-item:created',
-  MENU_ITEM_DELETED:       'menu-item:deleted',
-  MENU_CATEGORY_CHANGED:   'menu-category:changed',
-  MENU_CATEGORY_CREATED:   'menu-category:created',
-  MENU_CATEGORY_DELETED:   'menu-category:deleted',
-  // Pedidos
-  ORDER_CREATED:           'order:created',
-  ORDER_DELETED:           'order:deleted',
-  // Ventas
-  SALE_REGISTERED:         'sale:registered',
-  // Inventario
-  INVENTORY_ITEM_CHANGED:  'inventory-item:changed',
-  INVENTORY_ITEM_CREATED:  'inventory-item:created',
-  INVENTORY_ITEM_DELETED:  'inventory-item:deleted',
-  // Staff
-  STAFF_CHANGED:           'staff:changed',
-  STAFF_CREATED:           'staff:created',
-  STAFF_DELETED:           'staff:deleted',
-  // Usuarios (cuentas de login)
-  USER_CHANGED:            'user:changed',
-  USER_CREATED:            'user:created',
-  USER_DELETED:            'user:deleted',
-  // Secciones
-  SECTION_CHANGED:         'section:changed',
-  SECTION_CREATED:         'section:created',
-  SECTION_DELETED:         'section:deleted',
-  // Reservas
-  RESERVATION_CHANGED:     'reservation:changed',
-  RESERVATION_CREATED:     'reservation:created',
-  RESERVATION_DELETED:     'reservation:deleted',
-  // Takeaway
-  TAKEAWAY_CREATED:          'takeaway:created',
-  TAKEAWAY_UPDATED:          'takeaway:updated',
-  TAKEAWAY_DELETED:          'takeaway:deleted',
-  // Impresión (el agente local escucha este evento)
-  PRINT_REQUEST:             'print:request',
-} as const;
+// Los nombres de eventos viven en src/shared/socket-events.ts (compartido con el frontend)
+export { SocketEvents };
 
 /**
  * Emite un evento de impresión al agente local del restaurante.

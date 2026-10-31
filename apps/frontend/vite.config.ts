@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Constantes compartidas con el backend (ej. nombres de eventos de socket)
+      '@shared': path.resolve(__dirname, '../backend/src/shared'),
     },
   },
   server: {
