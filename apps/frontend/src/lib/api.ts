@@ -45,18 +45,47 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
   skipAuth?: boolean;
 }
 
+/** Evento de ventana que avisa que el servidor rechazó la sesión (vencida, usuario desactivado...). */
+export const SESSION_EXPIRED_EVENT = 'restos:session-expired';
+
+/** Si una llamada con token recibe 401, la sesión ya no sirve: se avisa para volver al login. */
+function checkSession(res: Response, sentToken: boolean) {
+  if (res.status === 401 && sentToken) {
+    tokenStorage.clear();
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
+}
+
+function authHeader(): Record<string, string> {
+  const token = tokenStorage.get();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function errorFrom(res: Response): Promise<ApiError> {
+  let data: { error?: string; details?: unknown } | null = null;
+  try { data = await res.json(); } catch { /* sin cuerpo JSON */ }
+  return new ApiError(res.status, data?.error || `Error HTTP ${res.status}`, data?.details);
+}
+
+/** Descarga un archivo protegido (CSV, comprobante) con el token en el header, nunca en la URL. */
+async function requestBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
+  const headers = authHeader();
+  const res = await fetch(`${BASE}/api${path}`, { headers });
+  checkSession(res, 'Authorization' in headers);
+  if (!res.ok) throw await errorFrom(res);
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? null;
+  return { blob: await res.blob(), filename };
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, skipAuth, headers, ...rest } = options;
 
   const finalHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(headers as Record<string, string> | undefined),
+    ...(skipAuth ? {} : authHeader()),
   };
-
-  if (!skipAuth) {
-    const token = tokenStorage.get();
-    if (token) finalHeaders['Authorization'] = `Bearer ${token}`;
-  }
 
   const res = await fetch(`${BASE}/api${path}`, {
     ...rest,
@@ -64,6 +93,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  checkSession(res, 'Authorization' in finalHeaders);
   if (res.status === 204) return undefined as T;
 
   let data: unknown = null;
@@ -120,6 +150,9 @@ export const authApi = {
     }),
 
   me: () => request<{ user: AuthUser }>('/auth/me'),
+
+  /** Token nuevo para la sesión actual (el token dura poco; la app lo renueva sola). */
+  refresh: () => request<LoginResponse>('/auth/refresh', { method: 'POST' }),
 };
 
 export const healthApi = {
@@ -371,6 +404,15 @@ export const salesApi = {
 
   create: (data: CreateSaleBody) =>
     request<{ sale: Sale }>('/sales', { method: 'POST', body: data }),
+
+  /**
+   * Imagen del comprobante de una venta como URL local (blob:). Es privada, así
+   * que no se puede usar la ruta directa en <img>. Liberarla con URL.revokeObjectURL.
+   */
+  receiptImageUrl: async (saleId: number): Promise<string> => {
+    const { blob } = await requestBlob(`/sales/${saleId}/receipt`);
+    return URL.createObjectURL(blob);
+  },
 
   /** Sin fecha: el día de hoy según la hora del restaurante. */
   dailyStats: (date?: Date) => {
@@ -800,15 +842,18 @@ export const reportsApi = {
     return request<{ tickets: DailyTicket[] }>(`/reports/tickets?${params}`);
   },
 
-  /** URL para descarga directa de CSV con token por query (no requiere fetch + Blob). */
-  csvUrl: (from: Date, to: Date): string => {
-    const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-    const params = new URLSearchParams({
-      from: dayParam(from),
-      to: dayParam(to),
-      token: tokenStorage.get() ?? '',
-    });
-    return `${base}/api/reports/sales.csv?${params}`;
+  /** Descarga el CSV de ventas del rango (con el token en el header, no en la URL). */
+  downloadCsv: async (from: Date, to: Date): Promise<void> => {
+    const params = new URLSearchParams({ from: dayParam(from), to: dayParam(to) });
+    const { blob, filename } = await requestBlob(`/reports/sales.csv?${params}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename ?? `ventas-${dayParam(from)}-${dayParam(to)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   },
 };
 

@@ -140,7 +140,8 @@ export function ReportsPage() {
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           </Button>
           <Button size="sm"
-            onClick={() => window.open(reportsApi.csvUrl(from, to), '_blank')}
+            onClick={() => reportsApi.downloadCsv(from, to).catch((err) =>
+              toast.error(err instanceof ApiError ? err.message : 'No se pudo descargar el CSV'))}
             disabled={!report || report.totals.salesCount === 0}>
             <FileDown className="h-4 w-4" />
             CSV

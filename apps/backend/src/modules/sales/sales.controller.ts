@@ -45,6 +45,15 @@ export const salesController = {
     res.json({ sale });
   },
 
+  /** Imagen del comprobante (transferencia, etc.). Privada: requiere login y venta propia. */
+  async receipt(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParam.parse(req.params);
+    const file = await salesService.receiptFile(req.user.restaurantId, id);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.sendFile(file);
+  },
+
   async create(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);

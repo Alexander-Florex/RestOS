@@ -21,10 +21,24 @@ export function errorHandler(
 ) {
   // ── Errores HTTP propios ──
   if (err instanceof HttpError) {
+    const retryAfter = (err.details as { retryAfterSec?: number } | undefined)?.retryAfterSec;
+    if (err.statusCode === 429 && retryAfter) res.setHeader('Retry-After', String(retryAfter));
     return res.status(err.statusCode).json({
       error: err.message,
       ...(err.details ? { details: err.details } : {}),
     });
+  }
+
+  // ── Errores del parser de body (express.json) ──
+  const bodyErr = err as { type?: string; status?: number } | null;
+  if (bodyErr?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Los datos enviados son demasiado grandes' });
+  }
+  if (bodyErr?.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'El cuerpo del pedido no es un JSON válido' });
+  }
+  if (bodyErr?.type && bodyErr.status && bodyErr.status >= 400 && bodyErr.status < 500) {
+    return res.status(bodyErr.status).json({ error: 'Solicitud inválida' });
   }
 
   // ── Errores de validación Zod ──

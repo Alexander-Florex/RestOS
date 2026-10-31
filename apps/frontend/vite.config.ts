@@ -15,7 +15,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Cualquier request a /api, /socket.io o /uploads se proxea al backend
+      // /api y /socket.io se proxean al backend (los comprobantes se piden por /api)
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
@@ -24,10 +24,6 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
         ws: true,
-      },
-      '/uploads': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
       },
     },
   },

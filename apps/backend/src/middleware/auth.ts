@@ -70,21 +70,3 @@ export function requirePermission(...perms: Permission[]) {
       .catch(next);
   };
 }
-
-/**
- * Variante de authenticate que acepta el token vía query string (?token=...).
- * Útil para descargas de archivos donde no se puede setear el header Authorization
- * (por ejemplo, `<a href="/api/reports/sales.csv?token=...">`).
- *
- * Si no encuentra el token por query, intenta también el header Authorization estándar.
- */
-export function authenticateFromQuery(req: Request, _res: Response, next: NextFunction) {
-  const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
-  const headerToken = req.headers.authorization?.startsWith('Bearer ')
-    ? req.headers.authorization.slice(7).trim()
-    : null;
-  const token = queryToken || headerToken;
-
-  if (!token) return next(HttpError.unauthorized('Falta token de autorización'));
-  acceptToken(token, req, next);
-}

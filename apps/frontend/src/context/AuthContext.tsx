@@ -1,8 +1,11 @@
 // ──────────────────────────────────────────────
 // AuthContext.tsx — Estado global de autenticación
 // ──────────────────────────────────────────────
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
-import { authApi, tokenStorage, restaurantIdStorage, type AuthUser, ApiError } from '../lib/api';
+import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
+import { toast } from 'sonner';
+import {
+  authApi, tokenStorage, restaurantIdStorage, type AuthUser, ApiError, SESSION_EXPIRED_EVENT,
+} from '../lib/api';
 import { connectSocket, disconnectSocket, getSocket, SocketEvents } from '../lib/socket';
 import { can as canUser, type Permission } from '../lib/permissions';
 
@@ -17,9 +20,14 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+const REFRESH_EVERY_MS = 30 * 60_000;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const lastRefresh = useRef(0);
+  const userRef = useRef<AuthUser | null>(null);
+  userRef.current = user;
 
   // Al montar: si hay token guardado, intenta restaurar la sesión
   useEffect(() => {
@@ -29,8 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    authApi.me()
-      .then(({ user }) => {
+    // refresh valida la sesión (como /me) y además entrega un token nuevo
+    authApi.refresh()
+      .then(({ user, token }) => {
+        tokenStorage.set(token);
+        lastRefresh.current = Date.now();
         setUser(user);
         connectSocket();
       })
@@ -57,10 +68,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { socket.off(SocketEvents.USER_CHANGED, onChanged); };
   }, [userId]);
 
+  // El token dura poco (12 h): mientras la app está abierta se renueva cada 30 min,
+  // y al volver a la pestaña o despertar el celular si pasó ese tiempo.
+  useEffect(() => {
+    if (!userId) return;
+    const renew = () => {
+      if (Date.now() - lastRefresh.current < REFRESH_EVERY_MS) return;
+      lastRefresh.current = Date.now();
+      authApi.refresh()
+        .then(({ token }) => tokenStorage.set(token))
+        .catch(() => { /* sin red: se reintenta en la próxima vuelta; un 401 lo maneja SESSION_EXPIRED */ });
+    };
+    const timer = window.setInterval(renew, 60_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') renew(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [userId]);
+
+  // El servidor rechazó la sesión (venció, usuario desactivado o borrado): volver al login
+  useEffect(() => {
+    const onExpired = () => {
+      disconnectSocket();
+      if (userRef.current) toast.error('Tu sesión terminó. Iniciá sesión de nuevo.');
+      setUser(null);
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
+
   const login = useCallback(async (restaurantId: number, username: string, password: string) => {
     try {
       const { user, token } = await authApi.login(restaurantId, username, password);
       tokenStorage.set(token);
+      lastRefresh.current = Date.now();
       restaurantIdStorage.set(restaurantId);
       setUser(user);
       connectSocket();

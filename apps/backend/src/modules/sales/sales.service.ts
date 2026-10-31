@@ -116,6 +116,22 @@ export const salesService = {
   },
 
   /**
+   * Ruta en disco del comprobante de una venta del restaurante.
+   * Solo el nombre de archivo guardado en la venta: no se puede pedir otro archivo.
+   */
+  async receiptFile(restaurantId: number, id: number): Promise<string> {
+    const sale = await salesService.getById(restaurantId, id);
+    if (!sale.imageUrl) throw HttpError.notFound('La venta no tiene comprobante');
+    const fullPath = path.join(UPLOADS_DIR, path.basename(sale.imageUrl));
+    try {
+      await fs.access(fullPath);
+    } catch {
+      throw HttpError.notFound('No se encontró el archivo del comprobante');
+    }
+    return fullPath;
+  },
+
+  /**
    * Registra venta + cierra mesa + borra orders, todo en una transacción.
    * Guarda un snapshot de items en sale_items para reportes posteriores.
    *

@@ -25,16 +25,25 @@ import { usersRouter } from './modules/users/users.routes.js';
 import { rolesRouter } from './modules/roles/roles.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { prisma } from './lib/prisma.js';
-import path from 'node:path';
 
 export function buildApp(): Express {
   const app = express();
+  if (env.TRUST_PROXY) {
+    const v = env.TRUST_PROXY;
+    app.set('trust proxy', /^\d+$/.test(v) ? Number(v) : v === 'true' ? true : v);
+  }
 
   // ── Seguridad y parsing ──
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cors({ origin: corsOrigins, credentials: true }));
-  app.use(express.json({ limit: '20mb' })); // 20mb para comprobantes de venta en base64
-  app.use(express.urlencoded({ extended: true }));
+  // 1 MB en general; solo registrar una venta acepta más (comprobante en base64)
+  const smallJson = express.json({ limit: '1mb' });
+  const saleJson = express.json({ limit: '20mb' });
+  app.use((req, res, next) => {
+    const isSaleCreate = req.method === 'POST' && req.path === '/api/sales';
+    return (isSaleCreate ? saleJson : smallJson)(req, res, next);
+  });
+  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
   // ── Logger HTTP (solo en dev) ──
   if (env.NODE_ENV === 'development') {
@@ -56,8 +65,8 @@ export function buildApp(): Express {
     }
   });
 
-  // ── Archivos estáticos (comprobantes de venta) ──
-  app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+  // Los comprobantes de venta (carpeta uploads/) NO se sirven en público:
+  // se piden por GET /api/sales/:id/receipt, con login y del mismo restaurante.
 
   // ── Rutas de la API ──
   app.use('/api/auth',         authRouter);

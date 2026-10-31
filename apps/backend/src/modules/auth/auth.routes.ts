@@ -14,4 +14,7 @@ router.post('/login', asyncHandler(authController.login));
 // GET /api/auth/me — requiere token
 router.get('/me', authenticate, asyncHandler(authController.me));
 
+// POST /api/auth/refresh — renueva el token de una sesión válida (vida corta: JWT_EXPIRES_IN)
+router.post('/refresh', authenticate, asyncHandler(authController.refresh));
+
 export { router as authRouter };
