@@ -36,6 +36,18 @@ export function localDateString(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * Convierte el valor de un <input type="date"> ("YYYY-MM-DD") a medianoche local.
+ * `new Date("YYYY-MM-DD")` lo toma como UTC y en Argentina cae el día anterior.
+ * Devuelve null si el valor está vacío o no es válido.
+ */
+export function parseLocalDate(s: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** Convierte un input "YYYY-MM-DDTHH:mm" a Date (zona local). */
 export function parseLocalDateTime(s: string): Date {
   return new Date(s);

@@ -16,7 +16,7 @@
 //    - Cierra la mesa (vuelve a AVAILABLE, limpia guestCount/openedAt)
 // 5. Emite sale:registered y table:changed
 // ──────────────────────────────────────────────
-import { PaymentMethod, TableStatus, type Sale } from '@prisma/client';
+import { PaymentMethod, SaleChannel, TableStatus, type Sale } from '@prisma/client';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
@@ -24,6 +24,7 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
 import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money.js';
+import { localDayKey, localDaysRange, type DayKey } from '../../lib/time.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads', 'sales');
@@ -115,6 +116,22 @@ export const salesService = {
   },
 
   /**
+   * Ruta en disco del comprobante de una venta del restaurante.
+   * Solo el nombre de archivo guardado en la venta: no se puede pedir otro archivo.
+   */
+  async receiptFile(restaurantId: number, id: number): Promise<string> {
+    const sale = await salesService.getById(restaurantId, id);
+    if (!sale.imageUrl) throw HttpError.notFound('La venta no tiene comprobante');
+    const fullPath = path.join(UPLOADS_DIR, path.basename(sale.imageUrl));
+    try {
+      await fs.access(fullPath);
+    } catch {
+      throw HttpError.notFound('No se encontró el archivo del comprobante');
+    }
+    return fullPath;
+  },
+
+  /**
    * Registra venta + cierra mesa + borra orders, todo en una transacción.
    * Guarda un snapshot de items en sale_items para reportes posteriores.
    *
@@ -182,6 +199,12 @@ export const salesService = {
           }
         }
 
+        // Una mesa abierta sin consumo se libera sin venta (tables/:id/close),
+        // así no quedan ventas de $0 en caja y reportes.
+        if (totalCents === 0) {
+          throw HttpError.badRequest('La mesa no tiene consumos para cobrar. Liberala sin venta.');
+        }
+
         // 3. No se aceptan cobros parciales. Si entró un pedido mientras se
         //    cobraba, el total subió y el monto de la pantalla ya no alcanza.
         if (amountCents < totalCents) {
@@ -208,6 +231,7 @@ export const salesService = {
           data: {
             restaurantId,
             tableId: input.tableId,
+            channel: SaleChannel.DINE_IN,
             tableNumber: locked.number,
             paymentMethod: input.paymentMethod,
             amount: fromCents(amountCents),
@@ -252,15 +276,15 @@ export const salesService = {
   },
 
   /**
-   * Estadísticas del día: total facturado, conteo, breakdown por método.
+   * Estadísticas de un día local del restaurante (hoy por defecto):
+   * total cobrado, conteo, breakdown por método.
    */
-  async dailyStats(restaurantId: number, date: Date = new Date()): Promise<{
+  async dailyStats(restaurantId: number, day: DayKey = localDayKey(new Date())): Promise<{
     total: number;
     count: number;
     byMethod: Record<PaymentMethod, { count: number; amount: number }>;
   }> {
-    const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999);
+    const { from: dayStart, to: dayEnd } = localDaysRange(day);
 
     const sales = await prisma.sale.findMany({
       where: { restaurantId, closedAt: { gte: dayStart, lte: dayEnd } },

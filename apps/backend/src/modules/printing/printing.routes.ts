@@ -7,10 +7,13 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/printers',           asyncHandler(printingController.listPrinters));
-router.post('/orders/:id',        asyncHandler(printingController.printOrder));
-router.post('/takeaway/:id',      asyncHandler(printingController.printTakeawayOrder));
-// Ticket de caja con datos del frontend (después de cerrar venta)
-router.post('/cash-direct',       asyncHandler(printingController.printCashDirect));
+// Comandas: quien puede tomar pedidos
+router.post('/orders/:id',        requirePermission('orders.create'), asyncHandler(printingController.printOrder));
+router.post('/takeaway/:id',      requirePermission('orders.create'), asyncHandler(printingController.printTakeawayOrder));
+// Ticket de caja de una venta ya registrada: se arma desde la base, no con datos del navegador
+router.post('/sales/:id',         requirePermission('sales.charge'), asyncHandler(printingController.printSale));
+// Ticket de caja de un pedido para llevar ya cobrado (también desde la base)
+router.post('/takeaway/:id/receipt', requirePermission('sales.charge'), asyncHandler(printingController.printTakeawayReceipt));
 // Ticket de caja buscando en BD (solo antes de cerrar)
 router.post('/tables/:id/account', requirePermission('sales.charge'), asyncHandler(printingController.printTableAccount));
 

@@ -17,7 +17,7 @@ import { formatMoney } from '../lib/format';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { PrintButton, printerPrefs } from './PrintButton';
+import { PrintButton } from './PrintButton';
 import { useConfirm } from './ui/confirm-dialog';
 import { useAuth } from '../context/AuthContext';
 import { printingApi } from '../lib/api';
@@ -35,22 +35,43 @@ const STATUS_STYLE: Record<TakeawayStatus, { text: string; bg: string; border: s
 
 // ── Modal de cobro ──────────────────────────────────────────────────────────
 function PayModal({ order, open, onClose }: { order: TakeawayOrder; open: boolean; onClose: () => void }) {
+  const total = order.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
+
   const [method, setMethod]       = useState<PaymentMethod>('CASH');
-  const [amount, setAmount]       = useState('');
+  // Arranca con el total: el caso común es cobrar justo, sin tener que tipear
+  const [amount, setAmount]       = useState(() => String(total));
   const [notes, setNotes]         = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  const total = order.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
 
   async function handlePay() {
     const paid = Number(amount);
     if (isNaN(paid) || paid <= 0) { toast.error('Ingresá el monto cobrado'); return; }
+    // Igual que en mesas: no se aceptan cobros parciales (comparación en centavos)
+    if (Math.round(paid * 100) < Math.round(total * 100)) {
+      toast.error(`El monto cobrado (${formatMoney(paid)}) no cubre el total (${formatMoney(total)})`);
+      return;
+    }
     setSubmitting(true);
     try {
       await takeawayApi.pay(order.id, { paymentMethod: method, amountPaid: paid, notes: notes.trim() || null });
       toast.success(`Pedido de ${order.customerName} cobrado`);
+      // Ticket de caja: igual que en mesas, desde lo guardado y sin elegir impresora
+      try {
+        await printingApi.printTakeawayReceipt(order.id);
+        toast.success('Ticket de caja enviado a imprimir');
+      } catch (printErr) {
+        toast.error(
+          `Pedido cobrado, pero el ticket no se imprimió: ${printErr instanceof ApiError ? printErr.message : 'revisá la impresora'}`,
+          { duration: 10_000 },
+        );
+      }
       onClose();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        toast.error('Este pedido ya fue cobrado o cancelado desde otro dispositivo');
+        onClose();
+        return;
+      }
       toast.error(err instanceof ApiError ? err.message : 'Error al cobrar');
     } finally { setSubmitting(false); }
   }
@@ -477,9 +498,7 @@ function TakeawayCard({ order, onPay }: { order: TakeawayOrder; onPay: () => voi
               variant="outline"
               label="Imprimir comanda"
               className="h-8 w-8 shrink-0"
-              onPrint={(printerName, restaurantName) =>
-                printingApi.printTakeawayOrder(order.id, { printerName, restaurantName }).then(() => {})
-              }
+              onPrint={() => printingApi.printTakeawayOrder(order.id).then(() => {})}
             />
             {order.status === 'OPEN' && (
               <Button variant="outline" size="sm" className="flex-1 text-xs h-8" onClick={handleReady} disabled={acting}>

@@ -41,3 +41,15 @@ export function formatDateTimeLong(iso: string | null | undefined): string {
     minute: '2-digit',
   });
 }
+
+/** Origen de una venta: "Mesa 5" o "Para llevar · Ana". */
+export function saleOriginLabel(sale: {
+  channel?: 'DINE_IN' | 'TAKEAWAY';
+  tableNumber: number | null;
+  customerName?: string | null;
+}): string {
+  if (sale.channel === 'TAKEAWAY' || sale.tableNumber === null) {
+    return sale.customerName ? `Para llevar · ${sale.customerName}` : 'Para llevar';
+  }
+  return `Mesa ${sale.tableNumber}`;
+}

@@ -40,6 +40,13 @@ export function UsersPage() {
   const { user: me, can } = useAuth();
   const isAdmin = can('users.manage');
   const { roles } = useRoles();
+  // Solo un Administrador asigna el rol Administrador o toca cuentas de Administradores
+  // (el backend lo exige igual; acá solo se evita ofrecer lo que va a fallar).
+  const meIsAdmin = roles.find(r => r.id === me?.roleId)?.key === 'ADMIN';
+  const assignableRoles = roles.filter(r => meIsAdmin || r.key !== 'ADMIN');
+  const isProtected = (u: { roleId: number | null }) =>
+    !meIsAdmin && roles.find(r => r.id === u.roleId)?.key === 'ADMIN';
+  const PROTECTED_TITLE = 'Solo un Administrador puede modificar esta cuenta';
   const confirm = useConfirm();
 
   const { users, loading } = useUsers();
@@ -290,22 +297,23 @@ export function UsersPage() {
                   <Button
                     variant="ghost" size="icon"
                     onClick={() => handleToggle(u)}
-                    disabled={isMe}
-                    title={isMe ? 'No podés desactivar tu propia cuenta' : (u.active ? 'Desactivar' : 'Reactivar')}
+                    disabled={isMe || isProtected(u)}
+                    title={isMe ? 'No podés desactivar tu propia cuenta' : isProtected(u) ? PROTECTED_TITLE : (u.active ? 'Desactivar' : 'Reactivar')}
                   >
                     {u.active
                       ? <ToggleRight className="h-5 w-5 text-brand-400" />
                       : <ToggleLeft className="h-5 w-5 text-muted-foreground" />
                     }
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(u)} title="Editar">
+                  <Button variant="ghost" size="icon" onClick={() => openEdit(u)}
+                    disabled={isProtected(u)} title={isProtected(u) ? PROTECTED_TITLE : 'Editar'}>
                     <Edit className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost" size="icon"
                     onClick={() => handleDelete(u)}
-                    disabled={isMe}
-                    title={isMe ? 'No podés eliminar tu propia cuenta' : 'Eliminar'}
+                    disabled={isMe || isProtected(u)}
+                    title={isMe ? 'No podés eliminar tu propia cuenta' : isProtected(u) ? PROTECTED_TITLE : 'Eliminar'}
                     className="text-rose-400 hover:text-rose-300 disabled:text-muted-foreground"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -347,7 +355,8 @@ export function UsersPage() {
                   onChange={(e) => setForm(f => ({ ...f, roleId: e.target.value ? Number(e.target.value) : null }))}
                 >
                   {form.roleId === null && <option value="">Elegí un rol</option>}
-                  {roles.map(r => (
+                  {/* Al editarse a sí mismo (select deshabilitado) se muestra su rol aunque sea Administrador */}
+                  {(editing?.id === me?.id ? roles : assignableRoles).map(r => (
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                 </Select>

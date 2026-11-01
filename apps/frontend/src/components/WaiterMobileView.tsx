@@ -19,7 +19,7 @@ import { ordersApi, printingApi, salesApi, takeawayApi, type MenuItem, type Tabl
 import { TABLE_STATUS_LABEL, TABLE_STATUS_STYLE, elapsedSince } from '../lib/table-helpers';
 import { formatMoney } from '../lib/format';
 import { Button } from './ui/button';
-import { PrintButton, printerPrefs } from './PrintButton';
+import { PrintButton } from './PrintButton';
 import { CloseTableModal } from './CloseTableModal';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -196,7 +196,7 @@ export function WaiterMobileView() {
           ? `Pedido para llevar (${customerName}) enviado`
           : `Pedido enviado a mesa ${selectedTable.number}`,
         {
-          description: printerPrefs.getPrinter() ? 'Podés imprimir la comanda abajo' : undefined,
+          description: 'Podés imprimir la comanda abajo',
           duration: 4000,
         }
       );
@@ -212,7 +212,8 @@ export function WaiterMobileView() {
     <div className="flex min-h-[100dvh] flex-col text-foreground">
       {/* Header */}
       <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-background/70 backdrop-blur-xl">
-        <div className="flex min-h-[64px] items-center justify-between px-4 py-3">
+        {/* Alto fijo: las categorías sticky de la carta se apoyan en estos 64px */}
+        <div className="flex h-16 items-center justify-between px-4">
           <AnimatePresence mode="wait" initial={false}>
             {step === 'tables' ? (
               <motion.div key="brand" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }}
@@ -270,7 +271,9 @@ export function WaiterMobileView() {
       </header>
 
       {/* Contenido por paso */}
-      <main className="flex-1 overflow-y-auto px-4 py-5">
+      {/* overflow-x-clip recorta la animación lateral sin volverse contenedor de scroll
+          (con overflow-y-auto las categorías sticky dejaban de quedar fijas) */}
+      <main className="flex-1 overflow-x-clip px-4 py-5">
       <AnimatePresence mode="wait" initial={false}>
       <motion.div
         key={step}
@@ -316,9 +319,7 @@ export function WaiterMobileView() {
                 <PrintButton
                   label="Imprimir"
                   size="sm"
-                  onPrint={(printerName, restaurantName) =>
-                    printingApi.printOrder(lastOrderId, { printerName, restaurantName }).then(() => {})
-                  }
+                  onPrint={() => printingApi.printOrder(lastOrderId).then(() => {})}
                 />
                 <button onClick={() => setLastOrderId(null)} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
                   <X className="h-4 w-4" />
@@ -668,7 +669,8 @@ function MenuStep({
       )}
 
       {/* Tabs de categorías */}
-      <div className="sticky top-[64px] z-10 -mx-4 mb-4 overflow-x-auto bg-background/80 px-4 py-2 backdrop-blur-xl">
+      {/* Scrollea la ventana: queda fija justo debajo del header (64px + borde) */}
+      <div className="sticky top-[65px] z-10 -mx-4 mb-4 overflow-x-auto bg-background/80 px-4 py-2 backdrop-blur-xl">
         <LayoutGroup id="waiter-categories">
           <div className="flex gap-1.5 whitespace-nowrap">
             {categories.map(cat => {

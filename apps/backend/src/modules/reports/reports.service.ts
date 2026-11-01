@@ -1,9 +1,10 @@
 // ──────────────────────────────────────────────
 // reports.service.ts — Reportes agregados de ventas
 // ──────────────────────────────────────────────
-import { PaymentMethod } from '@prisma/client';
+import { PaymentMethod, SaleChannel } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { collectedCents, fromCents } from '../../lib/money.js';
+import { formatLocalDateTime, localDayKey } from '../../lib/time.js';
 
 export interface ReportRange {
   from: Date;
@@ -29,6 +30,13 @@ export interface SalesReport {
     total: number;
     count: number;
   }>;
+  /** Salón y para llevar. */
+  byChannel: Array<{
+    channel: SaleChannel;
+    count: number;
+    total: number;
+  }>;
+  /** Solo ventas de salón (las de para llevar no tienen mesa). */
   byTable: Array<{
     tableNumber: number;
     count: number;
@@ -46,7 +54,11 @@ export interface TopItem {
 
 export interface DailyTicket {
   id: number;
-  tableNumber: number;
+  channel: SaleChannel;
+  /** null en ventas para llevar */
+  tableNumber: number | null;
+  /** Cliente del pedido para llevar (null en salón) */
+  customerName: string | null;
   closedAt: string;
   total: number;
   amount: number;
@@ -85,10 +97,10 @@ export const reportsService = {
       percentage: totalSold > 0 ? (data.amount / totalSold) * 100 : 0,
     }));
 
-    // Breakdown por día (YYYY-MM-DD)
+    // Breakdown por día local del restaurante (YYYY-MM-DD)
     const dayMap = new Map<string, { total: number; count: number }>();
     for (const s of sales) {
-      const date = s.closedAt.toISOString().slice(0, 10);
+      const date = localDayKey(s.closedAt);
       const entry = dayMap.get(date) ?? { total: 0, count: 0 };
       entry.total += Number(s.total);
       entry.count++;
@@ -98,9 +110,21 @@ export const reportsService = {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, data]) => ({ date, total: data.total, count: data.count }));
 
-    // Breakdown por mesa
+    // Breakdown por canal (salón / para llevar)
+    const channelMap = new Map<SaleChannel, { total: number; count: number }>();
+    for (const c of Object.values(SaleChannel)) channelMap.set(c, { total: 0, count: 0 });
+    for (const s of sales) {
+      const entry = channelMap.get(s.channel)!;
+      entry.total += Number(s.total);
+      entry.count++;
+    }
+    const byChannel = Array.from(channelMap.entries())
+      .map(([channel, data]) => ({ channel, total: data.total, count: data.count }));
+
+    // Breakdown por mesa (solo salón)
     const tableMap = new Map<number, { total: number; count: number }>();
     for (const s of sales) {
+      if (s.tableNumber === null) continue;
       const entry = tableMap.get(s.tableNumber) ?? { total: 0, count: 0 };
       entry.total += Number(s.total);
       entry.count++;
@@ -115,6 +139,7 @@ export const reportsService = {
       totals: { totalSold, totalCollected, salesCount, averageTicket },
       byPaymentMethod,
       byDay,
+      byChannel,
       byTable,
     };
   },
@@ -124,12 +149,18 @@ export const reportsService = {
     const sales = await prisma.sale.findMany({
       where: { restaurantId, closedAt: { gte: from, lte: to } },
       orderBy: { closedAt: 'asc' },
-      include: { items: true, registeredBy: { select: { name: true } } },
+      include: {
+        items: true,
+        registeredBy: { select: { name: true } },
+        takeawayOrder: { select: { customerName: true } },
+      },
     });
 
     return sales.map(s => ({
       id: s.id,
+      channel: s.channel,
       tableNumber: s.tableNumber,
+      customerName: s.takeawayOrder?.customerName ?? null,
       closedAt: s.closedAt.toISOString(),
       total: Number(s.total),
       amount: Number(s.amount),
@@ -175,11 +206,12 @@ export const reportsService = {
     const sales = await prisma.sale.findMany({
       where: { restaurantId, closedAt: { gte: from, lte: to } },
       orderBy: { closedAt: 'asc' },
-      include: { items: true },
+      include: { items: true, takeawayOrder: { select: { customerName: true } } },
     });
 
+    const CHANNEL_LABEL: Record<SaleChannel, string> = { DINE_IN: 'Salon', TAKEAWAY: 'Para llevar' };
     const headers = [
-      'ID', 'Fecha', 'Mesa', 'Metodo de pago', 'Total', 'Cobrado',
+      'ID', 'Fecha (hora local)', 'Canal', 'Mesa', 'Cliente', 'Metodo de pago', 'Total', 'Cobrado',
       'Cantidad items', 'Items', 'Notas',
     ];
     const rows = sales.map(s => {
@@ -187,14 +219,17 @@ export const reportsService = {
       const itemsCount = s.items.reduce((acc, i) => acc + i.quantity, 0);
       return [
         s.id,
-        s.closedAt.toISOString(),
-        s.tableNumber,
+        formatLocalDateTime(s.closedAt),
+        CHANNEL_LABEL[s.channel],
+        s.tableNumber ?? '',
+        s.takeawayOrder?.customerName ?? '',
         s.paymentMethod,
         Number(s.total).toFixed(2),
         Number(s.amount).toFixed(2),
         itemsCount,
         itemsText,
-        (s.notes ?? '').replace(/"/g, '""'),
+        // escape() ya duplica las comillas: no hacerlo dos veces
+        s.notes ?? '',
       ];
     });
 

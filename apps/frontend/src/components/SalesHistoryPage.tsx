@@ -6,8 +6,9 @@ import {
   Banknote, CreditCard, Wallet, Loader2, RefreshCw, Receipt,
   TrendingUp, ImageIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
-  salesApi, type Sale, type PaymentMethod, type DailyStats,
+  salesApi, ApiError, type Sale, type PaymentMethod, type DailyStats,
 } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
 import { PAYMENT_LABEL, PAYMENT_OPTIONS } from '../lib/menu-helpers';
@@ -46,6 +47,19 @@ export function SalesHistoryPage() {
   }
 
   useEffect(() => { load(); }, []);
+
+  // El comprobante es privado: se baja con el token y se muestra como blob:
+  async function openReceipt(saleId: number) {
+    try {
+      setPreviewImage(await salesApi.receiptImageUrl(saleId));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo abrir el comprobante');
+    }
+  }
+  function closeReceipt() {
+    if (previewImage) URL.revokeObjectURL(previewImage);
+    setPreviewImage(null);
+  }
 
   // Suscripción: cuando se registra una venta, recargamos todo
   useEffect(() => {
@@ -168,7 +182,7 @@ export function SalesHistoryPage() {
                       {formatDateTime(sale.closedAt)}
                     </td>
                     <td className="px-3 py-3 font-medium tabular-nums">
-                      N° {sale.tableNumber}
+                      {sale.tableNumber !== null ? `N° ${sale.tableNumber}` : 'Para llevar'}
                     </td>
                     <td className="px-3 py-3">
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] px-2 py-0.5 text-xs">
@@ -188,7 +202,7 @@ export function SalesHistoryPage() {
                     <td className="px-3 py-3 text-center">
                       {sale.imageUrl ? (
                         <button
-                          onClick={() => setPreviewImage(sale.imageUrl)}
+                          onClick={() => openReceipt(sale.id)}
                           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-brand-400 hover:bg-brand-500/10"
                           title="Ver comprobante"
                         >
@@ -207,7 +221,7 @@ export function SalesHistoryPage() {
       )}
 
       {/* Modal de preview de comprobante */}
-      <Dialog open={previewImage !== null} onOpenChange={(v) => !v && setPreviewImage(null)}>
+      <Dialog open={previewImage !== null} onOpenChange={(v) => !v && closeReceipt()}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

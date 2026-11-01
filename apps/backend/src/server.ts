@@ -25,39 +25,75 @@ import { usersRouter } from './modules/users/users.routes.js';
 import { rolesRouter } from './modules/roles/roles.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { prisma } from './lib/prisma.js';
-import path from 'node:path';
+import { requestId } from './middleware/request-id.js';
+import { accessLogStream, logger } from './lib/logger.js';
+
+const HEALTH_DB_TIMEOUT_MS = 3000;
+
+morgan.token('req-id', (req) => (req as express.Request).requestId ?? '-');
+const ACCESS_LOG_FORMAT =
+  ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ' +
+  '":referrer" ":user-agent" :req-id :response-time ms';
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout de ${ms} ms`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
 
 export function buildApp(): Express {
   const app = express();
+  if (env.TRUST_PROXY) {
+    const v = env.TRUST_PROXY;
+    app.set('trust proxy', /^\d+$/.test(v) ? Number(v) : v === 'true' ? true : v);
+  }
+
+  // ── Código por pedido + log de acceso (primero, para registrar también los rechazados) ──
+  app.use(requestId);
+  if (accessLogStream) {
+    // Producción: formato combined + código del pedido + duración, a archivo diario
+    app.use(morgan(ACCESS_LOG_FORMAT, { stream: accessLogStream }));
+  } else if (env.NODE_ENV === 'development') {
+    app.use(morgan('dev'));
+  }
 
   // ── Seguridad y parsing ──
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cors({ origin: corsOrigins, credentials: true }));
-  app.use(express.json({ limit: '20mb' })); // 20mb para comprobantes de venta en base64
-  app.use(express.urlencoded({ extended: true }));
+  // 1 MB en general; solo registrar una venta acepta más (comprobante en base64)
+  const smallJson = express.json({ limit: '1mb' });
+  const saleJson = express.json({ limit: '20mb' });
+  app.use((req, res, next) => {
+    const isSaleCreate = req.method === 'POST' && req.path === '/api/sales';
+    return (isSaleCreate ? saleJson : smallJson)(req, res, next);
+  });
+  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
-  // ── Logger HTTP (solo en dev) ──
-  if (env.NODE_ENV === 'development') {
-    app.use(morgan('dev'));
-  }
-
-  // ── Health check ──
+  // ── Health check (público, para monitoreo y para el agente de impresión) ──
+  // 200 si la base responde; 503 si no responde o tarda más de HEALTH_DB_TIMEOUT_MS.
   app.get('/api/health', async (_req, res) => {
+    const started = Date.now();
     try {
-      await prisma.$queryRaw`SELECT 1`;
+      await withTimeout(prisma.$queryRaw`SELECT 1`, HEALTH_DB_TIMEOUT_MS);
       res.json({
         status: 'ok',
-        env: env.NODE_ENV,
-        db: 'connected',
-        timestamp: new Date().toISOString(),
+        db: 'ok',
+        dbLatencyMs: Date.now() - started,
+        uptimeSec: Math.round(process.uptime()),
+        time: new Date().toISOString(),
       });
-    } catch {
-      res.status(503).json({ status: 'degraded', db: 'disconnected' });
+    } catch (err) {
+      logger.error('health_db_failed', { error: err });
+      res.status(503).json({ status: 'degraded', db: 'down', time: new Date().toISOString() });
     }
   });
 
-  // ── Archivos estáticos (comprobantes de venta) ──
-  app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+  // Los comprobantes de venta (carpeta uploads/) NO se sirven en público:
+  // se piden por GET /api/sales/:id/receipt, con login y del mismo restaurante.
 
   // ── Rutas de la API ──
   app.use('/api/auth',         authRouter);

@@ -83,4 +83,16 @@ export const authService = {
     if (!user || !user.active) throw HttpError.unauthorized('Sesión inválida');
     return toSafeUser(user, await resolveRole(user));
   },
+
+  /** Emite un token nuevo si el usuario sigue existiendo y activo (se lee de la base). */
+  async refresh(userId: number, restaurantId: number): Promise<{ user: SafeUser; token: string }> {
+    const user = await authService.getMe(userId, restaurantId);
+    const token = signToken({
+      userId: user.id,
+      restaurantId: user.restaurantId,
+      username: user.username,
+      role: user.role,
+    });
+    return { user, token };
+  },
 };

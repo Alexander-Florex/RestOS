@@ -18,6 +18,7 @@ const createSchema = z.object({
 const paySchema = z.object({
   paymentMethod: z.nativeEnum(PaymentMethod),
   amountPaid: z.number().positive(),
+  notes: z.string().trim().max(1000).optional().nullable(),
 });
 
 export const takeawayController = {
@@ -52,9 +53,12 @@ export const takeawayController = {
 
   async pay(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
-    const { paymentMethod, amountPaid } = paySchema.parse(req.body);
-    const order = await takeawayService.pay(req.user.restaurantId, Number(req.params.id), paymentMethod, amountPaid);
-    res.json({ order });
+    const { paymentMethod, amountPaid, notes } = paySchema.parse(req.body);
+    const { order, sale } = await takeawayService.pay(
+      req.user.restaurantId, Number(req.params.id), paymentMethod, amountPaid,
+      { notes, registeredById: req.user.userId },
+    );
+    res.json({ order, sale });
   },
 
   async cancel(req: Request, res: Response) {

@@ -5,8 +5,11 @@
 // ──────────────────────────────────────────────
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Server as HttpServer } from 'http';
-import { verifyToken } from '../lib/jwt.js';
+import { verifyToken, type JwtPayload } from '../lib/jwt.js';
+import { rolesService } from '../modules/roles/roles.service.js';
 import { corsOrigins } from '../config/env.js';
+import { SocketEvents } from '../shared/socket-events.js';
+import { logger } from '../lib/logger.js';
 
 let io: SocketIOServer | null = null;
 
@@ -19,40 +22,40 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
     path: '/socket.io',
   });
 
-  // ── Middleware: verifica token en el handshake ──
+  // ── Middleware: token válido de un usuario activo (igual que la API REST) ──
   io.use((socket, next) => {
     const token =
       socket.handshake.auth?.token ||
       socket.handshake.headers?.authorization?.replace('Bearer ', '');
 
-    if (!token) {
-      // Permitimos conexiones anónimas (read-only) — útil para vistas públicas
-      // Si en algún momento querés cerrarlas: return next(new Error('No autorizado'));
-      return next();
-    }
+    if (!token) return next(new Error('No autorizado'));
 
+    let payload: JwtPayload;
     try {
-      const payload = verifyToken(token);
-      socket.data.user = payload;
-      next();
+      payload = verifyToken(token);
     } catch {
-      next(new Error('Token inválido'));
+      return next(new Error('Token inválido'));
     }
+    rolesService.getAccess(payload.userId, payload.restaurantId)
+      .then((access) => {
+        if (!access.active) return next(new Error('Sesión inválida'));
+        socket.data.user = payload;
+        next();
+      })
+      .catch(() => next(new Error('No se pudo validar la sesión')));
   });
 
   io.on('connection', (socket: Socket) => {
-    const user = socket.data.user;
-    console.log(
-      `📡 Socket conectado: ${socket.id}${user ? ` (user: ${user.username}, ${user.role})` : ' (anónimo)'}`
-    );
+    const user = socket.data.user as JwtPayload;
+    logger.debug('socket_connected', { socketId: socket.id, userId: user.userId });
 
-    // Unir al room del restaurante para que los eventos sean aislados por tenant.
-    if (user?.restaurantId) {
-      socket.join(`restaurant-${user.restaurantId}`);
-    }
+    // Room del restaurante (eventos aislados por tenant) y del usuario
+    // (para cortarle la conexión si se lo desactiva o borra).
+    socket.join(`restaurant-${user.restaurantId}`);
+    socket.join(userRoom(user.userId));
 
     socket.on('disconnect', (reason) => {
-      console.log(`📴 Socket desconectado: ${socket.id} (${reason})`);
+      logger.debug('socket_disconnected', { socketId: socket.id, reason });
     });
   });
 
@@ -65,56 +68,20 @@ export function getIO(): SocketIOServer {
   return io;
 }
 
+function userRoom(userId: number) { return `user-${userId}`; }
+
+/** Corta las conexiones en tiempo real de un usuario (al desactivarlo o borrarlo). */
+export function disconnectUser(userId: number): void {
+  io?.in(userRoom(userId)).disconnectSockets(true);
+}
+
 /** Devuelve el namespace del room de un restaurante para emitir eventos aislados por tenant. */
 export function ioRestaurant(restaurantId: number) {
   return getIO().to(`restaurant-${restaurantId}`);
 }
 
-// ── Eventos emitidos (centralizamos los nombres acá) ──
-export const SocketEvents = {
-  // Mesas
-  TABLE_CHANGED:           'table:changed',
-  TABLE_CREATED:           'table:created',
-  TABLE_DELETED:           'table:deleted',
-  // Menú
-  MENU_ITEM_CHANGED:       'menu-item:changed',
-  MENU_ITEM_CREATED:       'menu-item:created',
-  MENU_ITEM_DELETED:       'menu-item:deleted',
-  MENU_CATEGORY_CHANGED:   'menu-category:changed',
-  MENU_CATEGORY_CREATED:   'menu-category:created',
-  MENU_CATEGORY_DELETED:   'menu-category:deleted',
-  // Pedidos
-  ORDER_CREATED:           'order:created',
-  ORDER_DELETED:           'order:deleted',
-  // Ventas
-  SALE_REGISTERED:         'sale:registered',
-  // Inventario
-  INVENTORY_ITEM_CHANGED:  'inventory-item:changed',
-  INVENTORY_ITEM_CREATED:  'inventory-item:created',
-  INVENTORY_ITEM_DELETED:  'inventory-item:deleted',
-  // Staff
-  STAFF_CHANGED:           'staff:changed',
-  STAFF_CREATED:           'staff:created',
-  STAFF_DELETED:           'staff:deleted',
-  // Usuarios (cuentas de login)
-  USER_CHANGED:            'user:changed',
-  USER_CREATED:            'user:created',
-  USER_DELETED:            'user:deleted',
-  // Secciones
-  SECTION_CHANGED:         'section:changed',
-  SECTION_CREATED:         'section:created',
-  SECTION_DELETED:         'section:deleted',
-  // Reservas
-  RESERVATION_CHANGED:     'reservation:changed',
-  RESERVATION_CREATED:     'reservation:created',
-  RESERVATION_DELETED:     'reservation:deleted',
-  // Takeaway
-  TAKEAWAY_CREATED:          'takeaway:created',
-  TAKEAWAY_UPDATED:          'takeaway:updated',
-  TAKEAWAY_DELETED:          'takeaway:deleted',
-  // Impresión (el agente local escucha este evento)
-  PRINT_REQUEST:             'print:request',
-} as const;
+// Los nombres de eventos viven en src/shared/socket-events.ts (compartido con el frontend)
+export { SocketEvents };
 
 /**
  * Emite un evento de impresión al agente local del restaurante.

@@ -17,7 +17,27 @@ declare global {
 }
 
 /**
- * Verifica que el request traiga un Bearer token válido.
+ * Valida el token y que el usuario siga existiendo y activo (caché corta):
+ * desactivar o borrar un usuario corta su sesión aunque el token no haya vencido.
+ */
+function acceptToken(token: string, req: Request, next: NextFunction) {
+  let payload: JwtPayload;
+  try {
+    payload = verifyToken(token);
+  } catch {
+    return next(HttpError.unauthorized('Token inválido o expirado'));
+  }
+  rolesService.getAccess(payload.userId, payload.restaurantId)
+    .then((access) => {
+      if (!access.active) return next(HttpError.unauthorized('Sesión inválida'));
+      req.user = payload;
+      next();
+    })
+    .catch(next);
+}
+
+/**
+ * Verifica que el request traiga un Bearer token válido de un usuario activo.
  * Adjunta el payload decoded a req.user.
  */
 export function authenticate(req: Request, _res: Response, next: NextFunction) {
@@ -25,14 +45,7 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
   if (!header?.startsWith('Bearer ')) {
     return next(HttpError.unauthorized('Falta token de autorización'));
   }
-
-  const token = header.slice(7).trim();
-  try {
-    req.user = verifyToken(token);
-    next();
-  } catch {
-    next(HttpError.unauthorized('Token inválido o expirado'));
-  }
+  acceptToken(header.slice(7).trim(), req, next);
 }
 
 /**
@@ -56,28 +69,4 @@ export function requirePermission(...perms: Permission[]) {
       })
       .catch(next);
   };
-}
-
-/**
- * Variante de authenticate que acepta el token vía query string (?token=...).
- * Útil para descargas de archivos donde no se puede setear el header Authorization
- * (por ejemplo, `<a href="/api/reports/sales.csv?token=...">`).
- *
- * Si no encuentra el token por query, intenta también el header Authorization estándar.
- */
-export function authenticateFromQuery(req: Request, _res: Response, next: NextFunction) {
-  const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
-  const headerToken = req.headers.authorization?.startsWith('Bearer ')
-    ? req.headers.authorization.slice(7).trim()
-    : null;
-  const token = queryToken || headerToken;
-
-  if (!token) return next(HttpError.unauthorized('Falta token de autorización'));
-
-  try {
-    req.user = verifyToken(token);
-    next();
-  } catch {
-    next(HttpError.unauthorized('Token inválido o expirado'));
-  }
 }

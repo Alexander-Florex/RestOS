@@ -9,8 +9,8 @@ import {
 } from 'lucide-react';
 import { reportsApi, type SalesReport, type TopItem, type DailyTicket, type PaymentMethod, ApiError } from '../lib/api';
 import { PAYMENT_LABEL } from '../lib/menu-helpers';
-import { formatMoney } from '../lib/format';
-import { localDateString } from '../lib/reservation-helpers';
+import { formatMoney, saleOriginLabel } from '../lib/format';
+import { localDateString, parseLocalDate } from '../lib/reservation-helpers';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 
@@ -47,7 +47,9 @@ export function ReportsPage() {
   const [topItems, setTopItems] = useState<TopItem[]>([]);
   const [prevMonthReport, setPrevMonthReport] = useState<SalesReport | null>(null);
   const [tickets, setTickets] = useState<DailyTicket[]>([]);
-  const [ticketTableFilter, setTicketTableFilter] = useState<number | null>(null);
+  const takeawayCount = tickets.filter(t => t.channel === 'TAKEAWAY').length;
+  // Filtro de tickets: una mesa, 'TAKEAWAY' (para llevar) o null (todos)
+  const [ticketTableFilter, setTicketTableFilter] = useState<number | 'TAKEAWAY' | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Calcular from/to según el modo
@@ -138,7 +140,8 @@ export function ReportsPage() {
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           </Button>
           <Button size="sm"
-            onClick={() => window.open(reportsApi.csvUrl(from, to), '_blank')}
+            onClick={() => reportsApi.downloadCsv(from, to).catch((err) =>
+              toast.error(err instanceof ApiError ? err.message : 'No se pudo descargar el CSV'))}
             disabled={!report || report.totals.salesCount === 0}>
             <FileDown className="h-4 w-4" />
             CSV
@@ -204,13 +207,13 @@ export function ReportsPage() {
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Desde</label>
               <input type="date" value={localDateString(customFrom)}
-                onChange={e => { const d = new Date(e.target.value); d.setHours(0,0,0,0); setCustomFrom(d); }}
+                onChange={e => { const d = parseLocalDate(e.target.value); if (d) setCustomFrom(d); }}
                 className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Hasta</label>
               <input type="date" value={localDateString(customTo)}
-                onChange={e => { const d = new Date(e.target.value); d.setHours(23,59,59,999); setCustomTo(d); }}
+                onChange={e => { const d = parseLocalDate(e.target.value); if (d) { d.setHours(23,59,59,999); setCustomTo(d); } }}
                 className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
           </div>
@@ -287,6 +290,27 @@ export function ReportsPage() {
             </div>
           </div>
 
+          {/* Ventas por canal: salón y para llevar */}
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {(['DINE_IN', 'TAKEAWAY'] as const).map(channel => {
+              const d = report!.byChannel?.find(x => x.channel === channel);
+              const total = d?.total ?? 0;
+              const count = d?.count ?? 0;
+              const pct = totals!.totalSold > 0 ? (total / totals!.totalSold) * 100 : 0;
+              return (
+                <div key={channel} className={cn('glass rounded-3xl p-5', total === 0 && 'opacity-50')}>
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    {channel === 'DINE_IN' ? 'Salón' : 'Para llevar'}
+                  </p>
+                  <p className="mt-2 text-2xl font-bold tabular-nums">{formatMoney(total)}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {count} {count === 1 ? 'venta' : 'ventas'}{pct > 0 && ` · ${pct.toFixed(1)}%`}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
           {/* Tickets del día — listado de cuentas cerradas, solo en vista diaria */}
           {viewMode === 'daily' && tickets.length > 0 && (
             <div className="mb-6 glass rounded-3xl p-5">
@@ -295,7 +319,7 @@ export function ReportsPage() {
                   <Receipt className="h-4 w-4 text-brand-400" />
                   Tickets del día ({tickets.length})
                 </h3>
-                {report!.byTable.length > 1 && (
+                {report!.byTable.length + (takeawayCount > 0 ? 1 : 0) > 1 && (
                   <div className="flex flex-wrap gap-1.5">
                     <button onClick={() => setTicketTableFilter(null)}
                       className={cn('rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
@@ -309,6 +333,13 @@ export function ReportsPage() {
                         Mesa {t.tableNumber} ({t.count})
                       </button>
                     ))}
+                    {takeawayCount > 0 && (
+                      <button onClick={() => setTicketTableFilter('TAKEAWAY')}
+                        className={cn('rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+                          ticketTableFilter === 'TAKEAWAY' ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30' : 'text-muted-foreground hover:text-foreground border border-transparent')}>
+                        Para llevar ({takeawayCount})
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -317,7 +348,7 @@ export function ReportsPage() {
                   <thead>
                     <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                       <th className="pb-2 pr-3 font-medium">Hora</th>
-                      <th className="pb-2 pr-3 font-medium">Mesa</th>
+                      <th className="pb-2 pr-3 font-medium">Origen</th>
                       <th className="pb-2 pr-3 font-medium">Items</th>
                       <th className="pb-2 pr-3 font-medium">Pago</th>
                       <th className="pb-2 pr-3 font-medium">Cobró</th>
@@ -326,13 +357,13 @@ export function ReportsPage() {
                   </thead>
                   <tbody>
                     {tickets
-                      .filter(t => ticketTableFilter === null || t.tableNumber === ticketTableFilter)
+                      .filter(t => ticketTableFilter === null || (ticketTableFilter === 'TAKEAWAY' ? t.channel === 'TAKEAWAY' : t.tableNumber === ticketTableFilter))
                       .map(t => (
                         <tr key={t.id} className="border-b border-border/50 last:border-0">
                           <td className="py-2 pr-3 tabular-nums text-muted-foreground">
                             {new Date(t.closedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                           </td>
-                          <td className="py-2 pr-3 font-medium">Mesa {t.tableNumber}</td>
+                          <td className="py-2 pr-3 font-medium">{saleOriginLabel(t)}</td>
                           <td className="py-2 pr-3 max-w-xs truncate text-muted-foreground" title={t.items.map(i => `${i.quantity}x ${i.itemName}`).join(', ')}>
                             {t.items.map(i => `${i.quantity}x ${i.itemName}`).join(', ')}
                           </td>
@@ -353,7 +384,7 @@ export function ReportsPage() {
                       <td className="pt-2 text-right tabular-nums text-brand-400">
                         {formatMoney(
                           tickets
-                            .filter(t => ticketTableFilter === null || t.tableNumber === ticketTableFilter)
+                            .filter(t => ticketTableFilter === null || (ticketTableFilter === 'TAKEAWAY' ? t.channel === 'TAKEAWAY' : t.tableNumber === ticketTableFilter))
                             .reduce((sum, t) => sum + t.total, 0)
                         )}
                       </td>

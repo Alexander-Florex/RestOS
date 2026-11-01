@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { PaymentMethod } from '@prisma/client';
 import { salesService } from './sales.service.js';
 import { HttpError } from '../../lib/http-error.js';
+import { dayParam } from '../../lib/date-query.js';
 
 const paymentEnum = z.nativeEnum(PaymentMethod);
 
@@ -26,7 +27,7 @@ const listQuery = z.object({
 });
 
 const statsQuery = z.object({
-  date: z.coerce.date().optional(),
+  date: dayParam.optional(),
 });
 
 export const salesController = {
@@ -42,6 +43,15 @@ export const salesController = {
     const { id } = idParam.parse(req.params);
     const sale = await salesService.getById(req.user.restaurantId, id);
     res.json({ sale });
+  },
+
+  /** Imagen del comprobante (transferencia, etc.). Privada: requiere login y venta propia. */
+  async receipt(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParam.parse(req.params);
+    const file = await salesService.receiptFile(req.user.restaurantId, id);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.sendFile(file);
   },
 
   async create(req: Request, res: Response) {

@@ -27,11 +27,11 @@ export function useTakeaway(filters?: { status?: TakeawayStatus }) {
       setOrders(prev => prev.filter(x => x.id !== id));
 
     socket.on(SocketEvents.TAKEAWAY_CREATED, onCreated);
-    socket.on(SocketEvents.TAKEAWAY_CHANGED, onChanged);
+    socket.on(SocketEvents.TAKEAWAY_UPDATED, onChanged);
     socket.on(SocketEvents.TAKEAWAY_DELETED, onDeleted);
     return () => {
       socket.off(SocketEvents.TAKEAWAY_CREATED, onCreated);
-      socket.off(SocketEvents.TAKEAWAY_CHANGED, onChanged);
+      socket.off(SocketEvents.TAKEAWAY_UPDATED, onChanged);
       socket.off(SocketEvents.TAKEAWAY_DELETED, onDeleted);
     };
   }, []);

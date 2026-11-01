@@ -27,4 +27,8 @@ export class HttpError extends Error {
   static conflict(message = 'Conflicto') {
     return new HttpError(409, message);
   }
+  /** 429. `retryAfterSec` viaja en details y el error handler lo pone en el header Retry-After. */
+  static tooManyRequests(message: string, retryAfterSec: number) {
+    return new HttpError(429, message, { retryAfterSec });
+  }
 }

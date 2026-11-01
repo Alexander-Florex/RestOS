@@ -8,6 +8,13 @@ const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 const TOKEN_KEY = 'restos_token';
 
+/** Día calendario elegido en pantalla, como "YYYY-MM-DD" (sin hora ni zona). */
+function dayParam(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 export const tokenStorage = {
   get: () => localStorage.getItem(TOKEN_KEY),
   set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
@@ -38,18 +45,47 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
   skipAuth?: boolean;
 }
 
+/** Evento de ventana que avisa que el servidor rechazó la sesión (vencida, usuario desactivado...). */
+export const SESSION_EXPIRED_EVENT = 'restos:session-expired';
+
+/** Si una llamada con token recibe 401, la sesión ya no sirve: se avisa para volver al login. */
+function checkSession(res: Response, sentToken: boolean) {
+  if (res.status === 401 && sentToken) {
+    tokenStorage.clear();
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
+}
+
+function authHeader(): Record<string, string> {
+  const token = tokenStorage.get();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function errorFrom(res: Response): Promise<ApiError> {
+  let data: { error?: string; details?: unknown } | null = null;
+  try { data = await res.json(); } catch { /* sin cuerpo JSON */ }
+  return new ApiError(res.status, data?.error || `Error HTTP ${res.status}`, data?.details);
+}
+
+/** Descarga un archivo protegido (CSV, comprobante) con el token en el header, nunca en la URL. */
+async function requestBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
+  const headers = authHeader();
+  const res = await fetch(`${BASE}/api${path}`, { headers });
+  checkSession(res, 'Authorization' in headers);
+  if (!res.ok) throw await errorFrom(res);
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? null;
+  return { blob: await res.blob(), filename };
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, skipAuth, headers, ...rest } = options;
 
   const finalHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(headers as Record<string, string> | undefined),
+    ...(skipAuth ? {} : authHeader()),
   };
-
-  if (!skipAuth) {
-    const token = tokenStorage.get();
-    if (token) finalHeaders['Authorization'] = `Bearer ${token}`;
-  }
 
   const res = await fetch(`${BASE}/api${path}`, {
     ...rest,
@@ -57,6 +93,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  checkSession(res, 'Authorization' in finalHeaders);
   if (res.status === 204) return undefined as T;
 
   let data: unknown = null;
@@ -113,10 +150,13 @@ export const authApi = {
     }),
 
   me: () => request<{ user: AuthUser }>('/auth/me'),
+
+  /** Token nuevo para la sesión actual (el token dura poco; la app lo renueva sola). */
+  refresh: () => request<LoginResponse>('/auth/refresh', { method: 'POST' }),
 };
 
 export const healthApi = {
-  check: () => request<{ status: string; env: string; db: string }>('/health', { skipAuth: true }),
+  check: () => request<{ status: string; db: string; uptimeSec?: number }>('/health', { skipAuth: true }),
 };
 
 // ──────────────────────────────────────────────
@@ -318,11 +358,16 @@ export const ordersApi = {
 // Ventas — tipos y API
 // ──────────────────────────────────────────────
 export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER';
+/** Salón (mesa) o para llevar */
+export type SaleChannel = 'DINE_IN' | 'TAKEAWAY';
 
 export interface Sale {
   id: number;
+  channel: SaleChannel;
   tableId: number | null;
-  tableNumber: number;
+  /** null en ventas para llevar */
+  tableNumber: number | null;
+  takeawayOrderId: number | null;
   paymentMethod: PaymentMethod;
   amount: string;
   total: string;
@@ -360,9 +405,19 @@ export const salesApi = {
   create: (data: CreateSaleBody) =>
     request<{ sale: Sale }>('/sales', { method: 'POST', body: data }),
 
+  /**
+   * Imagen del comprobante de una venta como URL local (blob:). Es privada, así
+   * que no se puede usar la ruta directa en <img>. Liberarla con URL.revokeObjectURL.
+   */
+  receiptImageUrl: async (saleId: number): Promise<string> => {
+    const { blob } = await requestBlob(`/sales/${saleId}/receipt`);
+    return URL.createObjectURL(blob);
+  },
+
+  /** Sin fecha: el día de hoy según la hora del restaurante. */
   dailyStats: (date?: Date) => {
     const params = new URLSearchParams();
-    if (date) params.set('date', date.toISOString());
+    if (date) params.set('date', dayParam(date));
     const qs = params.toString();
     return request<DailyStats>(`/sales/stats/daily${qs ? `?${qs}` : ''}`);
   },
@@ -734,6 +789,8 @@ export interface SalesReport {
     percentage: number;
   }>;
   byDay: Array<{ date: string; total: number; count: number }>;
+  byChannel: Array<{ channel: SaleChannel; count: number; total: number }>;
+  /** Solo salón */
   byTable: Array<{ tableNumber: number; count: number; total: number }>;
 }
 
@@ -747,7 +804,11 @@ export interface TopItem {
 
 export interface DailyTicket {
   id: number;
-  tableNumber: number;
+  channel: SaleChannel;
+  /** null en ventas para llevar */
+  tableNumber: number | null;
+  /** Cliente del pedido para llevar */
+  customerName: string | null;
   closedAt: string;
   total: number;
   amount: number;
@@ -756,92 +817,74 @@ export interface DailyTicket {
   items: Array<{ itemName: string; quantity: number; subtotal: number }>;
 }
 
+// Los reportes trabajan por días completos: se manda el día calendario elegido
+// ("YYYY-MM-DD") y el servidor lo interpreta en la hora del restaurante.
 export const reportsApi = {
   salesReport: (from: Date, to: Date) => {
     const params = new URLSearchParams({
-      from: from.toISOString(),
-      to: to.toISOString(),
+      from: dayParam(from),
+      to: dayParam(to),
     });
     return request<SalesReport>(`/reports/sales?${params}`);
   },
 
   topItems: (from: Date, to: Date, limit = 10) => {
     const params = new URLSearchParams({
-      from: from.toISOString(),
-      to: to.toISOString(),
+      from: dayParam(from),
+      to: dayParam(to),
       limit: String(limit),
     });
     return request<{ items: TopItem[] }>(`/reports/top-items?${params}`);
   },
 
   dailyTickets: (date: Date) => {
-    const params = new URLSearchParams({ date: date.toISOString() });
+    const params = new URLSearchParams({ date: dayParam(date) });
     return request<{ tickets: DailyTicket[] }>(`/reports/tickets?${params}`);
   },
 
-  /** URL para descarga directa de CSV con token por query (no requiere fetch + Blob). */
-  csvUrl: (from: Date, to: Date): string => {
-    const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-    const params = new URLSearchParams({
-      from: from.toISOString(),
-      to: to.toISOString(),
-      token: tokenStorage.get() ?? '',
-    });
-    return `${base}/api/reports/sales.csv?${params}`;
+  /** Descarga el CSV de ventas del rango (con el token en el header, no en la URL). */
+  downloadCsv: async (from: Date, to: Date): Promise<void> => {
+    const params = new URLSearchParams({ from: dayParam(from), to: dayParam(to) });
+    const { blob, filename } = await requestBlob(`/reports/sales.csv?${params}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename ?? `ventas-${dayParam(from)}-${dayParam(to)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   },
 };
 
 // ──────────────────────────────────────────────
 // Impresión — tipos y API
 // ──────────────────────────────────────────────
-export interface PrinterInfo {
-  name: string;
-  isDefault?: boolean;
-  status?: string;
-}
-
-export interface PrintOrderOptions {
-  printerName: string;
-  restaurantName?: string;
-  isKitchenTicket?: boolean;
-  paymentMethod?: string;
-  amountPaid?: number;
-  notes?: string | null;
-}
-
+// Imprime el agente local (no se elige impresora desde el navegador).
+// Los tickets se arman en el backend con los datos guardados.
 export const printingApi = {
-  listPrinters: () =>
-    request<{ printers: PrinterInfo[]; platform: string }>('/printing/printers'),
-
-  printOrder: (orderId: number, opts: PrintOrderOptions) =>
+  // Comanda de cocina de un pedido de mesa
+  printOrder: (orderId: number) =>
     request<{ ok: boolean; message: string }>(`/printing/orders/${orderId}`, {
-      method: 'POST', body: opts,
+      method: 'POST', body: {},
     }),
 
-  printTakeawayOrder: (takeawayId: number, opts: PrintOrderOptions) =>
+  // Comanda de cocina de un pedido para llevar
+  printTakeawayOrder: (takeawayId: number) =>
     request<{ ok: boolean; message: string }>(`/printing/takeaway/${takeawayId}`, {
-      method: 'POST', body: opts,
+      method: 'POST', body: {},
     }),
 
-  // Ticket de caja enviando todos los datos desde el frontend
-  // Usar DESPUÉS de cerrar la venta (los orders ya no existen en BD)
-  printCashDirect: (opts: {
-    printerName: string;
-    restaurantName: string;
-    tableNumber: number;
-    items: Array<{ name: string; quantity: number; price: number }>;
-    total: number;
-    amountPaid: number;
-    paymentMethod: string;
-    notes?: string | null;
-  }) =>
-    request<{ ok: boolean; message: string }>('/printing/cash-direct', {
-      method: 'POST', body: opts,
+  // Ticket de caja de una venta de mesa ya registrada
+  printSale: (saleId: number) =>
+    request<{ ok: boolean; message: string }>(`/printing/sales/${saleId}`, {
+      method: 'POST', body: {},
     }),
 
-  printTableAccount: (tableId: number, opts: Omit<PrintOrderOptions, 'isKitchenTicket'>) =>
-    request<{ ok: boolean; message: string }>(`/printing/tables/${tableId}/account`, {
-      method: 'POST', body: opts,
+  // Ticket de caja de un pedido para llevar ya cobrado
+  printTakeawayReceipt: (takeawayId: number) =>
+    request<{ ok: boolean; message: string }>(`/printing/takeaway/${takeawayId}/receipt`, {
+      method: 'POST', body: {},
     }),
 };
 // ──────────────────────────────────────────────
@@ -900,7 +943,7 @@ export const takeawayApi = {
     request<{ order: TakeawayOrder }>(`/takeaway/${id}/ready`, { method: 'POST' }),
 
   pay: (id: number, data: { paymentMethod: PaymentMethod; amountPaid: number; notes?: string | null }) =>
-    request<{ order: TakeawayOrder }>(`/takeaway/${id}/pay`, { method: 'POST', body: data }),
+    request<{ order: TakeawayOrder; sale: Sale }>(`/takeaway/${id}/pay`, { method: 'POST', body: data }),
 
   cancel: (id: number) =>
     request<{ order: TakeawayOrder }>(`/takeaway/${id}/cancel`, { method: 'POST' }),

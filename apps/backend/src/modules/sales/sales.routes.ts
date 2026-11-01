@@ -16,6 +16,7 @@ router.use(authenticate);
 router.get('/',              requirePermission('sales.view'), asyncHandler(salesController.list));
 router.get('/stats/daily',   requirePermission('sales.view'), asyncHandler(salesController.dailyStats));
 router.get('/:id',           requirePermission('sales.view'), asyncHandler(salesController.getById));
+router.get('/:id/receipt',   requirePermission('sales.view'), asyncHandler(salesController.receipt));
 router.post('/',             requirePermission('sales.charge'), asyncHandler(salesController.create));
 
 export { router as salesRouter };

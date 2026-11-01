@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   Users, Clock, Loader2, Receipt, Lock, CalendarCheck,
-  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard, Printer,
+  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard, Printer, ListPlus,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -20,7 +20,8 @@ import { useTableOrders } from '../hooks/useTableOrders';
 import { useAuth } from '../context/AuthContext';
 import { formatMoney } from '../lib/format';
 import { CloseTableModal } from './CloseTableModal';
-import { PrintButton, printerPrefs } from './PrintButton';
+import { PrintButton } from './PrintButton';
+import { AddOrderDialog } from './AddOrderDialog';
 import { cn } from '../lib/utils';
 
 interface TableDetailModalProps {
@@ -33,11 +34,14 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
   const { can } = useAuth();
   const canOperate = can('tables.operate');
   const canCharge = can('sales.charge');
+  // Cargar pedidos e imprimir comandas: mismo permiso que en el backend
+  const canOrder = can('orders.create');
 
   const [openingMode, setOpeningMode] = useState(false);
   const [guestCount, setGuestCount] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
+  const [addOrderOpen, setAddOrderOpen] = useState(false);
 
   // Solo cargamos pedidos si la mesa está ocupada o con cuenta pedida
   const tableId = table && (table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED')
@@ -52,6 +56,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
       setOpeningMode(false);
       setSubmitting(false);
       setCloseModalOpen(false);
+      setAddOrderOpen(false);
     }
   }, [open]);
 
@@ -135,7 +140,12 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
 
   return (
     <>
-      <Dialog open={open && !closeModalOpen} onOpenChange={(v) => !v && onClose()}>
+      {/* Al abrir un sub-modal, el foco sale de este y Radix lo interpreta como "cerrar":
+          se ignora mientras haya un sub-modal abierto, si no se cierra todo. */}
+      <Dialog
+        open={open && !closeModalOpen && !addOrderOpen}
+        onOpenChange={(v) => !v && !closeModalOpen && !addOrderOpen && onClose()}
+      >
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <div className="flex items-center gap-3">
@@ -232,19 +242,11 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                                 </span>
                               )}
                             </div>
-                            {/* Botón imprimir — quien opera mesas */}
-                            {canOperate && (
+                            {/* Botón reimprimir comanda — quien puede tomar pedidos */}
+                            {canOrder && (
                               <button
                                 onClick={() => {
-                                  const printerName = printerPrefs.getPrinter();
-                                  if (!printerName) {
-                                    toast.error('Configurá la impresora primero desde el sidebar');
-                                    return;
-                                  }
-                                  printingApi.printOrder(order.id, {
-                                    printerName,
-                                    restaurantName: printerPrefs.getRestaurant(),
-                                  })
+                                  printingApi.printOrder(order.id)
                                     .then(() => toast.success(`Pedido #${order.id} enviado a cocina`))
                                     .catch(err => toast.error(err?.message ?? 'Error al imprimir'));
                                 }}
@@ -300,6 +302,15 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
             </div>
           )}
 
+          {/* Cargar un pedido desde el panel (mesa abierta) */}
+          {showOrdersSection && canOrder && (
+            <Button variant="outline" className="mt-4 w-full border-brand-500/40 text-brand-300 hover:bg-brand-500/10"
+              onClick={() => setAddOrderOpen(true)} disabled={submitting}>
+              <ListPlus className="h-4 w-4" />
+              Agregar pedido
+            </Button>
+          )}
+
           {/* Acciones de quien opera mesas (abrir, pedir cuenta, liberar, reservar). Cobrar requiere sales.charge. */}
           {canOperate && (
             <div className="mt-5 space-y-2">
@@ -344,16 +355,18 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                           Cobrar y cerrar mesa
                         </Button>
                       )}
-                      <PrintButton
-                        label="Imprimir pedido"
-                        variant="outline"
-                        className="w-full"
-                        onPrint={(printerName, restaurantName) => {
-                          const lastOrder = orders[orders.length - 1];
-                          if (!lastOrder) return Promise.reject(new Error('No hay pedidos'));
-                          return printingApi.printOrder(lastOrder.id, { printerName, restaurantName }).then(() => {});
-                        }}
-                      />
+                      {canOrder && (
+                        <PrintButton
+                          label="Imprimir último pedido"
+                          variant="outline"
+                          className="w-full"
+                          onPrint={() => {
+                            const lastOrder = orders[orders.length - 1];
+                            if (!lastOrder) return Promise.reject(new Error('No hay pedidos'));
+                            return printingApi.printOrder(lastOrder.id).then(() => {});
+                          }}
+                        />
+                      )}
                     </>
                   ) : (
                     <Button
@@ -381,16 +394,18 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                           Cobrar y cerrar mesa
                         </Button>
                       )}
-                      <PrintButton
-                        label="Imprimir pedido"
-                        variant="outline"
-                        className="w-full"
-                        onPrint={(printerName, restaurantName) => {
-                          const lastOrder = orders[orders.length - 1];
-                          if (!lastOrder) return Promise.reject(new Error('No hay pedidos'));
-                          return printingApi.printOrder(lastOrder.id, { printerName, restaurantName }).then(() => {});
-                        }}
-                      />
+                      {canOrder && (
+                        <PrintButton
+                          label="Imprimir último pedido"
+                          variant="outline"
+                          className="w-full"
+                          onPrint={() => {
+                            const lastOrder = orders[orders.length - 1];
+                            if (!lastOrder) return Promise.reject(new Error('No hay pedidos'));
+                            return printingApi.printOrder(lastOrder.id).then(() => {});
+                          }}
+                        />
+                      )}
                     </>
                   ) : (
                     <Button
@@ -453,6 +468,9 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Sub-modal para cargar un pedido */}
+      <AddOrderDialog table={table} open={open && addOrderOpen} onClose={() => setAddOrderOpen(false)} />
 
       {/* Sub-modal de cierre con venta */}
       <CloseTableModal
