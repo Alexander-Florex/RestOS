@@ -5,6 +5,7 @@ import { TakeawayStatus, PaymentMethod, SaleChannel, type Prisma } from '@prisma
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { toCents, fromCents, formatCents } from '../../lib/money.js';
+import { optionGroupsInclude, resolveItemOptions } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 export type TakeawayWithItems = Awaited<ReturnType<typeof findOne>>;
@@ -46,7 +47,8 @@ export interface CreateTakeawayInput {
   customerPhone?: string | null;
   notes?: string | null;
   createdById?: number;
-  items: Array<{ menuItemId: number; quantity: number; notes?: string | null }>;
+  /** optionIds: opciones elegidas (ver lib/modifiers.ts); el precio lo calcula el servidor. */
+  items: Array<{ menuItemId: number; quantity: number; notes?: string | null; optionIds?: number[] }>;
 }
 
 export const takeawayService = {
@@ -66,6 +68,7 @@ export const takeawayService = {
     const menuIds = input.items.map(i => i.menuItemId);
     const menuItems = await prisma.menuItem.findMany({
       where: { id: { in: menuIds }, restaurantId, enabled: true },
+      include: optionGroupsInclude,
     });
     const menuMap = new Map(menuItems.map(m => [m.id, m]));
 
@@ -76,10 +79,9 @@ export const takeawayService = {
       if (item.quantity <= 0) throw HttpError.badRequest(`Cantidad inválida para "${mi.name}"`);
     }
 
-    const totalCents = input.items.reduce((acc, item) => {
-      const mi = menuMap.get(item.menuItemId)!;
-      return acc + toCents(mi.price) * item.quantity;
-    }, 0);
+    // Precio de cada línea: plato + recargos de las opciones elegidas
+    const resolved = input.items.map(item => resolveItemOptions(menuMap.get(item.menuItemId)!, item.optionIds));
+    const totalCents = input.items.reduce((acc, item, i) => acc + resolved[i].unitPriceCents * item.quantity, 0);
     const total = fromCents(totalCents);
 
     const order = await prisma.takeawayOrder.create({
@@ -91,14 +93,16 @@ export const takeawayService = {
         createdById: input.createdById ?? null,
         total,
         items: {
-          create: input.items.map(item => {
+          create: input.items.map((item, i) => {
             const mi = menuMap.get(item.menuItemId)!;
+            const { modifiers, unitPriceCents } = resolved[i];
             return {
               menuItemId: item.menuItemId,
               itemName: mi.name,
               quantity: item.quantity,
-              price: mi.price,
+              price: fromCents(unitPriceCents),
               notes: item.notes ?? null,
+              modifiers: modifiers.length ? (modifiers as unknown as Prisma.InputJsonValue) : undefined,
             };
           }),
         },
@@ -184,6 +188,7 @@ export const takeawayService = {
               quantity: i.quantity,
               price: i.price,
               subtotal: fromCents(toCents(i.price) * i.quantity),
+              modifiers: i.modifiers ?? undefined,
             })),
           },
         },

@@ -37,6 +37,7 @@ model Restaurant {
   staffMembers   StaffMember[]
   reservations   Reservation[]
   takeawayOrders TakeawayOrder[]
+  menuOptionGroups MenuItemOptionGroup[]
 
   @@map("restaurants")
 }
@@ -168,11 +169,62 @@ model MenuItem {
   saleItems    SaleItem[]
   takeawayItems TakeawayItem[]
   recipes      Recipe[]
+  optionGroups MenuItemOptionGroup[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   @@index([restaurantId])
   @@map("menu_items")
+}
+
+// ── Personalización de platos (tarea 5.7) ──
+// Opciones que carga el Administrador por plato. Al tomar el pedido se guarda
+// una copia de lo elegido en OrderItem/TakeawayItem/SaleItem.modifiers, así
+// editar la carta después no cambia pedidos ni ventas ya hechos.
+
+/// REMOVE: ingredientes que se pueden sacar ("SIN croutones")
+/// SINGLE: elegir uno ("Término: a punto"); si es obligatorio, no se puede pedir sin elegir
+/// MULTI:  agregados opcionales, con recargo ("+ Extra queso")
+enum MenuOptionGroupType {
+  REMOVE
+  SINGLE
+  MULTI
+}
+
+model MenuItemOptionGroup {
+  id           Int                 @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItemId   Int
+  menuItem     MenuItem            @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  name         String
+  type         MenuOptionGroupType
+  required     Boolean             @default(false)
+  sortOrder    Int                 @default(0)
+  options      MenuItemOption[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([restaurantId])
+  @@index([menuItemId])
+  @@map("menu_item_option_groups")
+}
+
+model MenuItemOption {
+  id         Int                 @id @default(autoincrement())
+  groupId    Int
+  group      MenuItemOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name       String
+  /// Recargo por unidad (solo agregados y elecciones; en "sacar" es 0)
+  priceDelta Decimal             @default(0) @db.Decimal(10, 2)
+  /// Viene elegida de entrada (ej. el término más pedido)
+  isDefault  Boolean             @default(false)
+  sortOrder  Int                 @default(0)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@index([groupId])
+  @@map("menu_item_options")
 }
 
 enum StockStatus {
@@ -229,8 +281,10 @@ model OrderItem {
   menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
   itemName   String
   quantity   Int
-  price      Decimal   @db.Decimal(10, 2)
+  price      Decimal   @db.Decimal(10, 2) // precio unitario final: plato + recargos
   notes      String?
+  /// Copia de lo elegido al pedir (ver lib/modifiers.ts)
+  modifiers  Json?
 
   @@index([orderId])
   @@map("order_items")
@@ -280,6 +334,8 @@ model SaleItem {
   quantity   Int
   price      Decimal   @db.Decimal(10, 2)
   subtotal   Decimal   @db.Decimal(10, 2)
+  /// Copia de lo elegido al pedir (ver lib/modifiers.ts)
+  modifiers  Json?
 
   @@index([saleId])
   @@index([menuItemId])
@@ -464,8 +520,10 @@ model TakeawayItem {
   menuItem   MenuItem?     @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
   itemName   String
   quantity   Int
-  price      Decimal       @db.Decimal(10, 2)
+  price      Decimal       @db.Decimal(10, 2) // precio unitario final: plato + recargos
   notes      String?
+  /// Copia de lo elegido al pedir (ver lib/modifiers.ts)
+  modifiers  Json?
 
   @@index([orderId])
   @@map("takeaway_items")

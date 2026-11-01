@@ -16,6 +16,7 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
 import { toCents, fromCents } from '../../lib/money.js';
+import { optionGroupsInclude, resolveItemOptions } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 // Order con sus items y la mesa, listo para enviar al frontend
@@ -35,6 +36,8 @@ export interface CreateOrderItemInput {
   menuItemId: number;
   quantity: number;
   notes?: string;
+  /** Opciones elegidas (ver lib/modifiers.ts). El precio lo calcula el servidor. */
+  optionIds?: number[];
 }
 
 export interface CreateOrderInput {
@@ -119,6 +122,7 @@ export const ordersService = {
     const menuItemIds = input.items.map(i => i.menuItemId);
     const menuItems = await prisma.menuItem.findMany({
       where: { id: { in: menuItemIds }, restaurantId },
+      include: optionGroupsInclude,
     });
     const menuMap = new Map(menuItems.map(m => [m.id, m]));
 
@@ -139,6 +143,9 @@ export const ordersService = {
       }
     }
 
+    // Opciones y precio final de cada línea (valida contra la carta del restaurante)
+    const resolved = input.items.map(it => resolveItemOptions(menuMap.get(it.menuItemId)!, it.optionIds));
+
     // Transacción: bloquear mesa + crear order + abrir mesa si corresponde.
     // El lock pone este pedido en fila con un cobro simultáneo de la misma mesa
     // (ver lib/table-lock.ts): si la mesa se cobró mientras tanto, se revalida
@@ -155,14 +162,16 @@ export const ordersService = {
           notes: input.notes ?? null,
           createdById: input.createdById ?? null,
           items: {
-            create: input.items.map(it => {
+            create: input.items.map((it, i) => {
               const menuItem = menuMap.get(it.menuItemId)!;
+              const { modifiers, unitPriceCents } = resolved[i];
               return {
                 menuItemId: it.menuItemId,
                 itemName: menuItem.name,
                 quantity: it.quantity,
-                price: menuItem.price,
+                price: fromCents(unitPriceCents),
                 notes: it.notes ?? null,
+                modifiers: modifiers.length ? (modifiers as unknown as Prisma.InputJsonValue) : undefined,
               };
             }),
           },

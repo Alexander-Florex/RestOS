@@ -11,7 +11,8 @@ const createSchema = z.object({
   items: z.array(z.object({
     menuItemId: z.number().int().positive(),
     quantity: z.number().int().positive(),
-    notes: z.string().optional().nullable(),
+    notes: z.string().trim().max(500).optional().nullable(),
+    optionIds: z.array(z.number().int().positive()).max(50).optional(),
   })).min(1),
 });
 

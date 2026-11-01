@@ -10,6 +10,7 @@ const orderItemSchema = z.object({
   menuItemId: z.number().int().positive(),
   quantity: z.number().int().positive(),
   notes: z.string().trim().max(500).optional(),
+  optionIds: z.array(z.number().int().positive()).max(50).optional(),
 });
 
 const createSchema = z.object({

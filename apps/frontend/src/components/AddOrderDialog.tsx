@@ -1,21 +1,23 @@
 // ──────────────────────────────────────────────
 // AddOrderDialog.tsx — Cargar un pedido a una mesa desde el panel
 // (caja / encargado). Es la versión de escritorio de la toma de pedidos
-// de la vista del mesero: mismos datos y mismo endpoint.
+// de la vista del mesero: mismo carrito (plato + opciones + nota) y mismo endpoint.
 // ──────────────────────────────────────────────
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Minus, Plus, Search, Send, X, AlertTriangle } from 'lucide-react';
+import { Loader2, Minus, Plus, Search, Send, X, AlertTriangle, SlidersHorizontal, MessageSquare } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
 import { ordersApi, printingApi, ApiError, type MenuItem, type Table } from '../lib/api';
 import { useMenu } from '../hooks/useMenu';
+import { useOrderCart, type CartLine } from '../hooks/useOrderCart';
+import { hasOptions, needsChoice, selectionModifiers } from '../lib/modifiers';
 import { formatMoney } from '../lib/format';
 import { cn } from '../lib/utils';
-
-interface CartLine { item: MenuItem; quantity: number; notes: string }
+import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
+import { ItemModifiers } from './ItemModifiers';
 
 interface AddOrderDialogProps {
   table: Table;
@@ -25,15 +27,17 @@ interface AddOrderDialogProps {
 
 export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
   const { items: menu, loading } = useMenu({ onlyEnabled: true });
+  const cart = useOrderCart();
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
-  const [cart, setCart] = useState<Map<number, CartLine>>(new Map());
   const [printTicket, setPrintTicket] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine } | null>(null);
 
+  const { clear } = cart;
   useEffect(() => {
-    if (!open) { setCart(new Map()); setSearch(''); setSubmitting(false); }
-  }, [open]);
+    if (!open) { clear(); setSearch(''); setSubmitting(false); setCustomizing(null); }
+  }, [open, clear]);
 
   const categories = useMemo(
     () => [...new Set(menu.map(m => m.category).filter(Boolean))].sort(),
@@ -48,38 +52,23 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
     );
   }, [menu, category, search]);
 
-  const lines = [...cart.values()];
-  const count = lines.reduce((s, l) => s + l.quantity, 0);
-  const totalCents = lines.reduce((s, l) => s + Math.round(Number(l.item.price) * 100) * l.quantity, 0);
-
-  function adjust(item: MenuItem, delta: number) {
-    setCart(prev => {
-      const next = new Map(prev);
-      const current = next.get(item.id);
-      const quantity = (current?.quantity ?? 0) + delta;
-      if (quantity <= 0) next.delete(item.id);
-      else next.set(item.id, { item, quantity, notes: current?.notes ?? '' });
-      return next;
-    });
+  function quickAdd(item: MenuItem) {
+    if (needsChoice(item)) setCustomizing({ item });
+    else cart.add(item);
   }
 
-  function setNotes(id: number, notes: string) {
-    setCart(prev => {
-      const next = new Map(prev);
-      const current = next.get(id);
-      if (current) next.set(id, { ...current, notes });
-      return next;
-    });
+  function confirmCustomize(choice: DishChoice) {
+    if (!customizing) return;
+    if (customizing.line) cart.replace(customizing.line.key, customizing.item, choice);
+    else cart.add(customizing.item, choice);
+    setCustomizing(null);
   }
 
   async function send() {
-    if (lines.length === 0) return;
+    if (cart.count === 0) return;
     setSubmitting(true);
     try {
-      const { order } = await ordersApi.create({
-        tableId: table.id,
-        items: lines.map(l => ({ menuItemId: l.item.id, quantity: l.quantity, notes: l.notes.trim() || undefined })),
-      });
+      const { order } = await ordersApi.create({ tableId: table.id, items: cart.toRequestItems() });
       toast.success(`Pedido enviado a mesa ${table.number}`);
       if (printTicket) {
         try {
@@ -100,7 +89,7 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && !submitting && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && !submitting && !customizing && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Agregar pedido · Mesa {table.number}</DialogTitle>
@@ -142,12 +131,12 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
           ) : visible.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">No hay platos disponibles</p>
           ) : visible.map(item => {
-            const line = cart.get(item.id);
-            const qty = line?.quantity ?? 0;
+            const lines = cart.linesOf(item.id);
+            const count = lines.reduce((s, l) => s + l.quantity, 0);
             return (
               <div key={item.id} className={cn(
                 'rounded-xl border px-3 py-2',
-                qty > 0 ? 'border-brand-500/40 bg-brand-500/5' : 'border-white/[0.07] bg-white/[0.02]',
+                count > 0 ? 'border-brand-500/40 bg-brand-500/5' : 'border-white/[0.07] bg-white/[0.02]',
               )}>
                 <div className="flex items-center gap-3">
                   <div className="min-w-0 flex-1">
@@ -159,30 +148,37 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
                       )}
                     </p>
                   </div>
-                  {qty === 0 ? (
-                    <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => adjust(item, 1)} aria-label={`Agregar ${item.name}`}>
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  ) : (
+                  <Button size="sm" variant="outline" className="h-8 gap-1.5 px-2.5 text-xs"
+                    onClick={() => setCustomizing({ item })}>
+                    {hasOptions(item) ? <SlidersHorizontal className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+                    {hasOptions(item) ? 'Opciones' : 'Nota'}
+                  </Button>
+                  <Button size="icon" className="h-8 w-8" onClick={() => quickAdd(item)} aria-label={`Agregar ${item.name}`}>
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Líneas cargadas de este plato */}
+                {lines.map(line => (
+                  <div key={line.key} className="mt-2 flex items-center gap-2 border-t border-white/[0.06] pt-2">
+                    <button className="min-w-0 flex-1 text-left" onClick={() => setCustomizing({ item, line })} title="Editar opciones y nota">
+                      <ItemModifiers modifiers={selectionModifiers(item, line.optionIds)} notes={line.notes} />
+                      {line.optionIds.length === 0 && !line.notes && (
+                        <span className="text-xs text-muted-foreground">Sin cambios</span>
+                      )}
+                    </button>
+                    <span className="text-xs tabular-nums text-muted-foreground">{formatMoney(line.unitPrice)}</span>
                     <div className="flex items-center gap-1">
-                      <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => adjust(item, -1)} aria-label="Quitar uno">
-                        {qty === 1 ? <X className="h-4 w-4 text-rose-400" /> : <Minus className="h-4 w-4" />}
+                      <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => cart.adjust(line.key, -1)} aria-label="Quitar uno">
+                        {line.quantity === 1 ? <X className="h-3.5 w-3.5 text-rose-400" /> : <Minus className="h-3.5 w-3.5" />}
                       </Button>
-                      <span className="w-7 text-center text-sm font-semibold tabular-nums">{qty}</span>
-                      <Button size="icon" className="h-8 w-8" onClick={() => adjust(item, 1)} aria-label="Sumar uno">
-                        <Plus className="h-4 w-4" />
+                      <span className="w-6 text-center text-sm font-semibold tabular-nums">{line.quantity}</span>
+                      <Button size="icon" className="h-7 w-7" onClick={() => cart.adjust(line.key, 1)} aria-label="Sumar uno">
+                        <Plus className="h-3.5 w-3.5" />
                       </Button>
                     </div>
-                  )}
-                </div>
-                {qty > 0 && (
-                  <input
-                    value={line!.notes}
-                    onChange={e => setNotes(item.id, e.target.value)}
-                    placeholder="Aclaración para cocina (opcional)"
-                    className="mt-2 flex h-8 w-full rounded-lg border border-input bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                )}
+                  </div>
+                ))}
               </div>
             );
           })}
@@ -195,11 +191,22 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={submitting}>Cancelar</Button>
-          <Button onClick={send} disabled={submitting || count === 0}>
+          <Button onClick={send} disabled={submitting || cart.count === 0}>
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Enviar pedido{count > 0 && ` · ${count} · ${formatMoney(totalCents / 100)}`}
+            Enviar pedido{cart.count > 0 && ` · ${cart.count} · ${formatMoney(cart.total)}`}
           </Button>
         </DialogFooter>
+
+        {/* Selector anidado: va dentro del contenido para que el diálogo padre no se cierre */}
+        <DishOptionsDialog
+          item={customizing?.item ?? null}
+          initial={customizing?.line && {
+            optionIds: customizing.line.optionIds, notes: customizing.line.notes, quantity: customizing.line.quantity,
+          }}
+          confirmLabel={customizing?.line ? 'Guardar' : 'Agregar'}
+          onClose={() => setCustomizing(null)}
+          onConfirm={confirmCustomize}
+        />
       </DialogContent>
     </Dialog>
   );

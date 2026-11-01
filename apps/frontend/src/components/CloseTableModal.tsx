@@ -20,6 +20,7 @@ import {
 import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { cn } from '../lib/utils';
+import { ItemModifiers } from './ItemModifiers';
 
 interface CloseTableModalProps {
   table: Table;
@@ -153,8 +154,12 @@ export function CloseTableModal({
           <div className="max-h-40 space-y-1 overflow-y-auto text-sm">
             {items.map((item) => (
               <div key={item.id} className="flex justify-between gap-2">
-                <span className="truncate">
-                  {item.itemName} <span className="text-muted-foreground">x{item.quantity}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">
+                    {item.itemName} <span className="text-muted-foreground">x{item.quantity}</span>
+                  </span>
+                  {/* Los agregados explican el precio de la línea */}
+                  <ItemModifiers className="mt-0.5" modifiers={item.modifiers} />
                 </span>
                 <span className="tabular-nums text-muted-foreground">
                   {formatMoney(Number(item.price) * item.quantity)}

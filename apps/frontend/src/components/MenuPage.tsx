@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Edit, Trash2, Loader2, ToggleLeft, ToggleRight,
-  Tag, BookOpen, ArrowUp, ArrowDown,
+  Tag, BookOpen, ArrowUp, ArrowDown, SlidersHorizontal,
 } from 'lucide-react';
 import { useMenu } from '../hooks/useMenu';
 import { useMenuCategories } from '../hooks/useMenuCategories';
@@ -23,6 +23,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from './ui/confirm-dialog';
 import { cn } from '../lib/utils';
+import { MenuOptionsDialog } from './MenuOptionsDialog';
 
 // ── Formulario de ítem ──
 interface ItemForm {
@@ -58,6 +59,8 @@ export function MenuPage() {
   // Modal de ítem
   const [itemForm, setItemForm] = useState<ItemForm>(EMPTY_ITEM);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  // Opciones del plato (personalización al pedir, tarea 5.7)
+  const [optionsItem, setOptionsItem] = useState<MenuItem | null>(null);
   const [itemModalOpen, setItemModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -375,7 +378,12 @@ export function MenuPage() {
                 return (
                   <tr key={item.id} className={cn('hover:bg-white/[0.025]', !item.enabled && 'opacity-50')}>
                     <td className="px-4 py-3">
-                      <p className="font-medium">{item.name}</p>
+                      <p className="font-medium">
+                        {item.name}
+                        {(item.optionGroups?.length ?? 0) > 0 && (
+                          <span className="ml-2 rounded-full bg-brand-500/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-brand-300">Personalizable</span>
+                        )}
+                      </p>
                       {item.description && (
                         <p className="text-xs text-muted-foreground truncate max-w-[200px]">{item.description}</p>
                       )}
@@ -402,6 +410,9 @@ export function MenuPage() {
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <Button variant="ghost" size="icon" onClick={() => openEditItem(item)}><Edit className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => setOptionsItem(item)} title="Opciones (ingredientes, término, agregados)" aria-label={`Opciones de ${item.name}`}>
+                          <SlidersHorizontal className="h-4 w-4" />
+                        </Button>
                         <Button variant="ghost" size="icon" className="text-rose-400 hover:text-rose-300" onClick={() => handleDeleteItem(item)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -528,6 +539,8 @@ export function MenuPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MenuOptionsDialog item={optionsItem} onClose={() => setOptionsItem(null)} />
     </div>
   );
 }

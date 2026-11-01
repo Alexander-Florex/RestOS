@@ -97,7 +97,8 @@ export function emitPrintRequest(restaurantId: number, payload: {
   isTakeaway?:   boolean;
   takeawayName?: string | null;
   customerName?: string | null;
-  items:         Array<{ name?: string; itemName?: string; quantity: number; price?: number; notes?: string | null }>;
+  /** notes ya incluye las opciones en texto; modifiers las trae por separado (una por línea). */
+  items:         Array<{ name?: string; itemName?: string; quantity: number; price?: number; notes?: string | null; modifiers?: string[] }>;
   total?:        number;
   amountPaid?:   number;
   paymentMethod?: string;

@@ -10,6 +10,7 @@ import { HttpError } from '../../lib/http-error.js';
 import { emitPrintRequest } from '../../sockets/index.js';
 import { SaleChannel } from '@prisma/client';
 import { APP_TIME_ZONE } from '../../lib/time.js';
+import { itemNotesForPrint, modifierLines, modifiersKey } from '../../lib/modifiers.js';
 import { logger } from '../../lib/logger.js';
 
 const ESC = 0x1b;
@@ -292,7 +293,13 @@ export const printingService = {
       orderNumber:  order.id,
       isTakeaway,
       takeawayName,
-      items: order.items.map(i => ({ name: i.itemName, quantity: i.quantity, notes: i.notes })),
+      items: order.items.map(i => ({
+        name: i.itemName,
+        quantity: i.quantity,
+        // El agente actual solo imprime notes: van las opciones + la nota del mozo
+        notes: itemNotesForPrint(i.modifiers, i.notes),
+        modifiers: modifierLines(i.modifiers),
+      })),
     });
     logger.info('print_requested', { kind: 'kitchen', restaurantId: opts.restaurantId, orderId: order.id });
   },
@@ -311,7 +318,13 @@ export const printingService = {
       orderNumber:   order.id,
       isTakeaway:    true,
       takeawayName:  order.customerName,
-      items: order.items.map(i => ({ name: i.itemName, quantity: i.quantity, notes: i.notes })),
+      items: order.items.map(i => ({
+        name: i.itemName,
+        quantity: i.quantity,
+        // El agente actual solo imprime notes: van las opciones + la nota del mozo
+        notes: itemNotesForPrint(i.modifiers, i.notes),
+        modifiers: modifierLines(i.modifiers),
+      })),
     });
     logger.info('print_requested', { kind: 'takeaway_kitchen', restaurantId: opts.restaurantId, takeawayId: order.id });
   },
@@ -331,7 +344,13 @@ export const printingService = {
       tableNumber:   sale.tableNumber ?? 0,
       isTakeaway,
       customerName:  isTakeaway ? (sale.takeawayOrder?.customerName ?? null) : null,
-      items:         sale.items.map(i => ({ name: i.itemName, quantity: i.quantity, price: Number(i.price) })),
+      items:         sale.items.map(i => ({
+        name: i.itemName,
+        quantity: i.quantity,
+        price: Number(i.price),
+        notes: itemNotesForPrint(i.modifiers, null),
+        modifiers: modifierLines(i.modifiers),
+      })),
       total:         Number(sale.total),
       amountPaid:    Number(sale.amount),
       paymentMethod: sale.paymentMethod,
@@ -361,12 +380,16 @@ export const printingService = {
       include: { orders: { include: { items: true } } },
     });
     if (!table) throw HttpError.notFound('Mesa no encontrada');
-    const allItems: Array<{ name: string; quantity: number; price: number; notes?: string | null }> = [];
+    const allItems: Array<{ key: string; name: string; quantity: number; price: number; notes?: string | null; modifiers: string[] }> = [];
     for (const order of table.orders) {
       for (const item of order.items) {
-        const found = allItems.find(a => a.name === item.itemName && a.price === Number(item.price));
+        const key = `${item.itemName}|${Number(item.price)}|${modifiersKey(item.modifiers)}`;
+        const found = allItems.find(a => a.key === key);
         if (found) found.quantity += item.quantity;
-        else allItems.push({ name: item.itemName, quantity: item.quantity, price: Number(item.price), notes: item.notes });
+        else allItems.push({
+          key, name: item.itemName, quantity: item.quantity, price: Number(item.price),
+          notes: itemNotesForPrint(item.modifiers, item.notes), modifiers: modifierLines(item.modifiers),
+        });
       }
     }
     if (allItems.length === 0) throw HttpError.badRequest('La mesa no tiene items para imprimir');

@@ -23,6 +23,7 @@ import { CloseTableModal } from './CloseTableModal';
 import { PrintButton } from './PrintButton';
 import { AddOrderDialog } from './AddOrderDialog';
 import { cn } from '../lib/utils';
+import { ItemModifiers } from './ItemModifiers';
 
 interface TableDetailModalProps {
   table: Table | null;
@@ -265,9 +266,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                               <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
                                 <div className="flex-1 min-w-0">
                                   <span>{item.itemName}</span>
-                                  {item.notes && (
-                                    <p className="text-xs italic text-muted-foreground">• {item.notes}</p>
-                                  )}
+                                  <ItemModifiers className="mt-0.5" modifiers={item.modifiers} notes={item.notes} />
                                 </div>
                                 <span className="shrink-0 tabular-nums text-muted-foreground">x{item.quantity}</span>
                                 <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground">

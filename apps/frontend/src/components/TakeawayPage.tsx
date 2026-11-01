@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import {
   Clock, CheckCircle2, CreditCard,
   Loader2, Plus, X, RefreshCw, ShoppingCart,
-  Minus, MessageSquare, Printer,
+  Minus, MessageSquare, Printer, SlidersHorizontal,
 } from 'lucide-react';
 import { useTakeaway } from '../hooks/useTakeaway';
 import { useMenu } from '../hooks/useMenu';
@@ -25,6 +25,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { cn } from '../lib/utils';
+import { useOrderCart, type CartLine } from '../hooks/useOrderCart';
+import { hasOptions, needsChoice, selectionModifiers } from '../lib/modifiers';
+import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
+import { ItemModifiers } from './ItemModifiers';
 
 const STATUS_STYLE: Record<TakeawayStatus, { text: string; bg: string; border: string; dot: string; label: string }> = {
   OPEN:      { text: 'text-sky-400',    bg: 'bg-sky-500/10',    border: 'border-sky-500/40',    dot: 'bg-sky-500',    label: 'En preparación' },
@@ -91,7 +95,10 @@ function PayModal({ order, open, onClose }: { order: TakeawayOrder; open: boolea
           <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3 space-y-1.5">
             {order.items.map(item => (
               <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
-                <span className="flex-1 truncate">{item.itemName}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block truncate">{item.itemName}</span>
+                  <ItemModifiers className="mt-0.5" modifiers={item.modifiers} notes={item.notes} />
+                </span>
                 <span className="shrink-0 text-muted-foreground">x{item.quantity}</span>
                 <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground">
                   {formatMoney(Number(item.price) * item.quantity)}
@@ -159,74 +166,49 @@ function PayModal({ order, open, onClose }: { order: TakeawayOrder; open: boolea
 }
 
 // ── Modal de nuevo pedido ───────────────────────────────────────────────────
-type CartItem = { menuItem: MenuItem; quantity: number; notes: string };
-
 function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { items: menu, loading: loadingMenu } = useMenu({ onlyEnabled: true });
+  const cart = useOrderCart();
   const [customerName, setCustomerName]       = useState('');
   const [customerPhone, setCustomerPhone]     = useState('');
-  const [cart, setCart]                       = useState<Map<number, CartItem>>(new Map());
   const [activeCategory, setActiveCategory]   = useState('');
-  const [noteModal, setNoteModal]             = useState<CartItem | null>(null);
-  const [noteText, setNoteText]               = useState('');
+  const [customizing, setCustomizing]         = useState<{ item: MenuItem; line?: CartLine } | null>(null);
   const [submitting, setSubmitting]           = useState(false);
 
   const categories = useMemo(() => [...new Set(menu.map(i => i.category))], [menu]);
   const effectiveCat = activeCategory || categories[0] || '';
-  const filtered = menu.filter(i => i.category === effectiveCat);
+  const filtered = menu.filter(i => i.category === effectiveCat && i.stock !== 'OUT_OF_STOCK');
 
-  const cartCount = useMemo(() => Array.from(cart.values()).reduce((s, i) => s + i.quantity, 0), [cart]);
-  const cartTotal = useMemo(() => Array.from(cart.values()).reduce((s, i) => s + Number(i.menuItem.price) * i.quantity, 0), [cart]);
-
-  function adjust(item: MenuItem, delta: number) {
-    setCart(prev => {
-      const next = new Map(prev);
-      const cur  = next.get(item.id);
-      const newQ = (cur?.quantity ?? 0) + delta;
-      if (newQ <= 0) next.delete(item.id);
-      else next.set(item.id, { menuItem: item, quantity: newQ, notes: cur?.notes ?? '' });
-      return next;
-    });
+  function quickAdd(item: MenuItem) {
+    if (needsChoice(item)) setCustomizing({ item });
+    else cart.add(item);
   }
 
-  function openNote(ci: CartItem) {
-    setNoteModal(ci);
-    setNoteText(ci.notes);
-  }
-
-  function saveNote() {
-    if (!noteModal) return;
-    setCart(prev => {
-      const next = new Map(prev);
-      const cur  = next.get(noteModal.menuItem.id);
-      if (cur) next.set(noteModal.menuItem.id, { ...cur, notes: noteText });
-      return next;
-    });
-    setNoteModal(null);
-    setNoteText('');
+  function confirmCustomize(choice: DishChoice) {
+    if (!customizing) return;
+    if (customizing.line) cart.replace(customizing.line.key, customizing.item, choice);
+    else cart.add(customizing.item, choice);
+    setCustomizing(null);
   }
 
   function handleClose() {
     setCustomerName('');
     setCustomerPhone('');
-    setCart(new Map());
+    cart.clear();
     setActiveCategory('');
+    setCustomizing(null);
     onClose();
   }
 
   async function handleSubmit() {
     if (!customerName.trim()) { toast.error('Ingresá el nombre del cliente'); return; }
-    if (cart.size === 0) { toast.error('Agregá al menos un ítem'); return; }
+    if (cart.count === 0) { toast.error('Agregá al menos un ítem'); return; }
     setSubmitting(true);
     try {
       await takeawayApi.create({
         customerName:  customerName.trim(),
         customerPhone: customerPhone.trim() || undefined,
-        items: Array.from(cart.values()).map(ci => ({
-          menuItemId: ci.menuItem.id,
-          quantity:   ci.quantity,
-          notes:      ci.notes || undefined,
-        })),
+        items: cart.toRequestItems(),
       });
       toast.success(`Pedido para llevar creado — ${customerName.trim()}`);
       handleClose();
@@ -236,169 +218,159 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
   }
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={v => !v && handleClose()}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
-            <DialogTitle className="flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5 text-amber-400" />
-              Nuevo pedido para llevar
-            </DialogTitle>
-          </DialogHeader>
+    <Dialog open={open} onOpenChange={v => !v && !customizing && handleClose()}>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
+          <DialogTitle className="flex items-center gap-2">
+            <ShoppingCart className="h-5 w-5 text-amber-400" />
+            Nuevo pedido para llevar
+          </DialogTitle>
+        </DialogHeader>
 
-          <div className="flex flex-1 overflow-hidden min-h-0">
-            {/* Panel izquierdo: menú */}
-            <div className="flex flex-col flex-1 overflow-hidden border-r border-border">
-              {/* Datos del cliente */}
-              <div className="px-4 py-3 border-b border-border space-y-2 shrink-0">
-                <Input
-                  placeholder="Nombre del cliente *"
-                  value={customerName}
-                  onChange={e => setCustomerName(e.target.value)}
-                />
-                <Input
-                  placeholder="Teléfono (opcional)"
-                  value={customerPhone}
-                  onChange={e => setCustomerPhone(e.target.value)}
-                />
-              </div>
-
-              {/* Categorías */}
-              <div className="flex gap-1.5 overflow-x-auto px-4 py-2 shrink-0 border-b border-border">
-                {categories.map(cat => (
-                  <button key={cat} onClick={() => setActiveCategory(cat)}
-                    className={cn(
-                      'shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                      effectiveCat === cat
-                        ? 'border-amber-500/50 bg-amber-500/10 text-amber-400'
-                        : 'border-border bg-white/[0.04] text-muted-foreground hover:text-foreground'
-                    )}>
-                    {cat}
-                  </button>
-                ))}
-              </div>
-
-              {/* Items del menú */}
-              <div className="flex-1 overflow-y-auto">
-                {loadingMenu ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border">
-                    {filtered.map(item => {
-                      const inCart = cart.get(item.id);
-                      return (
-                        <div key={item.id} className="flex items-center gap-3 px-4 py-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{item.name}</p>
-                            <p className="text-xs text-brand-400 tabular-nums">{formatMoney(Number(item.price))}</p>
-                          </div>
-                          {inCart ? (
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <button onClick={() => openNote(inCart)}
-                                className="rounded-md p-1 text-muted-foreground hover:text-foreground"
-                                title="Nota">
-                                <MessageSquare className="h-3.5 w-3.5" />
-                              </button>
-                              <button onClick={() => adjust(item, -1)}
-                                className="flex h-7 w-7 items-center justify-center rounded-full border border-border hover:bg-white/[0.07]">
-                                <Minus className="h-3 w-3" />
-                              </button>
-                              <span className="w-5 text-center text-sm font-semibold tabular-nums">{inCart.quantity}</span>
-                              <button onClick={() => adjust(item, 1)}
-                                className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-black hover:bg-amber-400">
-                                <Plus className="h-3 w-3" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button onClick={() => adjust(item, 1)}
-                              className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-black hover:bg-amber-400 shrink-0">
-                              <Plus className="h-4 w-4" />
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+        <div className="flex flex-1 overflow-hidden min-h-0">
+          {/* Panel izquierdo: menú */}
+          <div className="flex flex-col flex-1 overflow-hidden border-r border-border">
+            {/* Datos del cliente */}
+            <div className="px-4 py-3 border-b border-border space-y-2 shrink-0">
+              <Input
+                placeholder="Nombre del cliente *"
+                value={customerName}
+                onChange={e => setCustomerName(e.target.value)}
+              />
+              <Input
+                placeholder="Teléfono (opcional)"
+                value={customerPhone}
+                onChange={e => setCustomerPhone(e.target.value)}
+              />
             </div>
 
-            {/* Panel derecho: resumen carrito */}
-            <div className="w-56 flex flex-col shrink-0">
-              <p className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
-                Resumen
-              </p>
-              {cart.size === 0 ? (
-                <p className="px-4 py-6 text-xs text-muted-foreground text-center">Sin ítems todavía</p>
+            {/* Categorías */}
+            <div className="flex gap-1.5 overflow-x-auto px-4 py-2 shrink-0 border-b border-border">
+              {categories.map(cat => (
+                <button key={cat} onClick={() => setActiveCategory(cat)}
+                  className={cn(
+                    'shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                    effectiveCat === cat
+                      ? 'border-amber-500/50 bg-amber-500/10 text-amber-400'
+                      : 'border-border bg-white/[0.04] text-muted-foreground hover:text-foreground'
+                  )}>
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Items del menú */}
+            <div className="flex-1 overflow-y-auto">
+              {loadingMenu ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
               ) : (
-                <div className="flex-1 overflow-y-auto divide-y divide-border">
-                  {Array.from(cart.values()).map(ci => (
-                    <div key={ci.menuItem.id} className="px-3 py-2.5 text-xs">
-                      <div className="flex items-start justify-between gap-1">
-                        <span className="flex-1 truncate font-medium">{ci.menuItem.name}</span>
-                        <button onClick={() => adjust(ci.menuItem, -ci.quantity)}
-                          className="text-muted-foreground hover:text-rose-400 shrink-0">
-                          <X className="h-3 w-3" />
+                <div className="divide-y divide-border">
+                  {filtered.map(item => {
+                    const inCart = cart.linesOf(item.id).reduce((s, l) => s + l.quantity, 0);
+                    return (
+                      <div key={item.id} className="flex items-center gap-2 px-4 py-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{item.name}</p>
+                          <p className="text-xs text-brand-400 tabular-nums">{formatMoney(Number(item.price))}</p>
+                        </div>
+                        {inCart > 0 && (
+                          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-300">
+                            {inCart}
+                          </span>
+                        )}
+                        <button onClick={() => setCustomizing({ item })}
+                          className="flex h-8 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                          title={hasOptions(item) ? 'Opciones y nota' : 'Agregar con nota'}>
+                          {hasOptions(item) ? <SlidersHorizontal className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+                          {hasOptions(item) ? 'Opciones' : 'Nota'}
+                        </button>
+                        <button onClick={() => quickAdd(item)} aria-label={`Agregar ${item.name}`}
+                          className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-black hover:bg-amber-400 shrink-0">
+                          <Plus className="h-4 w-4" />
                         </button>
                       </div>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <span className="text-muted-foreground">x{ci.quantity}</span>
-                        <span className="tabular-nums text-brand-400">
-                          {formatMoney(Number(ci.menuItem.price) * ci.quantity)}
-                        </span>
-                      </div>
-                      {ci.notes && (
-                        <p className="text-muted-foreground italic mt-0.5 truncate">📝 {ci.notes}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {cart.size > 0 && (
-                <div className="border-t border-border px-3 py-2.5 shrink-0">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-muted-foreground">{cartCount} ítems</span>
-                    <span className="font-bold text-brand-400 tabular-nums">{formatMoney(cartTotal)}</span>
-                  </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
           </div>
 
-          <DialogFooter className="px-6 py-4 border-t border-border shrink-0">
-            <Button variant="outline" onClick={handleClose} disabled={submitting}>Cancelar</Button>
-            <Button onClick={handleSubmit} disabled={submitting || cart.size === 0 || !customerName.trim()}
-              className="bg-amber-500 hover:bg-amber-400 text-black">
-              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              <ShoppingCart className="h-4 w-4" />
-              Crear pedido ({cartCount})
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {/* Panel derecho: resumen carrito */}
+          <div className="w-60 flex flex-col shrink-0">
+            <p className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
+              Resumen
+            </p>
+            {cart.count === 0 ? (
+              <p className="px-4 py-6 text-xs text-muted-foreground text-center">Sin ítems todavía</p>
+            ) : (
+              <div className="flex-1 overflow-y-auto divide-y divide-border">
+                {cart.lines.map(line => (
+                  <div key={line.key} className="px-3 py-2.5 text-xs">
+                    <div className="flex items-start justify-between gap-1">
+                      <button className="flex-1 truncate text-left font-medium hover:underline"
+                        onClick={() => setCustomizing({ item: line.menuItem, line })} title="Editar opciones y nota">
+                        {line.menuItem.name}
+                      </button>
+                      <button onClick={() => cart.adjust(line.key, -line.quantity)} aria-label="Quitar"
+                        className="text-muted-foreground hover:text-rose-400 shrink-0">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <ItemModifiers className="mt-1" modifiers={selectionModifiers(line.menuItem, line.optionIds)} notes={line.notes} />
+                    <div className="flex items-center justify-between mt-1">
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => cart.adjust(line.key, -1)} aria-label="Quitar uno"
+                          className="flex h-6 w-6 items-center justify-center rounded-full border border-border hover:bg-white/[0.07]">
+                          <Minus className="h-3 w-3" />
+                        </button>
+                        <span className="w-5 text-center font-semibold tabular-nums">{line.quantity}</span>
+                        <button onClick={() => cart.adjust(line.key, 1)} aria-label="Sumar uno"
+                          className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-black hover:bg-amber-400">
+                          <Plus className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <span className="tabular-nums text-brand-400">{formatMoney(line.unitPrice * line.quantity)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {cart.count > 0 && (
+              <div className="border-t border-border px-3 py-2.5 shrink-0">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-muted-foreground">{cart.count} ítems</span>
+                  <span className="font-bold text-brand-400 tabular-nums">{formatMoney(cart.total)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
 
-      {/* Modal nota del ítem */}
-      <Dialog open={!!noteModal} onOpenChange={v => !v && setNoteModal(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">Nota para {noteModal?.menuItem.name}</DialogTitle>
-          </DialogHeader>
-          <Input
-            autoFocus
-            placeholder="Ej: sin sal, bien cocido..."
-            value={noteText}
-            onChange={e => setNoteText(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') saveNote(); }}
-          />
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setNoteModal(null)}>Cancelar</Button>
-            <Button size="sm" onClick={saveNote}>Guardar nota</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+        <DialogFooter className="px-6 py-4 border-t border-border shrink-0">
+          <Button variant="outline" onClick={handleClose} disabled={submitting}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={submitting || cart.count === 0 || !customerName.trim()}
+            className="bg-amber-500 hover:bg-amber-400 text-black">
+            {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+            <ShoppingCart className="h-4 w-4" />
+            Crear pedido ({cart.count})
+          </Button>
+        </DialogFooter>
+
+        {/* Selector anidado dentro del contenido: así el modal de pedido no se cierra */}
+        <DishOptionsDialog
+          item={customizing?.item ?? null}
+          initial={customizing?.line && {
+            optionIds: customizing.line.optionIds, notes: customizing.line.notes, quantity: customizing.line.quantity,
+          }}
+          confirmLabel={customizing?.line ? 'Guardar' : 'Agregar'}
+          onClose={() => setCustomizing(null)}
+          onConfirm={confirmCustomize}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -470,7 +442,10 @@ function TakeawayCard({ order, onPay }: { order: TakeawayOrder; onPay: () => voi
       <div className="flex-1 space-y-1 mb-4">
         {order.items.map(item => (
           <div key={item.id} className="flex items-start justify-between gap-1 text-xs">
-            <span className="flex-1 truncate text-foreground/80">{item.quantity}x {item.itemName}</span>
+            <span className="flex-1 min-w-0 text-foreground/80">
+              <span className="block truncate">{item.quantity}x {item.itemName}</span>
+              <ItemModifiers className="mt-0.5" modifiers={item.modifiers} notes={item.notes} />
+            </span>
             <span className="shrink-0 tabular-nums text-muted-foreground">
               {formatMoney(Number(item.price) * item.quantity)}
             </span>

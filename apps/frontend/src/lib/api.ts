@@ -245,8 +245,50 @@ export interface MenuItem {
   stock: StockStatus;
   enabled: boolean;
   imageUrl: string | null;
+  /** Opciones para personalizar el plato al pedir (las carga el Administrador). */
+  optionGroups?: MenuOptionGroup[];
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Personalización de platos (tarea 5.7) ──
+/** REMOVE: ingredientes para sacar · SINGLE: elegir uno (ej. término) · MULTI: agregados con recargo */
+export type MenuOptionGroupType = 'REMOVE' | 'SINGLE' | 'MULTI';
+
+export interface MenuItemOption {
+  id: number;
+  name: string;
+  priceDelta: string; // Decimal como string
+  isDefault: boolean;
+  sortOrder: number;
+}
+
+export interface MenuOptionGroup {
+  id: number;
+  name: string;
+  type: MenuOptionGroupType;
+  required: boolean;
+  sortOrder: number;
+  options: MenuItemOption[];
+}
+
+/** Copia de lo elegido que queda guardada en el pedido y en la venta. */
+export interface ItemModifier {
+  groupId: number;
+  group: string;
+  kind: MenuOptionGroupType;
+  optionId: number;
+  option: string;
+  priceDelta: string;
+}
+
+/** Configuración que guarda el Administrador (ids presentes = se conservan). */
+export interface SaveOptionGroupBody {
+  id?: number;
+  name: string;
+  type: MenuOptionGroupType;
+  required: boolean;
+  options: Array<{ id?: number; name: string; priceDelta: number; isDefault: boolean }>;
 }
 
 export interface CreateMenuItemBody {
@@ -281,6 +323,10 @@ export const menuApi = {
 
   setStock: (id: number, stock: StockStatus) =>
     request<{ item: MenuItem }>(`/menu/${id}/stock`, { method: 'PATCH', body: { stock } }),
+
+  /** Reemplaza las opciones del plato (solo Administrador / permiso menu.manage). */
+  saveOptions: (id: number, groups: SaveOptionGroupBody[]) =>
+    request<{ item: MenuItem }>(`/menu/${id}/options`, { method: 'PUT', body: { groups } }),
 };
 
 // ──────────────────────────────────────────────
@@ -323,8 +369,10 @@ export interface OrderItem {
   menuItemId: number | null;
   itemName: string;
   quantity: number;
+  /** Precio unitario final (plato + recargos) */
   price: string;
   notes: string | null;
+  modifiers?: ItemModifier[] | null;
 }
 
 export interface Order {
@@ -340,7 +388,8 @@ export interface CreateOrderBody {
   tableId: number;
   guestCount?: number;
   notes?: string | null;
-  items: Array<{ menuItemId: number; quantity: number; notes?: string }>;
+  /** optionIds: opciones elegidas (en grupos "sacar", las que se sacan). El precio lo calcula el servidor. */
+  items: Array<{ menuItemId: number; quantity: number; notes?: string; optionIds?: number[] }>;
 }
 
 export const ordersApi = {
@@ -900,6 +949,7 @@ export interface TakeawayItem {
   quantity:   number;
   price:      number | string;
   notes:      string | null;
+  modifiers?: ItemModifier[] | null;
 }
 
 export interface TakeawayOrder {
@@ -921,7 +971,7 @@ export interface CreateTakeawayBody {
   customerName:  string;
   customerPhone?: string | null;
   notes?:         string | null;
-  items: Array<{ menuItemId: number; quantity: number; notes?: string | null }>;
+  items: Array<{ menuItemId: number; quantity: number; notes?: string | null; optionIds?: number[] }>;
 }
 
 export const takeawayApi = {

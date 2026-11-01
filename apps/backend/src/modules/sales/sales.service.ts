@@ -16,7 +16,7 @@
 //    - Cierra la mesa (vuelve a AVAILABLE, limpia guestCount/openedAt)
 // 5. Emite sale:registered y table:changed
 // ──────────────────────────────────────────────
-import { PaymentMethod, SaleChannel, TableStatus, type Sale } from '@prisma/client';
+import { PaymentMethod, SaleChannel, TableStatus, type Sale, type Prisma } from '@prisma/client';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
@@ -25,6 +25,7 @@ import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
 import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money.js';
 import { localDayKey, localDaysRange, type DayKey } from '../../lib/time.js';
+import { modifiersKey } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads', 'sales');
@@ -176,14 +177,16 @@ export const salesService = {
           category: string;
           quantity: number;
           priceCents: number;
+          modifiers: Prisma.JsonValue | null;
         }>();
 
         for (const order of orders) {
           for (const item of order.items) {
             const priceCents = toCents(item.price);
             totalCents += priceCents * item.quantity;
-            // Clave de agrupación: menuItemId + price (mismo item con mismo precio se agrupa)
-            const key = `${item.menuItemId ?? `name:${item.itemName}`}-${priceCents}`;
+            // Clave de agrupación: plato + precio + opciones elegidas. Dos César "sin
+            // croutones" se suman; una César común queda en otra línea.
+            const key = `${item.menuItemId ?? `name:${item.itemName}`}-${priceCents}-${modifiersKey(item.modifiers)}`;
             const existing = snapshot.get(key);
             if (existing) {
               existing.quantity += item.quantity;
@@ -194,6 +197,7 @@ export const salesService = {
                 category: item.menuItem?.category ?? 'unknown',
                 quantity: item.quantity,
                 priceCents,
+                modifiers: item.modifiers,
               });
             }
           }
@@ -254,6 +258,7 @@ export const salesService = {
               quantity: s.quantity,
               price: fromCents(s.priceCents),
               subtotal: fromCents(s.priceCents * s.quantity),
+              modifiers: s.modifiers ?? undefined,
             })),
           });
         }
