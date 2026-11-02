@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Plus, Edit, Trash2, Loader2, Search, AlertTriangle, PackagePlus, RefreshCw,
+  Plus, Edit, Trash2, Loader2, Search, AlertTriangle, PackagePlus, RefreshCw, History,
 } from 'lucide-react';
 import { useInventory } from '../hooks/useInventory';
 import {
@@ -26,7 +26,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { cn } from '../lib/utils';
-import { FAMILY_LABEL, normalizeUnit, unitFamily, UNIT_LIST, UNITS } from '@shared/units';
+import { canConvert, convertUnits, FAMILY_LABEL, normalizeUnit, unitFamily, UNIT_LIST, UNITS } from '@shared/units';
+import { PriceHistoryDialog } from './PriceHistoryDialog';
 
 interface FormState {
   name: string;
@@ -39,6 +40,12 @@ interface FormState {
   /** Equivalencia opcional: 1 <unit> = eqQty <eqUnit> */
   eqQty: string;
   eqUnit: string;
+  /** Presentación de compra (tarea 2.2) */
+  pQty: string;
+  pUnit: string;
+  pPrice: string;
+  /** Merma por defecto, en % (tarea 2.4) */
+  wastePct: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -51,7 +58,30 @@ const EMPTY_FORM: FormState = {
   supplier: '',
   eqQty: '',
   eqUnit: 'g',
+  pQty: '',
+  pUnit: '',
+  pPrice: '',
+  wastePct: '',
 };
+
+/** Costo por unidad que sale de la presentación, o null si falta algo o no convierte. */
+function presentationCost(form: FormState): number | null {
+  const qty = Number(form.pQty); const price = Number(form.pPrice);
+  const pUnit = form.pUnit || normalizeUnit(form.unit);
+  if (!form.pQty || !form.pPrice || !pUnit || !(qty > 0) || !(price >= 0)) return null;
+  const eq = form.eqQty ? { qty: Number(form.eqQty), unit: equivalenceUnits(form).selected } : null;
+  try {
+    const inItemUnit = convertUnits(qty, pUnit, form.unit, { itemUnit: form.unit, eq });
+    return inItemUnit > 0 ? price / inItemUnit : null;
+  } catch { return null; }
+}
+
+/** Unidades en que se puede expresar la presentación (convertibles a la del insumo). */
+function presentationUnits(form: FormState): string[] {
+  if (!normalizeUnit(form.unit)) return [];
+  const eq = form.eqQty ? { qty: Number(form.eqQty), unit: equivalenceUnits(form).selected } : null;
+  return UNIT_LIST.filter(u => canConvert(u, form.unit, { itemUnit: form.unit, eq }));
+}
 
 /** Unidades válidas para la equivalencia (las de otra familia) y la elegida en el formulario. */
 function equivalenceUnits(form: FormState) {
@@ -75,6 +105,10 @@ export function InventoryPage() {
   const [restocking, setRestocking] = useState<InventoryItem | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [restockAmount, setRestockAmount] = useState('');
+  // Reposición en presentaciones (ej. 2 bolsas) y precio nuevo de la presentación
+  const [restockByPresentation, setRestockByPresentation] = useState(false);
+  const [restockPrice, setRestockPrice] = useState('');
+  const [historyItem, setHistoryItem] = useState<InventoryItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const filtered = useMemo(() => {
@@ -117,6 +151,10 @@ export function InventoryPage() {
       supplier: item.supplier ?? '',
       eqQty: item.equivalenceQty != null ? String(item.equivalenceQty) : '',
       eqUnit: item.equivalenceUnit ?? 'g',
+      pQty: item.purchaseQty != null ? String(item.purchaseQty) : '',
+      pUnit: item.purchaseUnit ?? '',
+      pPrice: item.purchasePrice != null ? String(Number(item.purchasePrice)) : '',
+      wastePct: item.wastePct ? String(Math.round(item.wastePct * 1000) / 10) : '',
     });
     setEditing(item);
     setCreating(false);
@@ -162,6 +200,11 @@ export function InventoryPage() {
         // Vacío = sin equivalencia
         equivalenceQty: form.eqQty === '' ? null : Number(form.eqQty),
         equivalenceUnit: form.eqQty === '' ? null : equivalenceUnits(form).selected,
+        // Presentación: los tres juntos o ninguno (sin presentación, vale el costo a mano)
+        purchaseQty: form.pQty === '' ? null : Number(form.pQty),
+        purchaseUnit: form.pQty === '' ? null : (form.pUnit || normalizeUnit(form.unit)),
+        purchasePrice: form.pQty === '' ? null : Number(form.pPrice || 0),
+        wastePct: form.wastePct === '' ? 0 : Number(form.wastePct) / 100,
       };
       if (editing) {
         await inventoryApi.update(editing.id, data);
@@ -197,8 +240,12 @@ export function InventoryPage() {
     }
     setSubmitting(true);
     try {
-      await inventoryApi.restock(restocking.id, amount);
-      toast.success(`+${amount} ${restocking.unit} de "${restocking.name}"`);
+      const byPres = restockByPresentation && restocking.purchaseQty !== null;
+      const newPrice = byPres && restockPrice !== '' && Number(restockPrice) !== Number(restocking.purchasePrice) ? Number(restockPrice) : undefined;
+      await inventoryApi.restockWith(restocking.id, byPres ? { presentations: amount, purchasePrice: newPrice } : { amount });
+      toast.success(byPres
+        ? `+${amount} × ${restocking.purchaseQty} ${restocking.purchaseUnit} de "${restocking.name}"${newPrice !== undefined ? ' (precio actualizado)' : ''}`
+        : `+${amount} ${restocking.unit} de "${restocking.name}"`);
       setRestocking(null);
       setRestockAmount('');
     } catch (err) {
@@ -366,12 +413,19 @@ export function InventoryPage() {
                   {canAdjust && (
                     <Button
                       variant="outline" size="sm"
-                      onClick={() => { setRestocking(item); setRestockAmount(''); }}
+                      onClick={() => {
+                        setRestocking(item); setRestockAmount('');
+                        setRestockByPresentation(item.purchaseQty !== null);
+                        setRestockPrice(item.purchasePrice != null ? String(Number(item.purchasePrice)) : '');
+                      }}
                     >
                       <PackagePlus className="h-3.5 w-3.5" />
                       Reabastecer
                     </Button>
                   )}
+                  <Button variant="ghost" size="icon" onClick={() => setHistoryItem(item)} title="Historial de precios" aria-label={`Historial de precios de ${item.name}`}>
+                    <History className="h-4 w-4" />
+                  </Button>
                   {isAdmin && (
                     <>
                       <Button variant="ghost" size="icon" onClick={() => openEdit(item)} title="Editar">
@@ -483,14 +537,51 @@ export function InventoryPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="costPerUnit">Costo por unidad</Label>
-              <Input
-                id="costPerUnit" type="number" step="0.0001" inputMode="decimal"
-                value={form.costPerUnit}
-                onChange={(e) => setForm(f => ({ ...f, costPerUnit: e.target.value }))}
-                disabled={submitting} placeholder="Costo de compra por unidad — usado en Recetas"
-              />
+            {/* Presentación de compra (tarea 2.2): el costo por unidad sale de acá */}
+            {normalizeUnit(form.unit) && (
+              <div className="space-y-2">
+                <Label htmlFor="pQty">Presentación de compra (opcional)</Label>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <Input id="pQty" type="number" step="0.01" min="0" inputMode="decimal" className="w-24"
+                    value={form.pQty} onChange={(e) => setForm(f => ({ ...f, pQty: e.target.value }))}
+                    disabled={submitting} placeholder="25" />
+                  <Select value={form.pUnit || normalizeUnit(form.unit)!} aria-label="Unidad de la presentación"
+                    onChange={(e) => setForm(f => ({ ...f, pUnit: e.target.value }))} disabled={submitting}>
+                    {presentationUnits(form).map(u => <option key={u} value={u}>{UNITS[u as keyof typeof UNITS].label}</option>)}
+                  </Select>
+                  <span className="text-muted-foreground">a $</span>
+                  <Input type="number" step="0.01" min="0" inputMode="decimal" className="w-28" aria-label="Precio de la presentación"
+                    value={form.pPrice} onChange={(e) => setForm(f => ({ ...f, pPrice: e.target.value }))}
+                    disabled={submitting} placeholder="25000" />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Ej.: bolsa de 25 kg a $25.000. {presentationCost(form) !== null
+                    ? <>Costo: <span className="font-semibold text-brand-400">{formatMoney(presentationCost(form)!)} / {normalizeUnit(form.unit)}</span></>
+                    : 'Si la cargás, el costo por unidad se calcula solo.'}
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="costPerUnit">Costo por {normalizeUnit(form.unit) ?? 'unidad'}</Label>
+                <Input
+                  id="costPerUnit" type="number" step="0.0001" inputMode="decimal"
+                  value={form.pQty ? (presentationCost(form)?.toFixed(4) ?? '') : form.costPerUnit}
+                  onChange={(e) => setForm(f => ({ ...f, costPerUnit: e.target.value }))}
+                  disabled={submitting || form.pQty !== ''}
+                  placeholder={form.pQty ? 'Sale de la presentación' : 'Usado en Recetas'}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="wastePct">Merma %</Label>
+                <Input
+                  id="wastePct" type="number" step="0.5" min="0" max="95" inputMode="decimal"
+                  value={form.wastePct}
+                  onChange={(e) => setForm(f => ({ ...f, wastePct: e.target.value }))}
+                  disabled={submitting} placeholder="Ej. 20 al limpiar"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -513,6 +604,8 @@ export function InventoryPage() {
         </DialogContent>
       </Dialog>
 
+      <PriceHistoryDialog item={historyItem} onClose={() => setHistoryItem(null)} />
+
       {/* Modal reabastecer */}
       <Dialog open={restocking !== null} onOpenChange={(v) => !v && setRestocking(null)}>
         <DialogContent>
@@ -528,8 +621,19 @@ export function InventoryPage() {
             </DialogDescription>
           </DialogHeader>
 
+          {restocking?.purchaseQty != null && (
+            <div className="flex gap-1.5">
+              {[[true, `En presentaciones (${restocking.purchaseQty} ${restocking.purchaseUnit})`], [false, `En ${restocking.unit}`]].map(([v, label]) => (
+                <button key={String(v)} type="button" onClick={() => setRestockByPresentation(v as boolean)}
+                  className={cn('rounded-full border px-3 py-1.5 text-xs font-medium',
+                    restockByPresentation === v ? 'border-brand-500/50 bg-brand-500/10 text-brand-400' : 'border-border text-muted-foreground')}>
+                  {label as string}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="space-y-2">
-            <Label htmlFor="restockAmount">Cantidad a sumar</Label>
+            <Label htmlFor="restockAmount">{restockByPresentation && restocking?.purchaseQty != null ? 'Cantidad de presentaciones' : 'Cantidad a sumar'}</Label>
             <Input
               id="restockAmount" type="number" step="0.01" inputMode="decimal"
               value={restockAmount} autoFocus
@@ -538,14 +642,33 @@ export function InventoryPage() {
               placeholder={`Ej: 10 ${restocking?.unit ?? ''}`}
               className="text-lg tabular-nums"
             />
-            {restocking && restockAmount && !Number.isNaN(Number(restockAmount)) && (
-              <p className="text-xs text-muted-foreground">
-                Nuevo total: <span className="font-semibold text-brand-400">
-                  {restocking.quantity + Number(restockAmount)} {restocking.unit}
-                </span>
-              </p>
-            )}
+            {restocking && restockAmount && !Number.isNaN(Number(restockAmount)) && (() => {
+              let added = Number(restockAmount);
+              if (restockByPresentation && restocking.purchaseQty != null) {
+                try {
+                  added = convertUnits(added * restocking.purchaseQty, restocking.purchaseUnit!, restocking.unit, {
+                    itemUnit: restocking.unit,
+                    eq: restocking.equivalenceQty && restocking.equivalenceUnit ? { qty: restocking.equivalenceQty, unit: restocking.equivalenceUnit } : null,
+                  });
+                } catch { return null; }
+              }
+              return (
+                <p className="text-xs text-muted-foreground">
+                  Nuevo total: <span className="font-semibold text-brand-400">
+                    {Math.round((restocking.quantity + added) * 1000) / 1000} {restocking.unit}
+                  </span>
+                </p>
+              );
+            })()}
           </div>
+          {restockByPresentation && restocking?.purchaseQty != null && (
+            <div className="space-y-2">
+              <Label htmlFor="restockPrice">Precio de la presentación</Label>
+              <Input id="restockPrice" type="number" step="0.01" min="0" inputMode="decimal"
+                value={restockPrice} onChange={(e) => setRestockPrice(e.target.value)} disabled={submitting} />
+              <p className="text-xs text-muted-foreground">Si llegó con otro precio, cambialo: se actualiza el costo y queda en el historial.</p>
+            </div>
+          )}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setRestocking(null)} disabled={submitting}>

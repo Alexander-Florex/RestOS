@@ -523,6 +523,12 @@ export interface InventoryItem {
   /** "1 <unit> = equivalenceQty <equivalenceUnit>" (otra familia de unidad), ej. 1 un = 60 g */
   equivalenceQty: number | null;
   equivalenceUnit: string | null;
+  /** Presentación de compra (ej. 25 kg a $25.000): si está, el costo se calcula */
+  purchaseQty: number | null;
+  purchaseUnit: string | null;
+  purchasePrice: string | null;
+  /** Merma por defecto en recetas (0–0,95) */
+  wastePct: number;
   supplier: string | null;
   lastRestocked: string | null;
   createdAt: string;
@@ -539,6 +545,23 @@ export interface CreateInventoryBody {
   supplier?: string | null;
   equivalenceQty?: number | null;
   equivalenceUnit?: string | null;
+  purchaseQty?: number | null;
+  purchaseUnit?: string | null;
+  purchasePrice?: number | null;
+  wastePct?: number;
+}
+
+export interface PriceHistoryEntry {
+  id: number;
+  costPerUnit: string;
+  previousCost: string | null;
+  unit: string;
+  purchaseQty: number | null;
+  purchaseUnit: string | null;
+  purchasePrice: string | null;
+  source: 'MANUAL' | 'PURCHASE' | 'IMPORT';
+  userName: string | null;
+  createdAt: string;
 }
 
 export const inventoryApi = {
@@ -558,6 +581,12 @@ export const inventoryApi = {
 
   remove: (id: number) =>
     request<void>(`/inventory/${id}`, { method: 'DELETE' }),
+
+  priceHistory: (id: number) => request<{ history: PriceHistoryEntry[] }>(`/inventory/${id}/price-history`),
+
+  /** En la unidad del insumo ({amount}) o en presentaciones, con precio nuevo opcional. */
+  restockWith: (id: number, body: { amount?: number; presentations?: number; purchasePrice?: number }) =>
+    request<{ item: InventoryItem }>(`/inventory/${id}/restock`, { method: 'POST', body }),
 
   restock: (id: number, amount: number) =>
     request<{ item: InventoryItem }>(`/inventory/${id}/restock`, { method: 'POST', body: { amount } }),

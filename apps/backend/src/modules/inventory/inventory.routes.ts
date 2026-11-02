@@ -14,6 +14,8 @@ router.use(requirePermission('inventory.view'));
 
 router.get('/',     asyncHandler(inventoryController.list));
 router.get('/:id',  asyncHandler(inventoryController.getById));
+// Historial de costos del insumo (tarea 2.5)
+router.get('/:id/price-history', asyncHandler(inventoryController.priceHistory));
 
 router.post('/',           requirePermission('inventory.manage'), asyncHandler(inventoryController.create));
 router.patch('/:id',       requirePermission('inventory.manage'), asyncHandler(inventoryController.update));

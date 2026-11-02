@@ -20,6 +20,12 @@ const createSchema = z.object({
   // Equivalencia entre familias (ej. 1 un = 60 g); null la quita
   equivalenceQty: z.coerce.number().positive().optional().nullable(),
   equivalenceUnit: z.string().trim().max(20).optional().nullable(),
+  // Presentación de compra (ej. 25 kg a $25.000): si está, el costo por unidad se calcula
+  purchaseQty: z.coerce.number().positive().optional().nullable(),
+  purchaseUnit: z.string().trim().max(20).optional().nullable(),
+  purchasePrice: z.coerce.number().nonnegative().optional().nullable(),
+  // Merma por defecto en recetas (0–0,95)
+  wastePct: z.coerce.number().min(0).max(0.95).optional(),
 });
 
 const updateSchema = createSchema.partial();
@@ -29,6 +35,14 @@ const listQuery = z.object({
   search: z.string().trim().optional(),
 });
 const amountBody = z.object({ amount: z.coerce.number().positive() });
+// Reposición: en la unidad del insumo o en presentaciones, con precio nuevo opcional
+const restockBody = z.object({
+  amount: z.coerce.number().positive().optional(),
+  presentations: z.coerce.number().positive().optional(),
+  purchasePrice: z.coerce.number().nonnegative().optional(),
+}).refine(d => (d.amount === undefined) !== (d.presentations === undefined), {
+  message: 'Indicá la cantidad o la cantidad de presentaciones (una de las dos)',
+});
 
 export const inventoryController = {
   async list(req: Request, res: Response) {
@@ -76,9 +90,15 @@ export const inventoryController = {
   async restock(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const { amount } = amountBody.parse(req.body);
-    const item = await inventoryService.restock(req.user.restaurantId, id, amount);
+    const opts = restockBody.parse(req.body);
+    const item = await inventoryService.restock(req.user.restaurantId, id, opts);
     res.json({ item });
+  },
+
+  async priceHistory(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParam.parse(req.params);
+    res.json({ history: await inventoryService.priceHistory(req.user.restaurantId, id) });
   },
 
   async consume(req: Request, res: Response) {
