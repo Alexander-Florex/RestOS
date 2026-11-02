@@ -29,6 +29,7 @@ import { useOrderCart, type CartLine } from '../hooks/useOrderCart';
 import { hasOptions, needsChoice, selectionModifiers } from '../lib/modifiers';
 import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
 import { ItemModifiers } from './ItemModifiers';
+import { submitOrder } from '../lib/order-queue';
 
 const STATUS_STYLE: Record<TakeawayStatus, { text: string; bg: string; border: string; dot: string; label: string }> = {
   OPEN:      { text: 'text-sky-400',    bg: 'bg-sky-500/10',    border: 'border-sky-500/40',    dot: 'bg-sky-500',    label: 'En preparación' },
@@ -205,12 +206,13 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
     if (cart.count === 0) { toast.error('Agregá al menos un ítem'); return; }
     setSubmitting(true);
     try {
-      await takeawayApi.create({
+      const res = await submitOrder('takeaway', {
         customerName:  customerName.trim(),
         customerPhone: customerPhone.trim() || undefined,
         items: cart.toRequestItems(),
-      });
-      toast.success(`Pedido para llevar creado — ${customerName.trim()}`);
+      }, { label: `Para llevar · ${customerName.trim()}` });
+      if (res.status === 'queued') toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
+      else toast.success(`Pedido para llevar creado — ${customerName.trim()}`);
       handleClose();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error al crear el pedido');

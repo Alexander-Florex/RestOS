@@ -18,6 +18,7 @@ import { formatMoney } from '../lib/format';
 import { cn } from '../lib/utils';
 import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
 import { ItemModifiers } from './ItemModifiers';
+import { submitOrder } from '../lib/order-queue';
 
 interface AddOrderDialogProps {
   table: Table;
@@ -68,11 +69,17 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
     if (cart.count === 0) return;
     setSubmitting(true);
     try {
-      const { order } = await ordersApi.create({ tableId: table.id, items: cart.toRequestItems() });
+      const res = await submitOrder('table', { tableId: table.id, items: cart.toRequestItems() },
+        { label: `Mesa ${table.number} · ${cart.count} ${cart.count === 1 ? 'ítem' : 'ítems'}`, print: printTicket });
+      if (res.status === 'queued') {
+        toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
+        onClose();
+        return;
+      }
       toast.success(`Pedido enviado a mesa ${table.number}`);
       if (printTicket) {
         try {
-          await printingApi.printOrder(order.id);
+          await printingApi.printOrder(res.order.id);
         } catch (err) {
           toast.error(
             `El pedido quedó cargado, pero la comanda no se imprimió: ${err instanceof ApiError ? err.message : 'revisá la impresora'}`,

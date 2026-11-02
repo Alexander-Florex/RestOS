@@ -11,7 +11,7 @@
 // - El precio del MenuItem se snapshotea al momento del pedido.
 // - Se denormaliza `itemName` por si el item se borra después.
 // ──────────────────────────────────────────────
-import { OrderStatus, TableStatus, type Order, type OrderItem, type Prisma } from '@prisma/client';
+import { OrderStatus, Prisma, TableStatus, type Order, type OrderItem } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
@@ -33,6 +33,15 @@ function emitTableChanged(restaurantId: number, table: unknown) {
   ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, table);
 }
 
+function findByClientRequestId(restaurantId: number, clientRequestId?: string) {
+  if (!clientRequestId) return Promise.resolve(null);
+  return prisma.order.findFirst({ where: { restaurantId, clientRequestId }, include: { items: true } });
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+}
+
 export interface CreateOrderItemInput {
   menuItemId: number;
   quantity: number;
@@ -47,6 +56,8 @@ export interface CreateOrderInput {
   notes?: string;
   items: CreateOrderItemInput[];
   createdById?: number;
+  /** Id del dispositivo: reintentar con el mismo id devuelve el pedido ya creado (tarea 1.5). */
+  clientRequestId?: string;
 }
 
 /** Valida que la mesa pueda recibir un pedido (y abrirse si está libre). */
@@ -116,6 +127,10 @@ export const ordersService = {
   },
 
   async create(restaurantId: number, input: CreateOrderInput): Promise<OrderWithItems> {
+    // Reintento de un pedido que ya llegó (el dispositivo no vio la respuesta): devolverlo tal cual
+    const already = await findByClientRequestId(restaurantId, input.clientRequestId);
+    if (already) return already;
+
     if (input.items.length === 0) {
       throw HttpError.badRequest('El pedido debe tener al menos un item');
     }
@@ -157,34 +172,37 @@ export const ordersService = {
     // El lock pone este pedido en fila con un cobro simultáneo de la misma mesa
     // (ver lib/table-lock.ts): si la mesa se cobró mientras tanto, se revalida
     // como mesa libre en vez de dejar un pedido huérfano.
-    const result = await prisma.$transaction(async (tx) => {
-      const locked = await lockTable(tx, restaurantId, input.tableId);
-      if (!locked) throw HttpError.notFound('Mesa no encontrada');
-      assertTableAcceptsOrder(locked, input.guestCount);
+    let result;
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        const locked = await lockTable(tx, restaurantId, input.tableId);
+        if (!locked) throw HttpError.notFound('Mesa no encontrada');
+        assertTableAcceptsOrder(locked, input.guestCount);
 
-      const order = await tx.order.create({
-        data: {
-          restaurantId,
-          tableId: input.tableId,
-          notes: input.notes ?? null,
-          createdById: input.createdById ?? null,
-          items: {
-            create: input.items.map((it, i) => {
-              const menuItem = menuMap.get(it.menuItemId)!;
-              const { modifiers, unitPriceCents } = resolved[i];
-              return {
-                menuItemId: it.menuItemId,
-                itemName: menuItem.name,
-                quantity: it.quantity,
-                price: fromCents(unitPriceCents),
-                notes: it.notes ?? null,
-                modifiers: modifiers.length ? (modifiers as unknown as Prisma.InputJsonValue) : undefined,
-              };
-            }),
+        const order = await tx.order.create({
+          data: {
+            restaurantId,
+            tableId: input.tableId,
+            notes: input.notes ?? null,
+            createdById: input.createdById ?? null,
+            clientRequestId: input.clientRequestId ?? null,
+            items: {
+              create: input.items.map((it, i) => {
+                const menuItem = menuMap.get(it.menuItemId)!;
+                const { modifiers, unitPriceCents } = resolved[i];
+                return {
+                  menuItemId: it.menuItemId,
+                  itemName: menuItem.name,
+                  quantity: it.quantity,
+                  price: fromCents(unitPriceCents),
+                  notes: it.notes ?? null,
+                  modifiers: modifiers.length ? (modifiers as unknown as Prisma.InputJsonValue) : undefined,
+                };
+              }),
+            },
           },
-        },
-        include: { items: true },
-      });
+          include: { items: true },
+        });
 
       // Si la mesa estaba libre, abrirla
       let updatedTable: Prisma.TableGetPayload<{}> | null = null;
@@ -200,7 +218,13 @@ export const ordersService = {
       }
 
       return { order, updatedTable };
-    });
+      });
+    } catch (err) {
+      // Dos envíos simultáneos del mismo pedido: el segundo choca con el índice único
+      const dup = isUniqueViolation(err) ? await findByClientRequestId(restaurantId, input.clientRequestId) : null;
+      if (dup) return dup;
+      throw err;
+    }
 
     emitOrderCreated(restaurantId, result.order);
     if (result.updatedTable) emitTableChanged(restaurantId, result.updatedTable);

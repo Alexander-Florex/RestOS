@@ -281,7 +281,11 @@ model Order {
   cancelReason  String?     @db.Text
   cancelledById Int?
   cancelledBy   User?       @relation("OrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  /// Id que genera el dispositivo (tarea 1.5): si el pedido se reintenta tras
+  /// un corte, el servidor devuelve el ya creado en vez de duplicarlo
+  clientRequestId String?   @db.VarChar(64)
 
+  @@unique([restaurantId, clientRequestId])
   @@index([restaurantId])
   @@index([tableId])
   @@index([tableId, status])
@@ -528,9 +532,12 @@ model TakeawayOrder {
   paidAt        DateTime?
   items         TakeawayItem[]
   sale          Sale?
+  /// Id que genera el dispositivo (ver Order.clientRequestId)
+  clientRequestId String?      @db.VarChar(64)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
+  @@unique([restaurantId, clientRequestId])
   @@index([restaurantId])
   @@index([status])
   @@index([createdAt])

@@ -26,6 +26,7 @@ import { ItemModifiers } from './ItemModifiers';
 import { useOrderCart, type CartLine } from '../hooks/useOrderCart';
 import { defaultOptionIds, hasOptions, lineKey, needsChoice, selectionModifiers } from '../lib/modifiers';
 import { cn } from '../lib/utils';
+import { submitOrder } from '../lib/order-queue';
 
 type Step = 'tables' | 'type' | 'takeaway-name' | 'guests' | 'menu';
 type OrderType = 'dine-in' | 'takeaway';
@@ -142,12 +143,15 @@ export function WaiterMobileView() {
     try {
       if (standaloneTakeaway) {
         // Pedido para llevar SIN mesa — va a TakeawayOrder
-        const { order } = await takeawayApi.create({
+        const res = await submitOrder('takeaway', {
           customerName: customerName.trim(),
           items: cart.toRequestItems(),
-        });
-        setLastOrderId(order.id);
-        toast.success(`Pedido para llevar creado — ${customerName}`, { duration: 4000 });
+        }, { label: `Para llevar · ${customerName.trim()}` });
+        if (res.status === 'queued') toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
+        else {
+          setLastOrderId(res.order.id);
+          toast.success(`Pedido para llevar creado — ${customerName}`, { duration: 4000 });
+        }
         backToTables();
         return;
       }
@@ -155,13 +159,18 @@ export function WaiterMobileView() {
       if (!selectedTable) return;
 
       // Pedido normal (con mesa, puede ser dine-in o para llevar)
-      const { order } = await ordersApi.create({
+      const res = await submitOrder('table', {
         tableId: selectedTable.id,
         guestCount: orderType === 'dine-in' && selectedTable.status === 'AVAILABLE' ? guestCount : undefined,
         notes: orderType === 'takeaway' ? `PARA LLEVAR: ${customerName.trim()}` : undefined,
         items: cart.toRequestItems(),
-      });
-      setLastOrderId(order.id);
+      }, { label: `Mesa ${selectedTable.number} · ${cart.count} ${cart.count === 1 ? 'ítem' : 'ítems'}` });
+      if (res.status === 'queued') {
+        toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
+        backToTables();
+        return;
+      }
+      setLastOrderId(res.order.id);
       toast.success(
         orderType === 'takeaway'
           ? `Pedido para llevar (${customerName}) enviado`

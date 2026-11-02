@@ -397,6 +397,8 @@ export interface CreateOrderBody {
   notes?: string | null;
   /** optionIds: opciones elegidas (en grupos "sacar", las que se sacan). El precio lo calcula el servidor. */
   items: Array<{ menuItemId: number; quantity: number; notes?: string; optionIds?: number[] }>;
+  /** Id del dispositivo para no duplicar pedidos reintentados (lo pone order-queue.ts) */
+  clientRequestId?: string;
 }
 
 export const ordersApi = {
@@ -980,6 +982,8 @@ export interface CreateTakeawayBody {
   customerPhone?: string | null;
   notes?:         string | null;
   items: Array<{ menuItemId: number; quantity: number; notes?: string | null; optionIds?: number[] }>;
+  /** Id del dispositivo para no duplicar pedidos reintentados (lo pone order-queue.ts) */
+  clientRequestId?: string;
 }
 
 export const takeawayApi = {

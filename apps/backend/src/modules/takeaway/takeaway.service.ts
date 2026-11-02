@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // takeaway.service.ts — multi-tenant
 // ──────────────────────────────────────────────
-import { TakeawayStatus, PaymentMethod, SaleChannel, type Prisma } from '@prisma/client';
+import { TakeawayStatus, PaymentMethod, SaleChannel, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { toCents, fromCents, formatCents } from '../../lib/money.js';
@@ -53,6 +53,8 @@ export interface CreateTakeawayInput {
   customerPhone?: string | null;
   notes?: string | null;
   createdById?: number;
+  /** Id del dispositivo: reintentar con el mismo id devuelve el pedido ya creado (tarea 1.5). */
+  clientRequestId?: string;
   /** optionIds: opciones elegidas (ver lib/modifiers.ts); el precio lo calcula el servidor. */
   items: Array<{ menuItemId: number; quantity: number; notes?: string | null; optionIds?: number[] }>;
 }
@@ -71,6 +73,15 @@ export const takeawayService = {
   },
 
   async create(restaurantId: number, input: CreateTakeawayInput) {
+    const findExisting = () => input.clientRequestId
+      ? prisma.takeawayOrder.findFirst({
+          where: { restaurantId, clientRequestId: input.clientRequestId },
+          include: { items: { include: { menuItem: true } } },
+        })
+      : Promise.resolve(null);
+    const already = await findExisting();
+    if (already) return already;
+
     const menuIds = input.items.map(i => i.menuItemId);
     const menuItems = await prisma.menuItem.findMany({
       where: { id: { in: menuIds }, restaurantId, enabled: true },
@@ -90,31 +101,40 @@ export const takeawayService = {
     const totalCents = input.items.reduce((acc, item, i) => acc + resolved[i].unitPriceCents * item.quantity, 0);
     const total = fromCents(totalCents);
 
-    const order = await prisma.takeawayOrder.create({
-      data: {
-        restaurantId,
-        customerName: input.customerName,
-        customerPhone: input.customerPhone ?? null,
-        notes: input.notes ?? null,
-        createdById: input.createdById ?? null,
-        total,
-        items: {
-          create: input.items.map((item, i) => {
-            const mi = menuMap.get(item.menuItemId)!;
-            const { modifiers, unitPriceCents } = resolved[i];
-            return {
-              menuItemId: item.menuItemId,
-              itemName: mi.name,
-              quantity: item.quantity,
-              price: fromCents(unitPriceCents),
-              notes: item.notes ?? null,
-              modifiers: modifiers.length ? (modifiers as unknown as Prisma.InputJsonValue) : undefined,
-            };
-          }),
+    let order;
+    try {
+      order = await prisma.takeawayOrder.create({
+        data: {
+          restaurantId,
+          clientRequestId: input.clientRequestId ?? null,
+          customerName: input.customerName,
+          customerPhone: input.customerPhone ?? null,
+          notes: input.notes ?? null,
+          createdById: input.createdById ?? null,
+          total,
+          items: {
+            create: input.items.map((item, i) => {
+              const mi = menuMap.get(item.menuItemId)!;
+              const { modifiers, unitPriceCents } = resolved[i];
+              return {
+                menuItemId: item.menuItemId,
+                itemName: mi.name,
+                quantity: item.quantity,
+                price: fromCents(unitPriceCents),
+                notes: item.notes ?? null,
+                modifiers: modifiers.length ? (modifiers as unknown as Prisma.InputJsonValue) : undefined,
+              };
+            }),
+          },
         },
-      },
-      include: { items: { include: { menuItem: true } } },
-    });
+        include: { items: { include: { menuItem: true } } },
+      });
+    } catch (err) {
+      // Dos envíos simultáneos del mismo pedido: devolver el que ganó
+      const dup = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' ? await findExisting() : null;
+      if (dup) return dup;
+      throw err;
+    }
 
     emit(restaurantId, SocketEvents.TAKEAWAY_CREATED, order);
     return order;

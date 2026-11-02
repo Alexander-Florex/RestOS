@@ -14,6 +14,7 @@ const createSchema = z.object({
     notes: z.string().trim().max(500).optional().nullable(),
     optionIds: z.array(z.number().int().positive()).max(50).optional(),
   })).min(1),
+  clientRequestId: z.string().regex(/^[A-Za-z0-9-]{8,64}$/).optional(),
 });
 
 const paySchema = z.object({

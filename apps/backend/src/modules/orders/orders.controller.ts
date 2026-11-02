@@ -18,6 +18,7 @@ const createSchema = z.object({
   guestCount: z.number().int().positive().optional(),
   notes: z.string().trim().max(500).optional(),
   items: z.array(orderItemSchema).min(1, 'Agregá al menos un item'),
+  clientRequestId: z.string().regex(/^[A-Za-z0-9-]{8,64}$/).optional(),
 });
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
