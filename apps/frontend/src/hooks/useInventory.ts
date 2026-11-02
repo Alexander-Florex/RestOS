@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { inventoryApi, type InventoryItem } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
+import { useResync } from './useConnection';
 
 interface UseInventoryResult {
   items: InventoryItem[];
@@ -28,6 +29,9 @@ export function useInventory(): UseInventoryResult {
       setLoading(false);
     }
   }, []);
+
+  // Volvió la conexión después de un corte: recargar (se perdieron avisos en vivo)
+  useResync(refresh);
 
   useEffect(() => {
     refresh();

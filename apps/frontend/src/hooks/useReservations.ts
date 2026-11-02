@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { reservationsApi, type Reservation, type ReservationStatus } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
+import { useResync } from './useConnection';
 
 interface UseReservationsOpts {
   from?: Date;
@@ -43,6 +44,9 @@ export function useReservations(opts: UseReservationsOpts = {}): UseReservations
       setLoading(false);
     }
   }, [fromStr, toStr, status]);
+
+  // Volvió la conexión después de un corte: recargar (se perdieron avisos en vivo)
+  useResync(refresh);
 
   useEffect(() => { refresh(); }, [refresh]);
 

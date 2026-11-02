@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ordersApi, type Order } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
+import { useResync } from './useConnection';
 
 interface UseTableOrdersResult {
   orders: Order[];
@@ -38,6 +39,9 @@ export function useTableOrders(tableId: number | null): UseTableOrdersResult {
       setLoading(false);
     }
   }, [tableId]);
+
+  // Volvió la conexión después de un corte: recargar (se perdieron avisos en vivo)
+  useResync(refresh);
 
   useEffect(() => {
     refresh();

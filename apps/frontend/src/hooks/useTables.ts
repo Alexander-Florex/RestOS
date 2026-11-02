@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { tablesApi, type Table } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
+import { useResync } from './useConnection';
 
 interface UseTablesResult {
   tables: Table[];
@@ -28,6 +29,9 @@ export function useTables(): UseTablesResult {
       setLoading(false);
     }
   }, []);
+
+  // Volvió la conexión después de un corte: recargar (se perdieron avisos en vivo)
+  useResync(refresh);
 
   // Carga inicial
   useEffect(() => {

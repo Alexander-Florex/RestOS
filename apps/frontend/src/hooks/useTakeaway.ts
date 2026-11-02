@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { takeawayApi, type TakeawayOrder, type TakeawayStatus } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
+import { useResync } from './useConnection';
 
 export function useTakeaway(filters?: { status?: TakeawayStatus }) {
   const [orders, setOrders] = useState<TakeawayOrder[]>([]);
@@ -14,6 +15,9 @@ export function useTakeaway(filters?: { status?: TakeawayStatus }) {
       setLoading(false);
     }
   }, [filters?.status]);
+
+  // Volvió la conexión después de un corte: recargar (se perdieron avisos en vivo)
+  useResync(refresh);
 
   useEffect(() => { refresh(); }, [refresh]);
 

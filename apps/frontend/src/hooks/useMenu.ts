@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { menuApi, type MenuItem } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
+import { useResync } from './useConnection';
 
 interface UseMenuOpts {
   onlyEnabled?: boolean;
@@ -33,6 +34,9 @@ export function useMenu(opts: UseMenuOpts = {}): UseMenuResult {
       setLoading(false);
     }
   }, [onlyEnabled]);
+
+  // Volvió la conexión después de un corte: recargar (se perdieron avisos en vivo)
+  useResync(refresh);
 
   useEffect(() => {
     refresh();
