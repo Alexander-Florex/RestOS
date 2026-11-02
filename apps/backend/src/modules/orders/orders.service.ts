@@ -18,6 +18,7 @@ import { lockTable } from '../../lib/table-lock.js';
 import { toCents, fromCents } from '../../lib/money.js';
 import { optionGroupsInclude, resolveItemOptions } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { audit } from '../../lib/audit.js';
 
 // Order con sus items y la mesa, listo para enviar al frontend
 export type OrderWithItems = Order & { items: OrderItem[] };
@@ -233,6 +234,17 @@ export const ordersService = {
         },
       });
       if (count !== 1) throw HttpError.conflict('El pedido ya fue cobrado o anulado');
+      await audit(tx, {
+        restaurantId, action: 'order.cancel', entity: 'Order', entityId: id,
+        userId: opts.cancelledById ?? undefined,
+        before: {
+          tableId: order.tableId, status: 'OPEN',
+          items: order.items.map(i => ({ itemName: i.itemName, quantity: i.quantity, price: i.price })),
+          total: fromCents(order.items.reduce((s, i) => s + toCents(i.price) * i.quantity, 0)),
+        },
+        after: { status: 'CANCELLED' },
+        reason,
+      });
       return tx.order.findUniqueOrThrow({ where: { id }, include: { items: true } });
     });
     // Para las pantallas sale de la cuenta abierta igual que antes

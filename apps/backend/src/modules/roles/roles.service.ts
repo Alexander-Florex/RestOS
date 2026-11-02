@@ -10,6 +10,7 @@ import {
   SYSTEM_ROLES, effectivePermissions, isPermission, legacyUserRole,
   type Permission, type SystemRoleKey,
 } from '../../lib/permissions.js';
+import { audit, changedFields } from '../../lib/audit.js';
 
 type Tx = Prisma.TransactionClient | typeof prisma;
 
@@ -88,7 +89,14 @@ export const rolesService = {
     const permissions = cleanPermissions(data.permissions);
     const dup = await prisma.role.findUnique({ where: { restaurantId_name: { restaurantId, name: data.name } } });
     if (dup) throw HttpError.conflict('Ya existe un rol con ese nombre');
-    const role = await prisma.role.create({ data: { restaurantId, name: data.name, permissions } });
+    const role = await prisma.$transaction(async (tx) => {
+      const created = await tx.role.create({ data: { restaurantId, name: data.name, permissions } });
+      await audit(tx, {
+        restaurantId, action: 'role.create', entity: 'Role', entityId: created.id,
+        after: { name: created.name, permissions },
+      });
+      return created;
+    });
     return toDto(role);
   },
 
@@ -116,6 +124,18 @@ export const rolesService = {
 
       // Mantener sincronizada la columna legada users.role
       await tx.user.updateMany({ where: { roleId: id, restaurantId }, data: { role: legacyUserRole(updated) } });
+
+      const diff = changedFields(
+        { name: current.name, permissions: current.permissions },
+        { name: updated.name, permissions: updated.permissions },
+        ['name', 'permissions'],
+      );
+      if (diff) {
+        await audit(tx, {
+          restaurantId, action: 'role.update', entity: 'Role', entityId: id,
+          before: { name: current.name, ...diff.before }, after: diff.after,
+        });
+      }
       return updated;
     });
 
@@ -132,6 +152,10 @@ export const rolesService = {
         throw HttpError.conflict(`Hay ${current._count.users} usuario(s) con este rol. Asignales otro rol antes de eliminarlo.`);
       }
       await tx.role.delete({ where: { id } });
+      await audit(tx, {
+        restaurantId, action: 'role.delete', entity: 'Role', entityId: id,
+        before: { name: current.name, permissions: current.permissions },
+      });
     });
     invalidateAccess();
   },

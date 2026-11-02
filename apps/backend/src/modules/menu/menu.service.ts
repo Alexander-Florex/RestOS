@@ -7,6 +7,16 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { optionGroupsInclude, type MenuItemWithOptions } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { audit } from '../../lib/audit.js';
+import { toCents } from '../../lib/money.js';
+
+/** Resumen de las opciones de un plato para la auditoría. */
+function optionsSummary(groups: MenuItemWithOptions['optionGroups']) {
+  return groups.map(g => ({
+    name: g.name, type: g.type, required: g.required,
+    options: g.options.map(o => ({ name: o.name, priceDelta: o.priceDelta, isDefault: o.isDefault })),
+  }));
+}
 
 function emitChanged(restaurantId: number, item: MenuItemWithOptions) {
   ioRestaurant(restaurantId).emit(SocketEvents.MENU_ITEM_CHANGED, item);
@@ -96,19 +106,30 @@ export const menuService = {
   },
 
   async update(restaurantId: number, id: number, data: UpdateMenuItemData): Promise<MenuItemWithOptions> {
-    await menuService.getById(restaurantId, id);
-    const item = await prisma.menuItem.update({
-      where: { id },
-      data: {
-        ...(data.name !== undefined ? { name: data.name } : {}),
-        ...(data.category !== undefined ? { category: data.category } : {}),
-        ...(data.price !== undefined ? { price: data.price } : {}),
-        ...(data.description !== undefined ? { description: data.description } : {}),
-        ...(data.stock !== undefined ? { stock: data.stock } : {}),
-        ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
-        ...(data.imageUrl !== undefined ? { imageUrl: data.imageUrl } : {}),
-      },
-      include: optionGroupsInclude,
+    const current = await menuService.getById(restaurantId, id);
+    const item = await prisma.$transaction(async (tx) => {
+      const updated = await tx.menuItem.update({
+        where: { id },
+        data: {
+          ...(data.name !== undefined ? { name: data.name } : {}),
+          ...(data.category !== undefined ? { category: data.category } : {}),
+          ...(data.price !== undefined ? { price: data.price } : {}),
+          ...(data.description !== undefined ? { description: data.description } : {}),
+          ...(data.stock !== undefined ? { stock: data.stock } : {}),
+          ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
+          ...(data.imageUrl !== undefined ? { imageUrl: data.imageUrl } : {}),
+        },
+        include: optionGroupsInclude,
+      });
+      // Cambio de precio: queda registrado quién y de cuánto a cuánto
+      if (toCents(current.price) !== toCents(updated.price)) {
+        await audit(tx, {
+          restaurantId, action: 'menu.price', entity: 'MenuItem', entityId: id,
+          before: { name: current.name, price: current.price },
+          after: { name: updated.name, price: updated.price },
+        });
+      }
+      return updated;
     });
     emitChanged(restaurantId, item);
     return item;
@@ -126,6 +147,7 @@ export const menuService = {
     await prisma.$transaction(async (tx) => {
       const item = await tx.menuItem.findFirst({ where: { id: menuItemId, restaurantId }, include: optionGroupsInclude });
       if (!item) throw HttpError.notFound('Item de menú no encontrado');
+      const beforeSummary = optionsSummary(item.optionGroups);
 
       const existing = new Map(item.optionGroups.map(g => [g.id, g]));
       const keptGroupIds = groups.map(g => g.id).filter((id): id is number => id !== undefined && existing.has(id));
@@ -158,6 +180,16 @@ export const menuService = {
           }
         }
       }
+
+      const saved = await tx.menuItem.findFirstOrThrow({ where: { id: menuItemId }, include: optionGroupsInclude });
+      const afterSummary = optionsSummary(saved.optionGroups);
+      if (JSON.stringify(beforeSummary) !== JSON.stringify(afterSummary)) {
+        await audit(tx, {
+          restaurantId, action: 'menu.options', entity: 'MenuItem', entityId: menuItemId,
+          before: { name: item.name, groups: beforeSummary },
+          after: { name: item.name, groups: afterSummary },
+        });
+      }
     });
 
     const updated = await menuService.getById(restaurantId, menuItemId);
@@ -166,10 +198,16 @@ export const menuService = {
   },
 
   async remove(restaurantId: number, id: number): Promise<void> {
-    await menuService.getById(restaurantId, id);
+    const current = await menuService.getById(restaurantId, id);
     // Los ítems de pedidos y ventas guardan nombre, precio y opciones propios
     // (FK con SetNull): borrar el plato no altera el histórico.
-    await prisma.menuItem.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.menuItem.delete({ where: { id } });
+      await audit(tx, {
+        restaurantId, action: 'menu.delete', entity: 'MenuItem', entityId: id,
+        before: { name: current.name, category: current.category, price: current.price },
+      });
+    });
     emitDeleted(restaurantId, id);
   },
 

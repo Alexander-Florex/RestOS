@@ -15,7 +15,7 @@ export type Permission =
   | 'takeaway.cancel' | 'takeaway.delete'
   | 'menu.availability' | 'menu.manage'
   | 'inventory.view' | 'inventory.adjust' | 'inventory.manage'
-  | 'recipes.manage' | 'staff.manage' | 'users.manage';
+  | 'recipes.manage' | 'staff.manage' | 'users.manage' | 'audit.view';
 
 /** true si el usuario tiene el permiso. Con varios, alcanza con uno. */
 export function can(user: AuthUser | null | undefined, ...perms: Permission[]): boolean {

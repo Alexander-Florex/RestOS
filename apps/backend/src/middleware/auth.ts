@@ -6,6 +6,7 @@ import { verifyToken, type JwtPayload } from '../lib/jwt.js';
 import { HttpError } from '../lib/http-error.js';
 import type { Permission } from '../lib/permissions.js';
 import { rolesService } from '../modules/roles/roles.service.js';
+import { runWithContext } from '../lib/request-context.js';
 
 // Extiende el Request de Express con el user autenticado
 declare global {
@@ -31,7 +32,8 @@ function acceptToken(token: string, req: Request, next: NextFunction) {
     .then((access) => {
       if (!access.active) return next(HttpError.unauthorized('Sesión inválida'));
       req.user = payload;
-      next();
+      // El resto del pedido corre sabiendo quién es (lo usa la auditoría)
+      runWithContext({ userId: payload.userId, restaurantId: payload.restaurantId, requestId: req.requestId }, next);
     })
     .catch(next);
 }

@@ -1009,3 +1009,50 @@ export const takeawayApi = {
   remove: (id: number) =>
     request<void>(`/takeaway/${id}`, { method: 'DELETE' }),
 };
+
+// ──────────────────────────────────────────────
+// Auditoría (tarea 1.2) — solo lectura, permiso audit.view
+// ──────────────────────────────────────────────
+export type AuditAction =
+  | 'sale.create' | 'takeaway.pay' | 'takeaway.cancel' | 'order.cancel'
+  | 'menu.price' | 'menu.options' | 'menu.delete'
+  | 'inventory.restock' | 'inventory.consume' | 'inventory.update' | 'inventory.delete'
+  | 'user.create' | 'user.update' | 'user.toggle' | 'user.delete'
+  | 'role.create' | 'role.update' | 'role.delete';
+
+export interface AuditEntry {
+  id: number;
+  userId: number | null;
+  /** Nombre en el momento de la acción (queda aunque se borre la cuenta) */
+  userName: string | null;
+  action: AuditAction | string;
+  entity: string;
+  entityId: number | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface AuditPage {
+  total: number;
+  page: number;
+  pageSize: number;
+  entries: AuditEntry[];
+}
+
+export const auditApi = {
+  /** Sin fechas: últimos 7 días. `action`: acciones o prefijos separados por coma. */
+  list: (filters: { from?: Date; to?: Date; action?: string; userId?: number; page?: number; pageSize?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (filters.from) params.set('from', dayParam(filters.from));
+    if (filters.to) params.set('to', dayParam(filters.to));
+    if (filters.action) params.set('action', filters.action);
+    if (filters.userId) params.set('userId', String(filters.userId));
+    if (filters.page) params.set('page', String(filters.page));
+    if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+    const qs = params.toString();
+    return request<AuditPage>(`/audit${qs ? `?${qs}` : ''}`);
+  },
+  actors: () => request<{ actors: Array<{ userId: number | null; userName: string }> }>('/audit/actors'),
+};

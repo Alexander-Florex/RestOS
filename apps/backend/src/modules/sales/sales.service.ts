@@ -27,6 +27,7 @@ import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money
 import { localDayKey, localDaysRange, type DayKey } from '../../lib/time.js';
 import { modifiersKey } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { audit } from '../../lib/audit.js';
 
 const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads', 'sales');
 
@@ -273,6 +274,16 @@ export const salesService = {
         if (paid.count !== orders.length) {
           throw HttpError.conflict('Los pedidos de la mesa cambiaron durante el cobro. Volvé a intentarlo.');
         }
+
+        await audit(tx, {
+          restaurantId, action: 'sale.create', entity: 'Sale', entityId: sale.id,
+          userId: input.registeredById ?? undefined,
+          after: {
+            tableNumber: locked.number, paymentMethod: input.paymentMethod,
+            total: sale.total, amount: sale.amount, orderIds: orders.map(o => o.id),
+            notes: input.notes ?? null, receipt: !!imageUrl,
+          },
+        });
 
         const updatedTable = await tx.table.findUniqueOrThrow({ where: { id: input.tableId } });
         return { sale, updatedTable };

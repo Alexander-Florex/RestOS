@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LogOut, Home, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck,
+  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import type { Permission } from '../lib/permissions';
@@ -27,10 +27,11 @@ import { ReservationsPage } from '../components/ReservationsPage';
 import { ReportsPage } from '../components/ReportsPage';
 import { RecipesPage } from '../components/RecipesPage';
 import { RolesPage } from '../components/RolesPage';
+import { AuditPage } from '../components/AuditPage';
 import { BrandMark, EASE_OUT, PageTransition } from '../components/ui/motion';
 import { cn } from '../lib/utils';
 
-type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'recipes' | 'staff' | 'users' | 'roles';
+type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit';
 
 interface NavItem {
   id: View;
@@ -66,6 +67,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { id: 'staff',   label: 'Personal', icon: Users, perm: 'staff.manage' },
       { id: 'users',   label: 'Usuarios', icon: UserCog, perm: 'users.manage' },
       { id: 'roles',   label: 'Roles',    icon: ShieldCheck, perm: 'users.manage' },
+      { id: 'audit',   label: 'Auditoría', icon: ScrollText, perm: 'audit.view' },
     ],
   },
 ];
@@ -213,6 +215,7 @@ export function DashboardPage() {
                 {shown === 'staff'        && <StaffPage />}
                 {shown === 'users'        && <UsersPage />}
                 {shown === 'roles'        && <RolesPage />}
+                {shown === 'audit'        && <AuditPage />}
               </PageTransition>
             </AnimatePresence>
           </div>

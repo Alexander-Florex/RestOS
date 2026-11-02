@@ -44,7 +44,10 @@ test('la migración de roles otorga los mismos permisos que SYSTEM_ROLES', async
   const sql = await readFile(new URL('../prisma/migrations/20261014120000_roles_and_permissions/migration.sql', import.meta.url), 'utf8');
   const arrays = [...sql.matchAll(/JSON_ARRAY\(([\s\S]*?)\)/g)].map(m => [...m[1].matchAll(/'([^']+)'/g)].map(x => x[1]));
   assert.equal(arrays.length, 3);
-  assert.deepEqual([...arrays[0]].sort(), [...ALL_PERMISSIONS].sort());
+  // Administrador: la lista guardada en esa migración es una foto de entonces. No importa que
+  // falten permisos nuevos (effectivePermissions le da todos a ADMIN); sí que no haya inventados.
+  assert.ok(arrays[0].every(p => isPermission(p)), 'permisos inexistentes en la migración');
+  assert.deepEqual(effectivePermissions({ key: 'ADMIN', permissions: arrays[0] }), ALL_PERMISSIONS);
   assert.deepEqual(arrays[1], [...SYSTEM_ROLES.WAITER.permissions]);
   assert.deepEqual(arrays[2], [...SYSTEM_ROLES.CASHIER.permissions]);
 });

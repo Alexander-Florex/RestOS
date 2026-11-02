@@ -12,6 +12,7 @@ import { ioRestaurant, SocketEvents, disconnectUser } from '../../sockets/index.
 import { env } from '../../config/env.js';
 import { legacyUserRole } from '../../lib/permissions.js';
 import { invalidateAccess, rolesService } from '../roles/roles.service.js';
+import { audit, changedFields } from '../../lib/audit.js';
 
 const ROUNDS = env.BCRYPT_ROUNDS;
 
@@ -119,18 +120,25 @@ export const usersService = {
     const role = await rolesService.findForTenant(restaurantId, data.roleId);
     const hashed = await bcrypt.hash(data.password, ROUNDS);
 
-    const user = await prisma.user.create({
-      data: {
-        restaurantId,
-        username: data.username,
-        email: data.email,
-        password: hashed,
-        name: data.name,
-        role: legacyUserRole(role),
-        roleId: role.id,
-        active: data.active ?? true,
-      },
-      include: withRole,
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          restaurantId,
+          username: data.username,
+          email: data.email,
+          password: hashed,
+          name: data.name,
+          role: legacyUserRole(role),
+          roleId: role.id,
+          active: data.active ?? true,
+        },
+        include: withRole,
+      });
+      await audit(tx, {
+        restaurantId, action: 'user.create', entity: 'User', entityId: created.id,
+        after: { username: created.username, name: created.name, email: created.email, role: created.roleRef?.name ?? null, active: created.active },
+      });
+      return created;
     });
 
     const safe = toSafe(user);
@@ -139,7 +147,7 @@ export const usersService = {
   },
 
   async update(restaurantId: number, id: number, requesterId: number, data: UpdateUserData): Promise<SafeUser> {
-    const current = await prisma.user.findFirst({ where: { id, restaurantId } });
+    const current = await prisma.user.findFirst({ where: { id, restaurantId }, include: withRole });
     if (!current) throw HttpError.notFound('Usuario no encontrado');
 
     if (data.username !== undefined && data.username !== current.username) {
@@ -185,17 +193,31 @@ export const usersService = {
       ? { password: await bcrypt.hash(data.password, ROUNDS) }
       : {};
 
-    const user = await prisma.user.update({
-      where: { id },
-      data: {
-        ...(data.username !== undefined ? { username: data.username } : {}),
-        ...(data.email    !== undefined ? { email: data.email } : {}),
-        ...(data.name     !== undefined ? { name: data.name } : {}),
-        ...(newRole ? { roleId: newRole.id, role: newLegacyRole } : {}),
-        ...(data.active   !== undefined ? { active: data.active } : {}),
-        ...passwordUpdate,
-      },
-      include: withRole,
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id },
+        data: {
+          ...(data.username !== undefined ? { username: data.username } : {}),
+          ...(data.email    !== undefined ? { email: data.email } : {}),
+          ...(data.name     !== undefined ? { name: data.name } : {}),
+          ...(newRole ? { roleId: newRole.id, role: newLegacyRole } : {}),
+          ...(data.active   !== undefined ? { active: data.active } : {}),
+          ...passwordUpdate,
+        },
+        include: withRole,
+      });
+      const before = { username: current.username, name: current.name, email: current.email, role: current.roleRef?.name ?? null, active: current.active };
+      const after = { username: updated.username, name: updated.name, email: updated.email, role: updated.roleRef?.name ?? null, active: updated.active };
+      const diff = changedFields(before, after, ['username', 'name', 'email', 'role', 'active']);
+      // La contraseña nunca se guarda: solo que se cambió
+      if (diff || data.password) {
+        await audit(tx, {
+          restaurantId, action: 'user.update', entity: 'User', entityId: id,
+          before: { username: current.username, ...diff?.before },
+          after: { username: updated.username, ...diff?.after, ...(data.password ? { cambioDeClave: true } : {}) },
+        });
+      }
+      return updated;
     });
     invalidateAccess(id);
     if (!user.active) disconnectUser(id);
@@ -210,7 +232,7 @@ export const usersService = {
       throw HttpError.badRequest('No podés eliminar tu propia cuenta');
     }
 
-    const current = await prisma.user.findFirst({ where: { id, restaurantId } });
+    const current = await prisma.user.findFirst({ where: { id, restaurantId }, include: withRole });
     if (!current) throw HttpError.notFound('Usuario no encontrado');
 
     if (current.role === UserRole.ADMIN && current.active) {
@@ -220,7 +242,13 @@ export const usersService = {
       }
     }
 
-    await prisma.user.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.user.delete({ where: { id } });
+      await audit(tx, {
+        restaurantId, action: 'user.delete', entity: 'User', entityId: id,
+        before: { username: current.username, name: current.name, email: current.email, role: current.roleRef?.name ?? null, active: current.active },
+      });
+    });
     invalidateAccess(id);
     disconnectUser(id);
     emitDeleted(restaurantId, id);
@@ -241,10 +269,18 @@ export const usersService = {
       }
     }
 
-    const user = await prisma.user.update({
-      where: { id },
-      data: { active: !current.active },
-      include: withRole,
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id },
+        data: { active: !current.active },
+        include: withRole,
+      });
+      await audit(tx, {
+        restaurantId, action: 'user.toggle', entity: 'User', entityId: id,
+        before: { username: current.username, active: current.active },
+        after: { active: updated.active },
+      });
+      return updated;
     });
     invalidateAccess(id);
     if (!user.active) disconnectUser(id);

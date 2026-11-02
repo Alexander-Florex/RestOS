@@ -27,6 +27,7 @@ export const PERMISSIONS = [
   { key: 'takeaway.delete',     group: 'Administración', label: 'Borrar pedidos para llevar',      description: 'Eliminar definitivamente un pedido para llevar.' },
   { key: 'staff.manage',        group: 'Administración', label: 'Gestionar personal',              description: 'Fichas del equipo.' },
   { key: 'users.manage',        group: 'Administración', label: 'Gestionar usuarios y roles',      description: 'Crear cuentas, asignar roles y definir permisos.' },
+  { key: 'audit.view',          group: 'Administración', label: 'Ver auditoría',                   description: 'Quién cobró, anuló pedidos, cambió precios, stock o usuarios, y cuándo.' },
 ] as const;
 
 export type Permission = typeof PERMISSIONS[number]['key'];

@@ -38,6 +38,7 @@ model Restaurant {
   reservations   Reservation[]
   takeawayOrders TakeawayOrder[]
   menuOptionGroups MenuItemOptionGroup[]
+  auditLogs        AuditLog[]
 
   @@map("restaurants")
 }
@@ -63,6 +64,7 @@ model User {
 
   ordersCreated    Order[]         @relation("OrderCreatedBy")
   ordersCancelled  Order[]         @relation("OrderCancelledBy")
+  auditLogs        AuditLog[]
   salesCreated     Sale[]          @relation("SaleRegisteredBy")
   takeawaysCreated TakeawayOrder[] @relation("TakeawayCreatedBy")
 
@@ -557,4 +559,31 @@ enum TakeawayStatus {
   READY
   PAID
   CANCELLED
+}
+
+// ── Auditoría (tarea 1.2) ──
+// Quién hizo qué, sobre qué, antes/después y por qué. Se escribe en la misma
+// transacción que la operación (ver src/lib/audit.ts). Solo se agrega: no hay
+// endpoints para editar ni borrar registros.
+model AuditLog {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  userId       Int?
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// Nombre del usuario en ese momento (queda aunque después se borre la cuenta)
+  userName     String?
+  /// Ej.: sale.create, order.cancel, menu.price (lista en src/lib/audit.ts)
+  action       String
+  entity       String
+  entityId     Int?
+  before       Json?
+  after        Json?
+  reason       String?    @db.Text
+  createdAt    DateTime   @default(now())
+
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, action])
+  @@index([restaurantId, entity, entityId])
+  @@map("audit_logs")
 }

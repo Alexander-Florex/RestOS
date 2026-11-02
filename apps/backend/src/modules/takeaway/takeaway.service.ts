@@ -7,6 +7,7 @@ import { HttpError } from '../../lib/http-error.js';
 import { toCents, fromCents, formatCents } from '../../lib/money.js';
 import { optionGroupsInclude, resolveItemOptions } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { audit } from '../../lib/audit.js';
 
 export type TakeawayWithItems = Awaited<ReturnType<typeof findOne>>;
 
@@ -30,13 +31,18 @@ async function transition(
   from: TakeawayStatus[],
   data: Prisma.TakeawayOrderUpdateManyMutationInput,
   conflictMessage: string,
+  /** Corre en la misma transacción que el cambio de estado (ej. auditoría). */
+  onChanged?: (tx: Prisma.TransactionClient, before: Awaited<ReturnType<typeof findOne>>) => Promise<void>,
 ) {
-  await findOne(id, restaurantId);
-  const { count } = await prisma.takeawayOrder.updateMany({
-    where: { id, restaurantId, status: { in: from } },
-    data,
+  const before = await findOne(id, restaurantId);
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.takeawayOrder.updateMany({
+      where: { id, restaurantId, status: { in: from } },
+      data,
+    });
+    if (count !== 1) throw HttpError.conflict(conflictMessage);
+    if (onChanged) await onChanged(tx, before);
   });
-  if (count !== 1) throw HttpError.conflict(conflictMessage);
   const order = await findOne(id, restaurantId);
   emit(restaurantId, SocketEvents.TAKEAWAY_UPDATED, order);
   return order;
@@ -167,7 +173,7 @@ export const takeawayService = {
         await tx.takeawayOrder.update({ where: { id }, data: { notes: saleNotes } });
       }
 
-      return tx.sale.create({
+      const sale = await tx.sale.create({
         data: {
           restaurantId,
           channel: SaleChannel.TAKEAWAY,
@@ -193,6 +199,15 @@ export const takeawayService = {
           },
         },
       });
+      await audit(tx, {
+        restaurantId, action: 'takeaway.pay', entity: 'Sale', entityId: sale.id,
+        userId: opts.registeredById ?? undefined,
+        after: {
+          takeawayOrderId: order.id, customerName: order.customerName, paymentMethod,
+          total: sale.total, amount: sale.amount, notes: saleNotes,
+        },
+      });
+      return sale;
     });
 
     const order = await findOne(id, restaurantId);
@@ -203,7 +218,12 @@ export const takeawayService = {
 
   async cancel(restaurantId: number, id: number) {
     return transition(restaurantId, id, [TakeawayStatus.OPEN, TakeawayStatus.READY], { status: TakeawayStatus.CANCELLED },
-      'No se puede cancelar un pedido ya cobrado o cancelado');
+      'No se puede cancelar un pedido ya cobrado o cancelado',
+      (tx, before) => audit(tx, {
+        restaurantId, action: 'takeaway.cancel', entity: 'TakeawayOrder', entityId: id,
+        before: { status: before.status, customerName: before.customerName, total: before.total },
+        after: { status: TakeawayStatus.CANCELLED },
+      }));
   },
 
   /**
