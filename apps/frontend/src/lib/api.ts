@@ -601,18 +601,28 @@ export const inventoryApi = {
 export interface RecipeIngredient {
   id: number;
   recipeId: number;
-  inventoryItemId: number;
+  /** Un insumo o una sub-receta (uno de los dos) */
+  inventoryItemId: number | null;
+  subRecipeId: number | null;
   quantity: number;
   unit: string;
-  inventoryItem: InventoryItem;
+  /** Merma de la línea; null = la del insumo */
+  wastePct: number | null;
+  inventoryItem: InventoryItem | null;
+  subRecipe: { id: number; name: string } | null;
 }
 
 export interface RecipeCostLine {
   ingredientId: number;
-  inventoryItemId: number;
+  kind: 'item' | 'subrecipe';
+  inventoryItemId: number | null;
+  subRecipeId: number | null;
   name: string;
   quantity: number;
   unit: string;
+  wastePct: number;
+  /** Cantidad bruta (con merma) */
+  grossQty: number;
   /** Cantidad en la unidad del insumo (null si no se pudo convertir) */
   convertedQty: number | null;
   itemUnit: string;
@@ -628,6 +638,8 @@ export interface RecipeCost {
   warnings: string[];
   complete: boolean;
   costPerServing: number;
+  /** Costo por unidad de rendimiento (si la receta rinde en unidades) */
+  costPerYieldUnit: number | null;
   suggestedPrice: number;
   menuItemPrice: number | null;
   priceDiff: number | null;
@@ -639,6 +651,9 @@ export interface Recipe {
   menuItem: MenuItem | null;
   name: string;
   yield: number;
+  /** Rendimiento en unidades (ej. 500 cc), para usarla como sub-receta */
+  yieldQty: number | null;
+  yieldUnit: string | null;
   profitPct: number;
   vatPct: number;
   notes: string | null;
@@ -649,15 +664,20 @@ export interface Recipe {
 }
 
 export interface RecipeIngredientBody {
-  inventoryItemId: number;
+  inventoryItemId?: number | null;
+  subRecipeId?: number | null;
   quantity: number;
+  /** Unidad, o "porcion" para una sub-receta usada por porciones */
   unit: string;
+  wastePct?: number | null;
 }
 
 export interface CreateRecipeBody {
   name: string;
   menuItemId?: number | null;
   yield?: number;
+  yieldQty?: number | null;
+  yieldUnit?: string | null;
   profitPct?: number;
   vatPct?: number;
   notes?: string | null;

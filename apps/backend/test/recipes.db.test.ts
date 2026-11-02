@@ -20,7 +20,12 @@ after(async () => {
   httpServer.close();
 });
 // Las recetas se borran primero: RecipeIngredient → InventoryItem es Restrict
-async function clean() { await prisma.recipe.deleteMany(); await prisma.restaurant.deleteMany(); }
+async function clean() {
+  // Primero las líneas: RecipeIngredient → InventoryItem y → sub-receta son Restrict
+  await prisma.recipeIngredient.deleteMany();
+  await prisma.recipe.deleteMany();
+  await prisma.restaurant.deleteMany();
+}
 beforeEach(clean);
 
 async function setup() {

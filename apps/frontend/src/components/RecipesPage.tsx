@@ -26,7 +26,7 @@ import {
 } from './ui/dialog';
 import { cn } from '../lib/utils';
 import { canConvert, normalizeUnit, UNIT_LIST, UNITS } from '@shared/units';
-import type { InventoryItem } from '../lib/api';
+import type { InventoryItem, Recipe as RecipeT } from '../lib/api';
 
 /** Unidades en las que se puede cargar un insumo en una receta (misma familia o con equivalencia). */
 function unitsFor(item: InventoryItem | undefined): string[] {
@@ -35,25 +35,37 @@ function unitsFor(item: InventoryItem | undefined): string[] {
   return UNIT_LIST.filter(u => canConvert(u, item.unit, { itemUnit: item.unit, eq }));
 }
 
+/** Unidades para usar una sub-receta: por porción o en la familia de su rendimiento. */
+function unitsForSub(sub: RecipeT | undefined): string[] {
+  if (!sub) return ['porcion'];
+  return ['porcion', ...(sub.yieldUnit ? UNIT_LIST.filter(u => canConvert(u, sub.yieldUnit!)) : [])];
+}
+
 interface IngredientRow {
-  inventoryItemId: string;
+  /** "i:<id>" = insumo · "r:<id>" = sub-receta (tarea 2.3) */
+  source: string;
   quantity: string;
   unit: string;
+  /** Merma de la línea en % (vacío = la del insumo) — tarea 2.4 */
+  waste: string;
 }
 
 interface FormState {
   name: string;
   menuItemId: string;
   yield: string;
+  /** Rendimiento en unidades, para usarla como sub-receta */
+  yieldQty: string;
+  yieldUnit: string;
   profitPct: string;
   vatPct: string;
   notes: string;
   ingredients: IngredientRow[];
 }
 
-const EMPTY_ROW: IngredientRow = { inventoryItemId: '', quantity: '', unit: '' };
+const EMPTY_ROW: IngredientRow = { source: '', quantity: '', unit: '', waste: '' };
 const EMPTY_FORM: FormState = {
-  name: '', menuItemId: '', yield: '1', profitPct: '50', vatPct: '21', notes: '',
+  name: '', menuItemId: '', yield: '1', yieldQty: '', yieldUnit: 'g', profitPct: '50', vatPct: '21', notes: '',
   ingredients: [{ ...EMPTY_ROW }],
 };
 
@@ -79,11 +91,15 @@ export function RecipesPage() {
       name: recipe.name,
       menuItemId: recipe.menuItemId ? String(recipe.menuItemId) : '',
       yield: String(recipe.yield),
+      yieldQty: recipe.yieldQty != null ? String(recipe.yieldQty) : '',
+      yieldUnit: recipe.yieldUnit ?? 'g',
       profitPct: String(recipe.profitPct * 100),
       vatPct: String(recipe.vatPct * 100),
       notes: recipe.notes ?? '',
       ingredients: recipe.ingredients.map(i => ({
-        inventoryItemId: String(i.inventoryItemId), quantity: String(i.quantity), unit: i.unit,
+        source: i.subRecipeId ? `r:${i.subRecipeId}` : `i:${i.inventoryItemId}`,
+        quantity: String(i.quantity), unit: i.unit,
+        waste: i.wastePct != null ? String(Math.round(i.wastePct * 1000) / 10) : '',
       })),
     });
     setEditing(recipe);
@@ -116,11 +132,17 @@ export function RecipesPage() {
 
     const ingredients: RecipeIngredientBody[] = [];
     for (const row of form.ingredients) {
-      if (!row.inventoryItemId) continue;
+      if (!row.source) continue;
       const quantity = Number(row.quantity);
       if (Number.isNaN(quantity) || quantity <= 0) { toast.error('Cantidad inválida en un ingrediente'); return; }
       if (!row.unit.trim()) { toast.error('Falta la unidad en un ingrediente'); return; }
-      ingredients.push({ inventoryItemId: Number(row.inventoryItemId), quantity, unit: row.unit.trim() });
+      const waste = row.waste === '' ? null : Number(row.waste) / 100;
+      if (waste !== null && (Number.isNaN(waste) || waste < 0 || waste > 0.95)) { toast.error('La merma tiene que estar entre 0 y 95 %'); return; }
+      const [kind, id] = row.source.split(':');
+      ingredients.push({
+        ...(kind === 'r' ? { subRecipeId: Number(id) } : { inventoryItemId: Number(id) }),
+        quantity, unit: row.unit.trim(), wastePct: waste,
+      });
     }
     if (ingredients.length === 0) { toast.error('Agregá al menos un ingrediente'); return; }
 
@@ -130,6 +152,8 @@ export function RecipesPage() {
         name: form.name.trim(),
         menuItemId: form.menuItemId ? Number(form.menuItemId) : null,
         yield: yieldN,
+        yieldQty: form.yieldQty === '' ? null : Number(form.yieldQty),
+        yieldUnit: form.yieldQty === '' ? null : form.yieldUnit,
         profitPct: profitPct / 100,
         vatPct: vatPct / 100,
         notes: form.notes.trim() || null,
@@ -217,6 +241,9 @@ export function RecipesPage() {
                   <div>
                     <p className="text-muted-foreground">Costo / porción</p>
                     <p className="font-semibold tabular-nums">{formatMoney(cost.costPerServing)}</p>
+                    {cost.costPerYieldUnit !== null && recipe.yieldUnit && (
+                      <p className="text-[11px] text-muted-foreground">{formatMoney(cost.costPerYieldUnit)} / {recipe.yieldUnit}</p>
+                    )}
                   </div>
                   <div>
                     <p className="text-muted-foreground">Precio sugerido</p>
@@ -318,6 +345,21 @@ export function RecipesPage() {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="rYieldQty">Rinde en unidades (opcional)</Label>
+              <div className="flex items-center gap-2">
+                <Input id="rYieldQty" type="number" min="0" step="0.01" className="w-28" value={form.yieldQty}
+                  onChange={e => setForm(f => ({ ...f, yieldQty: e.target.value }))} disabled={submitting} placeholder="500" />
+                <Select value={form.yieldUnit} onChange={e => setForm(f => ({ ...f, yieldUnit: e.target.value }))}
+                  disabled={submitting} className="w-28" aria-label="Unidad del rendimiento">
+                  {UNIT_LIST.map(u => <option key={u} value={u}>{UNITS[u].label}</option>)}
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Para usarla dentro de otras recetas (ej. chimichurri: rinde 500 cc). Se costea por su costo por unidad, nunca por su precio.
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Ingredientes *</Label>
                 <Button type="button" variant="outline" size="sm" onClick={addRow} disabled={submitting}>
@@ -328,32 +370,55 @@ export function RecipesPage() {
               <div className="space-y-2">
                 {form.ingredients.map((row, idx) => (
                   <div key={idx} className="flex items-center gap-2">
-                    <Select value={row.inventoryItemId}
+                    <Select value={row.source}
                       onChange={e => {
-                        const inv = availableInventory.find(i => String(i.id) === e.target.value);
-                        // Por defecto, la unidad del insumo (normalizada)
-                        updateRow(idx, { inventoryItemId: e.target.value, unit: inv ? normalizeUnit(inv.unit) ?? inv.unit : row.unit });
+                        const [kind, id] = e.target.value.split(':');
+                        if (kind === 'r') {
+                          const sub = recipes.find(r => String(r.id) === id);
+                          updateRow(idx, { source: e.target.value, unit: sub?.yieldUnit ?? 'porcion' });
+                        } else {
+                          const inv = availableInventory.find(i => String(i.id) === id);
+                          // Por defecto, la unidad del insumo (normalizada)
+                          updateRow(idx, { source: e.target.value, unit: inv ? normalizeUnit(inv.unit) ?? inv.unit : row.unit });
+                        }
                       }}
-                      disabled={submitting} className="flex-1">
-                      <option value="">— insumo —</option>
-                      {availableInventory.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                      disabled={submitting} className="min-w-0 flex-1">
+                      <option value="">— insumo o sub-receta —</option>
+                      <optgroup label="Insumos">
+                        {availableInventory.map(i => <option key={i.id} value={`i:${i.id}`}>{i.name}</option>)}
+                      </optgroup>
+                      {recipes.some(r => r.id !== editing?.id) && (
+                        <optgroup label="Sub-recetas">
+                          {recipes.filter(r => r.id !== editing?.id).map(r => <option key={r.id} value={`r:${r.id}`}>{r.name}</option>)}
+                        </optgroup>
+                      )}
                     </Select>
                     <Input type="number" min="0" step="0.01" value={row.quantity}
                       onChange={e => updateRow(idx, { quantity: e.target.value })}
                       disabled={submitting} placeholder="Cant." className="w-20" />
                     {(() => {
-                      const inv = availableInventory.find(i => String(i.id) === row.inventoryItemId);
-                      const options = unitsFor(inv);
+                      const [kind, id] = row.source.split(':');
+                      const inv = kind === 'i' ? availableInventory.find(i => String(i.id) === id) : undefined;
+                      const sub = kind === 'r' ? recipes.find(r => String(r.id) === id) : undefined;
+                      const options = kind === 'r' ? unitsForSub(sub) : unitsFor(inv);
                       return (
                         <Select value={row.unit} onChange={e => updateRow(idx, { unit: e.target.value })}
                           disabled={submitting} className="w-24" aria-label="Unidad">
                           <option value="" disabled>Unidad</option>
                           {/* Unidad vieja no convertible: se muestra para corregirla */}
                           {row.unit && !options.includes(normalizeUnit(row.unit) ?? '') && <option value={row.unit}>{row.unit} ⚠</option>}
-                          {options.map(u => <option key={u} value={u}>{UNITS[u as keyof typeof UNITS].label}</option>)}
+                          {options.map(u => <option key={u} value={u}>{u === 'porcion' ? 'porción' : UNITS[u as keyof typeof UNITS].label}</option>)}
                         </Select>
                       );
                     })()}
+                    <Input type="number" min="0" max="95" step="0.5" value={row.waste}
+                      onChange={e => updateRow(idx, { waste: e.target.value })} disabled={submitting} className="w-20"
+                      aria-label="Merma %" title="Merma % de esta línea (vacío = la del insumo)"
+                      placeholder={(() => {
+                        const [kind, id] = row.source.split(':');
+                        const inv = kind === 'i' ? availableInventory.find(i => String(i.id) === id) : undefined;
+                        return inv?.wastePct ? `${Math.round(inv.wastePct * 100)}%` : 'Merma%';
+                      })()} />
                     <Button type="button" variant="ghost" size="icon" onClick={() => removeRow(idx)}
                       disabled={submitting || form.ingredients.length === 1} className="text-rose-400 hover:text-rose-300">
                       <Trash className="h-4 w-4" />

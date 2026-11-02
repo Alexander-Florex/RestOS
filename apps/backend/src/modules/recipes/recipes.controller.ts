@@ -6,16 +6,22 @@ import { z } from 'zod';
 import { recipesService } from './recipes.service.js';
 import { HttpError } from '../../lib/http-error.js';
 
+// Un insumo o una sub-receta (tarea 2.3), con merma opcional de la línea (2.4)
 const ingredientSchema = z.object({
-  inventoryItemId: z.number().int().positive(),
+  inventoryItemId: z.number().int().positive().optional().nullable(),
+  subRecipeId: z.number().int().positive().optional().nullable(),
   quantity: z.coerce.number().positive(),
   unit: z.string().min(1, 'Unidad requerida').trim(),
-});
+  wastePct: z.coerce.number().min(0).max(0.95).optional().nullable(),
+}).refine(i => !!i.inventoryItemId !== !!i.subRecipeId, { message: 'Cada ingrediente es un insumo o una sub-receta' });
 
 const createSchema = z.object({
   name: z.string().min(1, 'Nombre requerido').trim(),
   menuItemId: z.number().int().positive().optional().nullable(),
   yield: z.coerce.number().int().positive().optional(),
+  // Rendimiento en unidades (ej. 500 cc), para usarla como sub-receta
+  yieldQty: z.coerce.number().positive().optional().nullable(),
+  yieldUnit: z.string().trim().max(20).optional().nullable(),
   profitPct: z.coerce.number().min(0).optional(),
   vatPct: z.coerce.number().min(0).optional(),
   notes: z.string().trim().optional().nullable(),

@@ -11,11 +11,17 @@ import { prisma } from '../src/lib/prisma.js';
 import { initSocket } from '../src/sockets/index.js';
 import { HttpError } from '../src/lib/http-error.js';
 import { inventoryService } from '../src/modules/inventory/inventory.service.js';
+import { recipesService } from '../src/modules/recipes/recipes.service.js';
 
 const httpServer = http.createServer();
 before(() => { initSocket(httpServer); });
 // Las recetas se borran primero: RecipeIngredient → InventoryItem es Restrict
-async function clean() { await prisma.recipe.deleteMany(); await prisma.restaurant.deleteMany(); }
+async function clean() {
+  // Primero las líneas: RecipeIngredient → InventoryItem y → sub-receta son Restrict
+  await prisma.recipeIngredient.deleteMany();
+  await prisma.recipe.deleteMany();
+  await prisma.restaurant.deleteMany();
+}
 after(async () => {
   await clean();
   await prisma.$disconnect();
@@ -124,4 +130,77 @@ test('historial: cada cambio de costo queda registrado con su origen; sin cambio
   ]);
   const api = await inventoryService.priceHistory(rid, item.id);
   assert.equal(Number(api[0].costPerUnit), 1250); // el más nuevo primero
+});
+
+// ── 2.4 Merma ──
+
+test('merma: el costo usa la cantidad bruta (200 g netos con 20 % de merma = 250 g)', async () => {
+  const rid = await restaurant();
+  const lomo = await inventoryService.create(rid, { name: 'Lomo', category: 'FOOD', quantity: 0, unit: 'kg', costPerUnit: 10000, wastePct: 0.2 });
+  const r = await recipesService.create(rid, { name: 'Lomo grillé', ingredients: [{ inventoryItemId: lomo.id, quantity: 200, unit: 'g' }] });
+  close(r.cost.lines[0].grossQty, 250);
+  close(r.cost.costTotal, 2500);
+  // La línea puede pisar la merma del insumo (ej. corte ya limpio)
+  const limpio = await recipesService.create(rid, { name: 'Lomo limpio', ingredients: [{ inventoryItemId: lomo.id, quantity: 200, unit: 'g', wastePct: 0 }] });
+  close(limpio.cost.costTotal, 2000);
+  await rejectsWith(recipesService.create(rid, { name: 'X', ingredients: [{ inventoryItemId: lomo.id, quantity: 1, unit: 'g', wastePct: 0.99 }] }), 400, /merma/);
+});
+
+// ── 2.3 Sub-recetas ──
+
+async function chimichurriSetup() {
+  const rid = await restaurant();
+  const aceite = await inventoryService.create(rid, { name: 'Aceite', category: 'FOOD', quantity: 0, unit: 'l', costPerUnit: 4000 });
+  const bife = await inventoryService.create(rid, { name: 'Bife', category: 'FOOD', quantity: 0, unit: 'kg', costPerUnit: 12000 });
+  // Rinde 500 cc y 10 porciones; margen alto a propósito: su precio de venta NO se usa
+  const chimi = await recipesService.create(rid, {
+    name: 'Chimichurri', yield: 10, yieldQty: 500, yieldUnit: 'cc', profitPct: 3,
+    ingredients: [{ inventoryItemId: aceite.id, quantity: 1, unit: 'l' }],
+  });
+  return { rid, aceite, bife, chimi };
+}
+
+test('sub-receta por rendimiento: 30 cc de un chimichurri de $4.000 que rinde 500 cc = $240', async () => {
+  const { rid, bife, chimi } = await chimichurriSetup();
+  close(chimi.cost.costPerYieldUnit!, 8);
+  const plato = await recipesService.create(rid, {
+    name: 'Bife con chimichurri', ingredients: [
+      { inventoryItemId: bife.id, quantity: 300, unit: 'g' },
+      { subRecipeId: chimi.id, quantity: 30, unit: 'cc' },
+    ],
+  });
+  const sub = plato.cost.lines.find(l => l.kind === 'subrecipe')!;
+  close(sub.cost!, 240); // costo por unidad de rendimiento, nunca el precio de venta
+  close(plato.cost.costTotal, 3600 + 240);
+});
+
+test('sub-receta por porción y recálculo en cascada al subir un insumo', async () => {
+  const { rid, aceite, chimi } = await chimichurriSetup();
+  const plato = await recipesService.create(rid, {
+    name: 'Provoleta', ingredients: [{ subRecipeId: chimi.id, quantity: 1, unit: 'porción' }],
+  });
+  assert.equal(plato.ingredients[0].unit, 'porcion');
+  close(plato.cost.costTotal, 400); // $4.000 / 10 porciones
+
+  await inventoryService.update(rid, aceite.id, { costPerUnit: 5000 });
+  close((await recipesService.getById(rid, plato.id)).cost.costTotal, 500);
+});
+
+test('sub-recetas: ciclos, sin rendimiento y borrado en uso se rechazan', async () => {
+  const { rid, aceite, chimi } = await chimichurriSetup();
+  const salsa = await recipesService.create(rid, {
+    name: 'Salsa', yieldQty: 1, yieldUnit: 'l', ingredients: [{ subRecipeId: chimi.id, quantity: 100, unit: 'ml' }],
+  });
+  // Chimichurri → Salsa → Chimichurri
+  await rejectsWith(recipesService.update(rid, chimi.id, {
+    ingredients: [{ inventoryItemId: aceite.id, quantity: 1, unit: 'l' }, { subRecipeId: salsa.id, quantity: 10, unit: 'ml' }],
+  }), 400, /ciclo de sub-recetas: Chimichurri → Salsa → Chimichurri/);
+  await rejectsWith(recipesService.update(rid, salsa.id, { ingredients: [{ subRecipeId: salsa.id, quantity: 1, unit: 'porcion' }] }), 400, /a sí misma/);
+
+  const sinRend = await recipesService.create(rid, { name: 'Base', ingredients: [{ inventoryItemId: aceite.id, quantity: 1, unit: 'l' }] });
+  await rejectsWith(recipesService.create(rid, { name: 'Y', ingredients: [{ subRecipeId: sinRend.id, quantity: 10, unit: 'cc' }] }), 400, /rendimiento/);
+  await rejectsWith(recipesService.create(rid, { name: 'Z', ingredients: [{ subRecipeId: chimi.id, quantity: 10, unit: 'g' }] }), 400, /rinde en cc/);
+
+  await rejectsWith(recipesService.remove(rid, chimi.id), 409, /Se usa como sub-receta en: Salsa/);
+  await rejectsWith(recipesService.update(rid, chimi.id, { yieldQty: 1, yieldUnit: 'kg' }), 400, /Salsa.*compatible/);
 });

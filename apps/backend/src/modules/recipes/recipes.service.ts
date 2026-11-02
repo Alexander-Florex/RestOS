@@ -1,28 +1,43 @@
 // ──────────────────────────────────────────────
 // recipes.service.ts — Recetas y costos
 //
-// Costo de elaboración = suma de (cantidad de cada ingrediente, convertida a la
-// unidad del insumo (tarea 2.1), × costPerUnit del InventoryItem). Ej.: 200 g de
-// un insumo que cuesta $X por kg = 0,2 × X. Como costPerUnit vive en InventoryItem, el costo de
-// toda receta que lo use queda actualizado automáticamente al leer (no se
-// desnormaliza ni se cachea).
+// Costo de elaboración = suma de las líneas. Cada línea es:
+// - Un insumo: cantidad neta → bruta según la merma (tarea 2.4:
+//   bruta = neta / (1 − merma); la merma es la de la línea o, si no tiene, la
+//   del insumo), convertida a la unidad del insumo (tarea 2.1) × costPerUnit.
+// - Una sub-receta (tarea 2.3): se costea SIEMPRE por su costo por unidad de
+//   rendimiento (costo total / yieldQty, ej. $ por cc de chimichurri) o por
+//   porción, nunca por su precio de venta. Se rechazan los ciclos.
+// El costo se calcula al leer: si sube un insumo, todas las recetas que lo
+// usan (también a través de sub-recetas) quedan actualizadas en cascada.
 //
 // Precio sugerido = costo por porción × (1 + profitPct) × (1 + vatPct).
 // ──────────────────────────────────────────────
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { convertUnits, normalizeUnit, UnitError, UNIT_LIST } from '../../shared/units.js';
 
 export interface RecipeIngredientInput {
-  inventoryItemId: number;
+  /** Un insumo... */
+  inventoryItemId?: number | null;
+  /** ...o una sub-receta (exactamente uno de los dos) */
+  subRecipeId?: number | null;
+  /** Cantidad neta (la que va al plato) */
   quantity: number;
+  /** Unidad, o "porcion" para una sub-receta usada por porciones */
   unit: string;
+  /** Merma de la línea 0–0,95; null/undefined = la del insumo */
+  wastePct?: number | null;
 }
 
 export interface CreateRecipeData {
   name: string;
   menuItemId?: number | null;
   yield?: number;
+  /** Rendimiento en unidades, para usarla como sub-receta (ej. 500 cc) */
+  yieldQty?: number | null;
+  yieldUnit?: string | null;
   profitPct?: number;
   vatPct?: number;
   notes?: string | null;
@@ -33,12 +48,20 @@ export interface UpdateRecipeData extends Partial<CreateRecipeData> {}
 
 export interface RecipeCostLine {
   ingredientId: number;
-  inventoryItemId: number;
+  kind: 'item' | 'subrecipe';
+  inventoryItemId: number | null;
+  subRecipeId: number | null;
   name: string;
+  /** Cantidad neta cargada */
   quantity: number;
   unit: string;
-  /** Cantidad pasada a la unidad del insumo (null si no se pudo convertir) */
+  /** Merma aplicada (0–0,95) */
+  wastePct: number;
+  /** Cantidad bruta (con merma) */
+  grossQty: number;
+  /** Cantidad bruta en la unidad del insumo / del rendimiento de la sub-receta (null si no se pudo) */
   convertedQty: number | null;
+  /** Unidad de referencia: la del insumo, la del rendimiento o "porcion" */
   itemUnit: string;
   cost: number | null;
   error: string | null;
@@ -48,37 +71,74 @@ export interface RecipeCost {
   /** Costo de las líneas que se pudieron calcular */
   costTotal: number;
   lines: RecipeCostLine[];
-  /** Líneas que no suman al costo (unidad inconvertible): el costo está incompleto */
+  /** Líneas que no suman al costo (unidad inconvertible, sub-receta incompleta): el costo está incompleto */
   warnings: string[];
   complete: boolean;
   costPerServing: number;
+  /** Costo por unidad de rendimiento (si la receta tiene yieldQty), para usarla como sub-receta */
+  costPerYieldUnit: number | null;
   suggestedPrice: number;
   menuItemPrice: number | null;
   priceDiff: number | null; // menuItemPrice - suggestedPrice
 }
 
+const PORTION = new Set(['porcion', 'porciones', 'porc', 'porcn']);
+/** "porción", "Porciones", "porc." → usa la sub-receta por porciones */
+export function isPortionUnit(raw: string): boolean {
+  return PORTION.has(raw.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[.\s]/g, ''));
+}
+
 const recipeInclude = {
-  ingredients: { include: { inventoryItem: true } },
+  ingredients: {
+    include: { inventoryItem: true, subRecipe: { select: { id: true, name: true } } },
+    orderBy: { id: 'asc' },
+  },
   menuItem: true,
-} as const;
+} satisfies Prisma.RecipeInclude;
 
-type CostInput = {
-  yield: number; profitPct: number; vatPct: number; menuItem: { price: unknown } | null;
-  ingredients: Array<{
-    id: number; quantity: number; unit: string;
-    inventoryItem: { id: number; name: string; unit: string; costPerUnit: unknown; equivalenceQty: number | null; equivalenceUnit: string | null };
-  }>;
-};
+type RecipeRow = Prisma.RecipeGetPayload<{ include: typeof recipeInclude }>;
 
-export function computeCost(recipe: CostInput): RecipeCost {
-  const lines: RecipeCostLine[] = recipe.ingredients.map((ing) => {
-    const item = ing.inventoryItem;
+const MAX_DEPTH = 20;
+
+/**
+ * Calcula costos de todas las recetas de un restaurante, con memoria: una
+ * sub-receta usada en varias recetas se calcula una sola vez.
+ */
+class CostBook {
+  private memo = new Map<number, { costTotal: number; lines: RecipeCostLine[]; warnings: string[] }>();
+  private visiting = new Set<number>();
+
+  constructor(private recipes: Map<number, RecipeRow>) {}
+
+  totals(id: number, depth = 0): { costTotal: number; lines: RecipeCostLine[]; warnings: string[] } {
+    const cached = this.memo.get(id);
+    if (cached) return cached;
+    const recipe = this.recipes.get(id);
+    if (!recipe) return { costTotal: 0, lines: [], warnings: ['Sub-receta inexistente'] };
+    if (this.visiting.has(id) || depth > MAX_DEPTH) {
+      // No debería pasar (se validan al guardar): se avisa en vez de colgarse
+      return { costTotal: 0, lines: [], warnings: [`"${recipe.name}" forma un ciclo de sub-recetas`] };
+    }
+    this.visiting.add(id);
+    const lines = recipe.ingredients.map(ing => this.line(ing, depth));
+    this.visiting.delete(id);
+    const warnings = lines.filter(l => l.error).map(l => `${l.name}: ${l.error}`);
+    const result = { costTotal: lines.reduce((s, l) => s + (l.cost ?? 0), 0), lines, warnings };
+    this.memo.set(id, result);
+    return result;
+  }
+
+  private line(ing: RecipeRow['ingredients'][number], depth: number): RecipeCostLine {
+    if (ing.subRecipeId !== null) return this.subLine(ing, depth);
+    const item = ing.inventoryItem!;
+    const wastePct = ing.wastePct ?? item.wastePct ?? 0;
+    const grossQty = ing.quantity / (1 - wastePct);
     const base = {
-      ingredientId: ing.id, inventoryItemId: item.id, name: item.name,
-      quantity: ing.quantity, unit: ing.unit, itemUnit: item.unit,
+      ingredientId: ing.id, kind: 'item' as const, inventoryItemId: item.id, subRecipeId: null,
+      name: item.name, quantity: ing.quantity, unit: ing.unit, wastePct, grossQty, itemUnit: item.unit,
     };
     try {
-      const convertedQty = convertUnits(ing.quantity, ing.unit, item.unit, {
+      const convertedQty = convertUnits(grossQty, ing.unit, item.unit, {
         itemUnit: item.unit,
         eq: item.equivalenceQty && item.equivalenceUnit ? { qty: item.equivalenceQty, unit: item.equivalenceUnit } : null,
       });
@@ -87,119 +147,130 @@ export function computeCost(recipe: CostInput): RecipeCost {
       // Datos viejos con una unidad que no se entiende: se avisa, no se inventa un costo
       return { ...base, convertedQty: null, cost: null, error: err instanceof UnitError ? err.message : 'No se pudo convertir' };
     }
-  });
-  const warnings = lines.filter(l => l.error).map(l => `${l.name}: ${l.error}`);
-  const costTotal = lines.reduce((sum, l) => sum + (l.cost ?? 0), 0);
+  }
+
+  private subLine(ing: RecipeRow['ingredients'][number], depth: number): RecipeCostLine {
+    const sub = this.recipes.get(ing.subRecipeId!);
+    const wastePct = ing.wastePct ?? 0;
+    const grossQty = ing.quantity / (1 - wastePct);
+    const base = {
+      ingredientId: ing.id, kind: 'subrecipe' as const, inventoryItemId: null, subRecipeId: ing.subRecipeId,
+      name: sub?.name ?? 'Sub-receta', quantity: ing.quantity, unit: ing.unit, wastePct, grossQty,
+    };
+    if (!sub) return { ...base, itemUnit: '', convertedQty: null, cost: null, error: 'La sub-receta no existe' };
+    const t = this.totals(sub.id, depth + 1);
+    const incomplete = t.warnings.length > 0 ? 'la sub-receta tiene el costo incompleto' : null;
+
+    if (isPortionUnit(ing.unit)) {
+      const perPortion = sub.yield > 0 ? t.costTotal / sub.yield : t.costTotal;
+      return { ...base, itemUnit: 'porcion', convertedQty: grossQty, cost: grossQty * perPortion, error: incomplete };
+    }
+    if (!sub.yieldQty || !sub.yieldUnit) {
+      return {
+        ...base, itemUnit: '', convertedQty: null, cost: null,
+        error: `"${sub.name}" no tiene rendimiento en unidades: usala por porción o cargale cuánto rinde`,
+      };
+    }
+    try {
+      const convertedQty = convertUnits(grossQty, ing.unit, sub.yieldUnit);
+      // Costo por unidad de rendimiento: NUNCA el precio de venta de la sub-receta
+      const cost = convertedQty * (t.costTotal / sub.yieldQty);
+      return { ...base, itemUnit: sub.yieldUnit, convertedQty, cost, error: incomplete };
+    } catch (err) {
+      return { ...base, itemUnit: sub.yieldUnit, convertedQty: null, cost: null, error: err instanceof UnitError ? err.message : 'No se pudo convertir' };
+    }
+  }
+}
+
+function costOf(recipe: RecipeRow, book: CostBook): RecipeCost {
+  const { costTotal, lines, warnings } = book.totals(recipe.id);
   const costPerServing = recipe.yield > 0 ? costTotal / recipe.yield : costTotal;
   const suggestedPrice = costPerServing * (1 + recipe.profitPct) * (1 + recipe.vatPct);
   const menuItemPrice = recipe.menuItem ? Number(recipe.menuItem.price) : null;
-
   return {
     costTotal,
     lines,
     warnings,
     complete: warnings.length === 0,
     costPerServing,
+    costPerYieldUnit: recipe.yieldQty ? costTotal / recipe.yieldQty : null,
     suggestedPrice,
     menuItemPrice,
     priceDiff: menuItemPrice !== null ? menuItemPrice - suggestedPrice : null,
   };
 }
 
-export const recipesService = {
-  async list(restaurantId: number) {
-    const recipes = await prisma.recipe.findMany({
-      where: { restaurantId },
-      include: recipeInclude,
-      orderBy: { name: 'asc' },
-    });
-    return recipes.map(r => ({ ...r, cost: computeCost(r) }));
-  },
+async function loadBook(restaurantId: number) {
+  const rows = await prisma.recipe.findMany({ where: { restaurantId }, include: recipeInclude, orderBy: { name: 'asc' } });
+  return { rows, book: new CostBook(new Map(rows.map(r => [r.id, r]))) };
+}
 
-  async getById(restaurantId: number, id: number) {
-    const recipe = await prisma.recipe.findFirst({
-      where: { id, restaurantId },
-      include: recipeInclude,
-    });
-    if (!recipe) throw HttpError.notFound('Receta no encontrada');
-    return { ...recipe, cost: computeCost(recipe) };
-  },
+async function withCost(restaurantId: number, id: number) {
+  const { rows, book } = await loadBook(restaurantId);
+  const recipe = rows.find(r => r.id === id);
+  if (!recipe) throw HttpError.notFound('Receta no encontrada');
+  return { ...recipe, cost: costOf(recipe, book) };
+}
 
-  async create(restaurantId: number, data: CreateRecipeData) {
-    if (data.menuItemId) {
-      const menuItem = await prisma.menuItem.findFirst({ where: { id: data.menuItemId, restaurantId } });
-      if (!menuItem) throw HttpError.badRequest('El ítem del menú indicado no existe');
-    }
-    const ingredients = await validateIngredients(restaurantId, data.ingredients);
+function wasteOrFail(waste: number | null | undefined, name: string) {
+  if (waste === undefined || waste === null) return null;
+  if (!(waste >= 0 && waste <= 0.95)) throw HttpError.badRequest(`"${name}": la merma tiene que estar entre 0 % y 95 %`);
+  return waste;
+}
 
-    const recipe = await prisma.recipe.create({
-      data: {
-        restaurantId,
-        name: data.name,
-        menuItemId: data.menuItemId ?? null,
-        yield: data.yield ?? 1,
-        profitPct: data.profitPct ?? 0.5,
-        vatPct: data.vatPct ?? 0.21,
-        notes: data.notes ?? null,
-        ingredients: { create: ingredients },
-      },
-      include: recipeInclude,
-    });
-    return { ...recipe, cost: computeCost(recipe) };
-  },
-
-  async update(restaurantId: number, id: number, data: UpdateRecipeData) {
-    await recipesService.getById(restaurantId, id);
-
-    if (data.menuItemId) {
-      const menuItem = await prisma.menuItem.findFirst({ where: { id: data.menuItemId, restaurantId } });
-      if (!menuItem) throw HttpError.badRequest('El ítem del menú indicado no existe');
-    }
-    const ingredients = data.ingredients ? await validateIngredients(restaurantId, data.ingredients) : null;
-
-    const recipe = await prisma.$transaction(async (tx) => {
-      if (data.ingredients) {
-        await tx.recipeIngredient.deleteMany({ where: { recipeId: id } });
-      }
-      return tx.recipe.update({
-        where: { id },
-        data: {
-          ...(data.name !== undefined ? { name: data.name } : {}),
-          ...(data.menuItemId !== undefined ? { menuItemId: data.menuItemId } : {}),
-          ...(data.yield !== undefined ? { yield: data.yield } : {}),
-          ...(data.profitPct !== undefined ? { profitPct: data.profitPct } : {}),
-          ...(data.vatPct !== undefined ? { vatPct: data.vatPct } : {}),
-          ...(data.notes !== undefined ? { notes: data.notes } : {}),
-          ...(ingredients ? { ingredients: { create: ingredients } } : {}),
-        },
-        include: recipeInclude,
-      });
-    });
-
-    return { ...recipe, cost: computeCost(recipe) };
-  },
-
-  async remove(restaurantId: number, id: number): Promise<void> {
-    await recipesService.getById(restaurantId, id);
-    await prisma.recipe.delete({ where: { id } });
-  },
-};
+function yieldOrFail(qty: number | null | undefined, unit: string | null | undefined) {
+  if (qty === undefined && unit === undefined) return undefined;
+  if (qty === null || unit === null || unit === '') return { yieldQty: null, yieldUnit: null };
+  const u = unit ? normalizeUnit(unit) : null;
+  if (!u) throw HttpError.badRequest(`Unidad del rendimiento no reconocida. Usá una de: ${UNIT_LIST.join(', ')}`);
+  if (!(qty !== undefined && qty > 0)) throw HttpError.badRequest('El rendimiento tiene que ser mayor a 0');
+  return { yieldQty: qty, yieldUnit: u };
+}
 
 /**
- * Los ingredientes existen en el inventario del restaurante y su unidad se
- * puede convertir a la del insumo (tarea 2.1). Devuelve las líneas a guardar,
- * con la unidad normalizada ("Grs" → "g").
+ * Valida las líneas: cada una es un insumo o una sub-receta del restaurante, con
+ * una unidad convertible, sin ciclos. Devuelve las líneas a guardar.
  */
-async function validateIngredients(restaurantId: number, ingredients: RecipeIngredientInput[]) {
+async function validateIngredients(restaurantId: number, recipeId: number | null, ingredients: RecipeIngredientInput[]) {
   if (ingredients.length === 0) throw HttpError.badRequest('La receta debe tener al menos un ingrediente');
-  const ids = ingredients.map(i => i.inventoryItemId);
-  const items = await prisma.inventoryItem.findMany({ where: { id: { in: ids }, restaurantId } });
-  if (items.length !== new Set(ids).size) {
+  for (const ing of ingredients) {
+    if (!!ing.inventoryItemId === !!ing.subRecipeId) {
+      throw HttpError.badRequest('Cada ingrediente es un insumo o una sub-receta (uno de los dos)');
+    }
+  }
+  const itemIds = ingredients.map(i => i.inventoryItemId).filter((x): x is number => !!x);
+  const subIds = ingredients.map(i => i.subRecipeId).filter((x): x is number => !!x);
+  const items = await prisma.inventoryItem.findMany({ where: { id: { in: itemIds }, restaurantId } });
+  if (items.length !== new Set(itemIds).size) {
     throw HttpError.badRequest('Alguno de los ingredientes no existe en el inventario de este restaurante');
   }
-  const byId = new Map(items.map(i => [i.id, i]));
+  if (recipeId !== null && subIds.includes(recipeId)) throw HttpError.badRequest('Una receta no puede usarse a sí misma');
+  const subs = await prisma.recipe.findMany({ where: { id: { in: subIds }, restaurantId } });
+  if (subs.length !== new Set(subIds).size) throw HttpError.badRequest('Alguna sub-receta no existe en este restaurante');
+
+  if (recipeId !== null && subIds.length > 0) await assertNoCycle(restaurantId, recipeId, subIds);
+
+  const itemById = new Map(items.map(i => [i.id, i]));
+  const subById = new Map(subs.map(r => [r.id, r]));
   return ingredients.map((ing) => {
-    const item = byId.get(ing.inventoryItemId)!;
+    if (ing.subRecipeId) {
+      const sub = subById.get(ing.subRecipeId)!;
+      const waste = wasteOrFail(ing.wastePct, sub.name);
+      if (isPortionUnit(ing.unit)) return { subRecipeId: sub.id, quantity: ing.quantity, unit: 'porcion', wastePct: waste };
+      const unit = normalizeUnit(ing.unit);
+      if (!unit) throw HttpError.badRequest(`"${sub.name}": unidad no reconocida "${ing.unit}". Usá "porcion" o una de: ${UNIT_LIST.join(', ')}`);
+      if (!sub.yieldQty || !sub.yieldUnit) {
+        throw HttpError.badRequest(`"${sub.name}" no tiene rendimiento en unidades: usala por porción o cargale cuánto rinde`);
+      }
+      try {
+        convertUnits(1, unit, sub.yieldUnit);
+      } catch (err) {
+        throw HttpError.badRequest(`"${sub.name}" (rinde en ${sub.yieldUnit}): ${err instanceof UnitError ? err.message : 'unidad incompatible'}`);
+      }
+      return { subRecipeId: sub.id, quantity: ing.quantity, unit, wastePct: waste };
+    }
+    const item = itemById.get(ing.inventoryItemId!)!;
+    const waste = wasteOrFail(ing.wastePct, item.name);
     const unit = normalizeUnit(ing.unit);
     if (!unit) throw HttpError.badRequest(`"${item.name}": unidad no reconocida "${ing.unit}". Usá una de: ${UNIT_LIST.join(', ')}`);
     try {
@@ -210,6 +281,132 @@ async function validateIngredients(restaurantId: number, ingredients: RecipeIngr
     } catch (err) {
       throw HttpError.badRequest(`"${item.name}" (se maneja en ${item.unit}): ${err instanceof UnitError ? err.message : 'unidad incompatible'}`);
     }
-    return { inventoryItemId: ing.inventoryItemId, quantity: ing.quantity, unit };
+    return { inventoryItemId: item.id, quantity: ing.quantity, unit, wastePct: waste };
   });
 }
+
+/** Rechaza que `recipeId` termine usándose a sí misma a través de sus nuevas sub-recetas. */
+async function assertNoCycle(restaurantId: number, recipeId: number, newSubIds: number[]) {
+  const edges = await prisma.recipeIngredient.findMany({
+    where: { recipe: { restaurantId }, subRecipeId: { not: null } },
+    select: { recipeId: true, subRecipeId: true },
+  });
+  const graph = new Map<number, number[]>();
+  for (const e of edges) {
+    if (e.recipeId === recipeId) continue; // sus líneas se reemplazan por las nuevas
+    graph.set(e.recipeId, [...(graph.get(e.recipeId) ?? []), e.subRecipeId!]);
+  }
+  graph.set(recipeId, newSubIds);
+  const names = new Map((await prisma.recipe.findMany({ where: { restaurantId }, select: { id: true, name: true } })).map(r => [r.id, r.name]));
+
+  const path: number[] = [];
+  const seen = new Set<number>();
+  const dfs = (node: number): boolean => {
+    if (node === recipeId && path.length > 0) return true;
+    if (seen.has(node)) return false;
+    seen.add(node);
+    path.push(node);
+    for (const next of graph.get(node) ?? []) if (dfs(next)) return true;
+    path.pop();
+    return false;
+  };
+  if (dfs(recipeId)) {
+    const chain = [...path, recipeId].map(id => names.get(id) ?? `#${id}`).join(' → ');
+    throw HttpError.badRequest(`Eso formaría un ciclo de sub-recetas: ${chain}`);
+  }
+}
+
+export const recipesService = {
+  async list(restaurantId: number) {
+    const { rows, book } = await loadBook(restaurantId);
+    return rows.map(r => ({ ...r, cost: costOf(r, book) }));
+  },
+
+  async getById(restaurantId: number, id: number) {
+    return withCost(restaurantId, id);
+  },
+
+  async create(restaurantId: number, data: CreateRecipeData) {
+    if (data.menuItemId) {
+      const menuItem = await prisma.menuItem.findFirst({ where: { id: data.menuItemId, restaurantId } });
+      if (!menuItem) throw HttpError.badRequest('El ítem del menú indicado no existe');
+    }
+    const ingredients = await validateIngredients(restaurantId, null, data.ingredients);
+    const yieldUnits = yieldOrFail(data.yieldQty, data.yieldUnit);
+
+    const recipe = await prisma.recipe.create({
+      data: {
+        restaurantId,
+        name: data.name,
+        menuItemId: data.menuItemId ?? null,
+        yield: data.yield ?? 1,
+        ...(yieldUnits ?? {}),
+        profitPct: data.profitPct ?? 0.5,
+        vatPct: data.vatPct ?? 0.21,
+        notes: data.notes ?? null,
+        ingredients: { create: ingredients },
+      },
+    });
+    return withCost(restaurantId, recipe.id);
+  },
+
+  async update(restaurantId: number, id: number, data: UpdateRecipeData) {
+    const current = await prisma.recipe.findFirst({
+      where: { id, restaurantId },
+      include: { usedIn: { include: { recipe: { select: { name: true } } } } },
+    });
+    if (!current) throw HttpError.notFound('Receta no encontrada');
+
+    if (data.menuItemId) {
+      const menuItem = await prisma.menuItem.findFirst({ where: { id: data.menuItemId, restaurantId } });
+      if (!menuItem) throw HttpError.badRequest('El ítem del menú indicado no existe');
+    }
+    const ingredients = data.ingredients ? await validateIngredients(restaurantId, id, data.ingredients) : null;
+    const yieldUnits = yieldOrFail(data.yieldQty, data.yieldUnit);
+
+    // Si otras recetas la usan por unidades, el rendimiento tiene que seguir siendo compatible
+    if (yieldUnits !== undefined) {
+      for (const use of current.usedIn.filter(u => !isPortionUnit(u.unit))) {
+        if (!yieldUnits.yieldUnit) {
+          throw HttpError.badRequest(`"${use.recipe.name}" la usa en ${use.unit}: no se le puede quitar el rendimiento`);
+        }
+        try {
+          convertUnits(1, use.unit, yieldUnits.yieldUnit);
+        } catch {
+          throw HttpError.badRequest(`"${use.recipe.name}" la usa en ${use.unit}: el rendimiento tiene que ser compatible`);
+        }
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (ingredients) await tx.recipeIngredient.deleteMany({ where: { recipeId: id } });
+      await tx.recipe.update({
+        where: { id },
+        data: {
+          ...(data.name !== undefined ? { name: data.name } : {}),
+          ...(data.menuItemId !== undefined ? { menuItemId: data.menuItemId } : {}),
+          ...(data.yield !== undefined ? { yield: data.yield } : {}),
+          ...(yieldUnits ?? {}),
+          ...(data.profitPct !== undefined ? { profitPct: data.profitPct } : {}),
+          ...(data.vatPct !== undefined ? { vatPct: data.vatPct } : {}),
+          ...(data.notes !== undefined ? { notes: data.notes } : {}),
+          ...(ingredients ? { ingredients: { create: ingredients } } : {}),
+        },
+      });
+    });
+    return withCost(restaurantId, id);
+  },
+
+  async remove(restaurantId: number, id: number): Promise<void> {
+    const recipe = await prisma.recipe.findFirst({
+      where: { id, restaurantId },
+      include: { usedIn: { include: { recipe: { select: { name: true } } } } },
+    });
+    if (!recipe) throw HttpError.notFound('Receta no encontrada');
+    if (recipe.usedIn.length > 0) {
+      const names = [...new Set(recipe.usedIn.map(u => u.recipe.name))].join(', ');
+      throw HttpError.conflict(`Se usa como sub-receta en: ${names}. Sacala de ahí primero.`);
+    }
+    await prisma.recipe.delete({ where: { id } });
+  },
+};

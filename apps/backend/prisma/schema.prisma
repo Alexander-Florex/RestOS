@@ -516,7 +516,13 @@ model Recipe {
   profitPct    Float      @default(0.5) // % de ganancia
   vatPct       Float      @default(0.21)
   notes        String?    @db.Text
-  ingredients  RecipeIngredient[]
+  /// Rendimiento en unidades (tarea 2.3), ej. 500 cc de chimichurri. Se usa cuando
+  /// la receta es componente de otra: costo por unidad de rendimiento = costo total / yieldQty
+  yieldQty     Float?
+  yieldUnit    String?
+  ingredients  RecipeIngredient[] @relation("RecipeLines")
+  /// Recetas que usan esta como sub-receta
+  usedIn       RecipeIngredient[] @relation("SubRecipeUses")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -525,17 +531,25 @@ model Recipe {
   @@map("recipes")
 }
 
+/// Línea de receta: un insumo O una sub-receta (exactamente uno; CHECK en la base).
 model RecipeIngredient {
-  id              Int           @id @default(autoincrement())
+  id              Int            @id @default(autoincrement())
   recipeId        Int
-  recipe          Recipe        @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  inventoryItemId Int
-  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  recipe          Recipe         @relation("RecipeLines", fields: [recipeId], references: [id], onDelete: Cascade)
+  inventoryItemId Int?
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  /// Sub-receta (tarea 2.3); se costea por unidad de rendimiento o por porción
+  subRecipeId     Int?
+  subRecipe       Recipe?        @relation("SubRecipeUses", fields: [subRecipeId], references: [id], onDelete: Restrict)
+  /// Cantidad neta (la que va al plato)
   quantity        Float
   unit            String
+  /// Merma de esta línea (tarea 2.4), 0–0,95. null = la del insumo
+  wastePct        Float?
 
   @@index([recipeId])
   @@index([inventoryItemId])
+  @@index([subRecipeId])
   @@map("recipe_ingredients")
 }
 
