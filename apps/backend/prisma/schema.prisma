@@ -251,6 +251,9 @@ model MenuCategory {
   name         String
   color        String     @default("#10b981")
   order        Int        @default(0)
+  /// Margen objetivo de la categoría (tarea 2.6), sobre el precio sin IVA, 0–0,95.
+  /// Es el que se propone a las recetas nuevas de sus platos.
+  targetMargin Float?
   createdAt    DateTime   @default(now())
   // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
   updatedAt    DateTime   @default(now()) @updatedAt

@@ -10,6 +10,8 @@ const createSchema = z.object({
   name: z.string().min(1, 'Nombre requerido').trim(),
   color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Color inválido (formato #rrggbb)').optional(),
   order: z.coerce.number().int().optional(),
+  // Margen objetivo sobre el precio sin IVA (tarea 2.6)
+  targetMargin: z.coerce.number().min(0).max(0.95, 'El margen tiene que ser menor a 95 %').optional().nullable(),
 });
 
 const updateSchema = createSchema.partial();

@@ -22,7 +22,8 @@ const createSchema = z.object({
   // Rendimiento en unidades (ej. 500 cc), para usarla como sub-receta
   yieldQty: z.coerce.number().positive().optional().nullable(),
   yieldUnit: z.string().trim().max(20).optional().nullable(),
-  profitPct: z.coerce.number().min(0).optional(),
+  // Margen objetivo SOBRE EL PRECIO (fórmula del cliente): 0–0,95
+  profitPct: z.coerce.number().min(0).max(0.95, 'El margen tiene que ser menor a 95 % (es sobre el precio)').optional(),
   vatPct: z.coerce.number().min(0).optional(),
   notes: z.string().trim().optional().nullable(),
   ingredients: z.array(ingredientSchema).min(1, 'Agregá al menos un ingrediente'),
@@ -34,7 +35,22 @@ const updateSchema = createSchema.partial().extend({
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
+const alertsQuery = z.object({ days: z.coerce.number().int().min(1).max(365).default(30) });
+
 export const recipesController = {
+  /** Insumos que subieron y platos afectados (tarea 2.8) */
+  async costAlerts(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { days } = alertsQuery.parse(req.query);
+    res.json({ alerts: await recipesService.costAlerts(req.user.restaurantId, days) });
+  },
+
+  /** Costo y margen de cada plato de la carta (tarea 2.7) */
+  async menuCosts(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    res.json({ items: await recipesService.menuCosts(req.user.restaurantId) });
+  },
+
   async list(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const recipes = await recipesService.list(req.user.restaurantId);

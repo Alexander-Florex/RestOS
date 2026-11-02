@@ -337,6 +337,8 @@ export interface MenuCategory {
   name: string;
   color: string;
   order: number;
+  /** Margen objetivo sobre el precio sin IVA (0–0,95) */
+  targetMargin: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -345,6 +347,7 @@ export interface CreateMenuCategoryBody {
   name: string;
   color?: string;
   order?: number;
+  targetMargin?: number | null;
 }
 
 export const menuCategoriesApi = {
@@ -640,9 +643,51 @@ export interface RecipeCost {
   costPerServing: number;
   /** Costo por unidad de rendimiento (si la receta rinde en unidades) */
   costPerYieldUnit: number | null;
-  suggestedPrice: number;
+  /** Margen objetivo (sobre el precio sin IVA) */
+  margin: number;
+  /** Costo de mercadería objetivo = 1 − margen */
+  foodCostPct: number;
+  /** Precio sugerido sin IVA = costo / (1 − margen) */
+  suggestedPriceNet: number | null;
+  /** Precio sugerido con IVA */
+  suggestedPrice: number | null;
+  /** Precio de la carta (con IVA) */
   menuItemPrice: number | null;
+  /** Margen real con el precio de la carta */
+  actualMargin: number | null;
+  actualFoodCostPct: number | null;
+  belowTarget: boolean;
   priceDiff: number | null;
+}
+
+export interface MenuItemCost {
+  menuItemId: number;
+  recipeId: number;
+  recipeName: string;
+  costPerServing: number;
+  complete: boolean;
+  margin: number;
+  actualMargin: number | null;
+  actualFoodCostPct: number | null;
+  belowTarget: boolean;
+  suggestedPrice: number | null;
+}
+
+export interface CostAlert {
+  inventoryItemId: number;
+  itemName: string;
+  unit: string;
+  previousCost: number;
+  currentCost: number;
+  changePct: number;
+  changedAt: string;
+  dishes: Array<{
+    menuItemId: number; menuItemName: string; recipeId: number; recipeName: string;
+    menuItemPrice: number | null; costBefore: number; costNow: number;
+    previousMargin: number | null; currentMargin: number | null; targetMargin: number;
+    belowTarget: boolean; suggestedPrice: number | null;
+  }>;
+  otherRecipes: string[];
 }
 
 export interface Recipe {
@@ -697,6 +742,12 @@ export const recipesApi = {
 
   remove: (id: number) =>
     request<void>(`/recipes/${id}`, { method: 'DELETE' }),
+
+  /** Costo y margen de cada plato de la carta con receta (tarea 2.7) */
+  menuCosts: () => request<{ items: MenuItemCost[] }>('/recipes/menu-costs'),
+
+  /** Insumos que subieron y platos afectados (tarea 2.8) */
+  costAlerts: (days = 30) => request<{ alerts: CostAlert[] }>(`/recipes/cost-alerts?days=${days}`),
 };
 
 // ──────────────────────────────────────────────

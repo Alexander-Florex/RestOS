@@ -11,7 +11,7 @@ import { prisma } from '../src/lib/prisma.js';
 import { initSocket } from '../src/sockets/index.js';
 import { HttpError } from '../src/lib/http-error.js';
 import { inventoryService } from '../src/modules/inventory/inventory.service.js';
-import { recipesService } from '../src/modules/recipes/recipes.service.js';
+import { pricing, recipesService } from '../src/modules/recipes/recipes.service.js';
 
 const httpServer = http.createServer();
 before(() => { initSocket(httpServer); });
@@ -203,4 +203,71 @@ test('sub-recetas: ciclos, sin rendimiento y borrado en uso se rechazan', async 
 
   await rejectsWith(recipesService.remove(rid, chimi.id), 409, /Se usa como sub-receta en: Salsa/);
   await rejectsWith(recipesService.update(rid, chimi.id, { yieldQty: 1, yieldUnit: 'kg' }), 400, /Salsa.*compatible/);
+});
+
+// ── 2.6 Precio y margen (fórmula del cliente) ──
+
+test('fórmula del cliente: precio = costo / (1 − margen); con IVA × 1,21; costo de mercadería = 1 − margen', () => {
+  const p = pricing(1000, 0.6, 0.21, null);
+  close(p.suggestedPriceNet!, 2500);
+  close(p.suggestedPrice!, 3025);
+  close(p.foodCostPct, 0.4);
+  // Ejemplo de las planillas: margen 44 % → costo de mercadería 56 %
+  close(pricing(560, 0.44, 0.21, null).foodCostPct, 0.56);
+  // Margen real con el precio de la carta (con IVA): $3.630 → $3.000 sin IVA → 66,7 %
+  const real = pricing(1000, 0.6, 0.21, 3630);
+  close(real.actualMargin!, 2 / 3);
+  assert.equal(real.belowTarget, false);
+  assert.equal(pricing(1000, 0.7, 0.21, 3630).belowTarget, true);
+  assert.equal(pricing(1000, 1, 0.21, null).suggestedPrice, null); // margen inválido: no se inventa un precio
+});
+
+test('margen objetivo de la categoría y costo/margen de cada plato de la carta (2.7)', async () => {
+  const { rid, bife, chimi } = await chimichurriSetup();
+  await prisma.menuCategory.create({ data: { restaurantId: rid, name: 'Parrilla', targetMargin: 0.7 } });
+  const plato = await prisma.menuItem.create({ data: { restaurantId: rid, name: 'Bife', category: 'Parrilla', price: '9000.00' } });
+  const r = await recipesService.create(rid, {
+    name: 'Bife', menuItemId: plato.id, ingredients: [
+      { inventoryItemId: bife.id, quantity: 300, unit: 'g' },          // $3.600
+      { subRecipeId: chimi.id, quantity: 30, unit: 'cc' },             // $240
+    ],
+  });
+  close(r.profitPct, 0.7); // tomó el objetivo de la categoría
+  close(r.cost.costPerServing, 3840);
+  close(r.cost.suggestedPrice!, 3840 / 0.3 * 1.21); // $15.488
+  // $9.000 con IVA → $7.438 sin IVA → margen real 48,4 %: por debajo del 70 %
+  const [c] = await recipesService.menuCosts(rid);
+  assert.equal(c.menuItemId, plato.id);
+  close(c.actualMargin!, 1 - 3840 / (9000 / 1.21));
+  assert.equal(c.belowTarget, true);
+});
+
+// ── 2.8 Alertas de costos ──
+
+test('alertas: sube un insumo y avisa qué platos pierden margen (también vía sub-receta)', async () => {
+  const { rid, aceite, chimi } = await chimichurriSetup();
+  const plato = await prisma.menuItem.create({ data: { restaurantId: rid, name: 'Provoleta', category: 'Entradas', price: '2420.00' } });
+  await recipesService.create(rid, {
+    name: 'Provoleta', menuItemId: plato.id, profitPct: 0.5,
+    ingredients: [{ subRecipeId: chimi.id, quantity: 2, unit: 'porcion' }], // 2 × $400 = $800
+  });
+  assert.deepEqual(await recipesService.costAlerts(rid), []); // nada subió todavía
+
+  await inventoryService.update(rid, aceite.id, { costPerUnit: 6000 }); // +50 %
+  const [alert] = await recipesService.costAlerts(rid);
+  assert.equal(alert.itemName, 'Aceite');
+  close(alert.changePct, 0.5);
+  assert.deepEqual(alert.otherRecipes, ['Chimichurri']);
+  const [dish] = alert.dishes;
+  assert.equal(dish.menuItemName, 'Provoleta');
+  close(dish.costBefore, 800);
+  close(dish.costNow, 1200);
+  close(dish.previousMargin!, 1 - 800 / 2000);   // 60 %
+  close(dish.currentMargin!, 1 - 1200 / 2000);   // 40 %
+  assert.equal(dish.belowTarget, true);
+  close(dish.suggestedPrice!, 1200 / 0.5 * 1.21); // $2.904 restablece el 50 %
+
+  // Una baja de precio no genera alerta
+  await inventoryService.update(rid, aceite.id, { costPerUnit: 3000 });
+  assert.deepEqual(await recipesService.costAlerts(rid), []);
 });

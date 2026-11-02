@@ -28,6 +28,7 @@ import {
 import { cn } from '../lib/utils';
 import { canConvert, convertUnits, FAMILY_LABEL, normalizeUnit, unitFamily, UNIT_LIST, UNITS } from '@shared/units';
 import { PriceHistoryDialog } from './PriceHistoryDialog';
+import { recipesApi } from '../lib/api';
 
 interface FormState {
   name: string;
@@ -89,6 +90,22 @@ function equivalenceUnits(form: FormState) {
   if (!unit) return { others: [] as string[], selected: '' };
   const others = UNIT_LIST.filter(u => UNITS[u].family !== unitFamily(unit));
   return { others, selected: (others as string[]).includes(form.eqUnit) ? form.eqUnit : others[0] };
+}
+
+/** Después de subir un costo: cuántos platos quedan por debajo del margen objetivo. */
+async function warnCostIncrease(itemId: number, name: string) {
+  try {
+    const { alerts } = await recipesApi.costAlerts(1);
+    const alert = alerts.find(a => a.inventoryItemId === itemId);
+    if (!alert || alert.dishes.length === 0) return;
+    const below = alert.dishes.filter(d => d.belowTarget);
+    toast.warning(`Subió el costo de "${name}": afecta ${alert.dishes.length} ${alert.dishes.length === 1 ? 'plato' : 'platos'}`, {
+      description: below.length
+        ? `${below.map(d => d.menuItemName).join(', ')} ${below.length === 1 ? 'quedó' : 'quedaron'} debajo del margen objetivo. Mirá los precios sugeridos en Recetas.`
+        : 'Todos siguen dentro del margen objetivo. El detalle está en Recetas.',
+      duration: 12000,
+    });
+  } catch { /* sin permiso de recetas: no se avisa */ }
 }
 
 export function InventoryPage() {
@@ -207,8 +224,10 @@ export function InventoryPage() {
         wastePct: form.wastePct === '' ? 0 : Number(form.wastePct) / 100,
       };
       if (editing) {
-        await inventoryApi.update(editing.id, data);
+        const { item: saved } = await inventoryApi.update(editing.id, data);
         toast.success(`"${data.name}" actualizado`);
+        // Subió el costo: avisar si algún plato pierde margen (tarea 2.8)
+        if (Number(saved.costPerUnit) > Number(editing.costPerUnit)) void warnCostIncrease(saved.id, saved.name);
       } else {
         await inventoryApi.create(data);
         toast.success(`"${data.name}" agregado al inventario`);

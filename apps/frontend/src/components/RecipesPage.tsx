@@ -25,6 +25,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from './ui/dialog';
 import { cn } from '../lib/utils';
+import { CostAlertsPanel } from './CostAlertsPanel';
 import { canConvert, normalizeUnit, UNIT_LIST, UNITS } from '@shared/units';
 import type { InventoryItem, Recipe as RecipeT } from '../lib/api';
 
@@ -127,7 +128,7 @@ export function RecipesPage() {
     if (!Number.isInteger(yieldN) || yieldN <= 0) { toast.error('El rendimiento debe ser un entero mayor a 0'); return; }
     const profitPct = Number(form.profitPct);
     const vatPct = Number(form.vatPct);
-    if (Number.isNaN(profitPct) || profitPct < 0) { toast.error('% de ganancia inválido'); return; }
+    if (Number.isNaN(profitPct) || profitPct < 0 || profitPct > 95) { toast.error('El margen tiene que estar entre 0 y 95 % (es sobre el precio)'); return; }
     if (Number.isNaN(vatPct) || vatPct < 0) { toast.error('% de IVA inválido'); return; }
 
     const ingredients: RecipeIngredientBody[] = [];
@@ -209,6 +210,9 @@ export function RecipesPage() {
         </Button>
       </div>
 
+      {/* Alertas de costos: insumos que subieron y platos que perdieron margen (tarea 2.8) */}
+      <CostAlertsPanel refreshKey={recipes} />
+
       {recipes.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-sm text-muted-foreground">
           No hay recetas cargadas. Creá la primera para calcular costos y precio sugerido.
@@ -246,21 +250,29 @@ export function RecipesPage() {
                     )}
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Precio sugerido</p>
-                    <p className="font-semibold tabular-nums text-brand-400">{formatMoney(cost.suggestedPrice)}</p>
+                    <p className="text-muted-foreground">Sugerido (con IVA)</p>
+                    <p className="font-semibold tabular-nums text-brand-400">{cost.suggestedPrice !== null ? formatMoney(cost.suggestedPrice) : '—'}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Margen {Math.round(cost.margin * 100)}% · costo merc. {Math.round(cost.foodCostPct * 100)}%
+                    </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Precio en menú</p>
                     <p className="font-semibold tabular-nums">
                       {cost.menuItemPrice !== null ? formatMoney(cost.menuItemPrice) : '—'}
                     </p>
+                    {cost.actualMargin !== null && (
+                      <p className={cn('text-[11px]', cost.belowTarget ? 'font-semibold text-rose-300' : 'text-muted-foreground')}>
+                        Margen real {Math.round(cost.actualMargin * 1000) / 10}%{cost.belowTarget && ' (debajo del objetivo)'}
+                      </p>
+                    )}
                   </div>
                 </div>
 
                 {/* Costo incompleto: hay ingredientes con una unidad que no se puede convertir */}
                 {!cost.complete && (
                   <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-2.5 text-xs text-amber-200">
-                    <p className="font-semibold">Costo incompleto: corregí la unidad de</p>
+                    <p className="font-semibold">Revisá esta receta:</p>
                     {cost.warnings.map(w => <p key={w}>• {w}</p>)}
                   </div>
                 )}
@@ -331,8 +343,8 @@ export function RecipesPage() {
                   disabled={submitting} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="rProfit">% Ganancia</Label>
-                <Input id="rProfit" type="number" min="0" step="1" value={form.profitPct}
+                <Label htmlFor="rProfit" title="Sobre el precio: precio = costo / (1 − margen)">Margen %</Label>
+                <Input id="rProfit" type="number" min="0" max="95" step="1" value={form.profitPct}
                   onChange={e => setForm(f => ({ ...f, profitPct: e.target.value }))}
                   disabled={submitting} />
               </div>

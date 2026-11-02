@@ -24,6 +24,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from './ui/confirm-dialog';
 import { cn } from '../lib/utils';
 import { MenuOptionsDialog } from './MenuOptionsDialog';
+import { CategoryMarginInput, MenuCostBadge, useMenuCosts } from './MenuCostInfo';
 
 // ── Formulario de ítem ──
 interface ItemForm {
@@ -45,6 +46,9 @@ export function MenuPage() {
   const confirm = useConfirm();
 
   const { items, loading } = useMenu();
+  // Costo y margen de cada plato con receta (tareas 2.6 y 2.7): solo con permiso de recetas
+  const canSeeCosts = can('recipes.manage');
+  const menuCosts = useMenuCosts(canSeeCosts, items);
   const { categories: categoryEntities, loading: categoriesLoading } = useMenuCategories();
 
   const categories = useMemo(
@@ -316,6 +320,7 @@ export function MenuPage() {
                         <p className="text-xs text-muted-foreground">{count} {count === 1 ? 'ítem' : 'ítems'}</p>
                       </div>
                     )}
+                    {!isEditing && canSeeCosts && <CategoryMarginInput category={cat} />}
                     <div className="flex items-center gap-1">
                       {isEditing ? (
                         <>
@@ -393,6 +398,7 @@ export function MenuPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums text-brand-400">
                       {formatMoney(item.price)}
+                      {canSeeCosts && <MenuCostBadge cost={menuCosts.get(item.id)} />}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider', ss.text, ss.bg)}>

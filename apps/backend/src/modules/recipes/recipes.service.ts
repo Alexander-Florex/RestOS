@@ -11,7 +11,12 @@
 // El costo se calcula al leer: si sube un insumo, todas las recetas que lo
 // usan (también a través de sub-recetas) quedan actualizadas en cascada.
 //
-// Precio sugerido = costo por porción × (1 + profitPct) × (1 + vatPct).
+// Precio (tarea 2.6, fórmula del cliente): el margen es SOBRE EL PRECIO.
+//   precio sin IVA = costo por porción / (1 − margen)
+//   precio con IVA = precio sin IVA × (1 + IVA)
+//   costo de mercadería % = 1 − margen
+// profitPct de la receta es ese margen objetivo (0–0,95). Los precios de la carta
+// se toman CON IVA: el margen real = 1 − costo / (precio de carta / (1 + IVA)).
 // ──────────────────────────────────────────────
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
@@ -77,9 +82,44 @@ export interface RecipeCost {
   costPerServing: number;
   /** Costo por unidad de rendimiento (si la receta tiene yieldQty), para usarla como sub-receta */
   costPerYieldUnit: number | null;
-  suggestedPrice: number;
+  /** Margen objetivo de la receta (sobre el precio sin IVA) */
+  margin: number;
+  /** Costo de mercadería objetivo = 1 − margen */
+  foodCostPct: number;
+  /** Precio sugerido sin IVA = costo por porción / (1 − margen) */
+  suggestedPriceNet: number | null;
+  /** Precio sugerido con IVA (el que iría en la carta) */
+  suggestedPrice: number | null;
+  /** Precio actual en la carta (con IVA), si la receta está vinculada a un plato */
   menuItemPrice: number | null;
+  /** Margen real con el precio de la carta */
+  actualMargin: number | null;
+  actualFoodCostPct: number | null;
+  /** El precio de la carta deja un margen menor al objetivo */
+  belowTarget: boolean;
   priceDiff: number | null; // menuItemPrice - suggestedPrice
+}
+
+/** Fórmula del cliente (tarea 2.6). Exportada para tests. */
+export function pricing(costPerServing: number, margin: number, vatPct: number, menuPriceWithVat: number | null) {
+  const valid = margin >= 0 && margin < 1;
+  const suggestedPriceNet = valid ? costPerServing / (1 - margin) : null;
+  const suggestedPrice = suggestedPriceNet !== null ? suggestedPriceNet * (1 + vatPct) : null;
+  const net = menuPriceWithVat !== null && menuPriceWithVat > 0 ? menuPriceWithVat / (1 + vatPct) : null;
+  const actualFoodCostPct = net !== null ? costPerServing / net : null;
+  const actualMargin = actualFoodCostPct !== null ? 1 - actualFoodCostPct : null;
+  return {
+    margin,
+    foodCostPct: 1 - margin,
+    suggestedPriceNet,
+    suggestedPrice,
+    menuItemPrice: menuPriceWithVat,
+    actualMargin,
+    actualFoodCostPct,
+    // Tolerancia de medio punto para no marcar diferencias de redondeo
+    belowTarget: actualMargin !== null && actualMargin < margin - 0.005,
+    priceDiff: menuPriceWithVat !== null && suggestedPrice !== null ? menuPriceWithVat - suggestedPrice : null,
+  };
 }
 
 const PORTION = new Set(['porcion', 'porciones', 'porc', 'porcn']);
@@ -108,7 +148,8 @@ class CostBook {
   private memo = new Map<number, { costTotal: number; lines: RecipeCostLine[]; warnings: string[] }>();
   private visiting = new Set<number>();
 
-  constructor(private recipes: Map<number, RecipeRow>) {}
+  /** costOverrides: costo por unidad a usar para ciertos insumos (ej. el anterior a una suba) */
+  constructor(private recipes: Map<number, RecipeRow>, private costOverrides: Map<number, number> = new Map()) {}
 
   totals(id: number, depth = 0): { costTotal: number; lines: RecipeCostLine[]; warnings: string[] } {
     const cached = this.memo.get(id);
@@ -142,7 +183,8 @@ class CostBook {
         itemUnit: item.unit,
         eq: item.equivalenceQty && item.equivalenceUnit ? { qty: item.equivalenceQty, unit: item.equivalenceUnit } : null,
       });
-      return { ...base, convertedQty, cost: convertedQty * Number(item.costPerUnit), error: null };
+      const unitCost = this.costOverrides.get(item.id) ?? Number(item.costPerUnit);
+      return { ...base, convertedQty, cost: convertedQty * unitCost, error: null };
     } catch (err) {
       // Datos viejos con una unidad que no se entiende: se avisa, no se inventa un costo
       return { ...base, convertedQty: null, cost: null, error: err instanceof UnitError ? err.message : 'No se pudo convertir' };
@@ -185,18 +227,18 @@ class CostBook {
 function costOf(recipe: RecipeRow, book: CostBook): RecipeCost {
   const { costTotal, lines, warnings } = book.totals(recipe.id);
   const costPerServing = recipe.yield > 0 ? costTotal / recipe.yield : costTotal;
-  const suggestedPrice = costPerServing * (1 + recipe.profitPct) * (1 + recipe.vatPct);
   const menuItemPrice = recipe.menuItem ? Number(recipe.menuItem.price) : null;
+  const allWarnings = recipe.profitPct >= 1
+    ? [...warnings, 'El margen tiene que ser menor a 100 % (se carga sobre el precio, no sobre el costo)']
+    : warnings;
   return {
     costTotal,
     lines,
-    warnings,
-    complete: warnings.length === 0,
+    warnings: allWarnings,
+    complete: allWarnings.length === 0,
     costPerServing,
     costPerYieldUnit: recipe.yieldQty ? costTotal / recipe.yieldQty : null,
-    suggestedPrice,
-    menuItemPrice,
-    priceDiff: menuItemPrice !== null ? menuItemPrice - suggestedPrice : null,
+    ...pricing(costPerServing, recipe.profitPct, recipe.vatPct, menuItemPrice),
   };
 }
 
@@ -316,7 +358,142 @@ async function assertNoCycle(restaurantId: number, recipeId: number, newSubIds: 
   }
 }
 
+/** Margen objetivo de la categoría del plato (por nombre), o null. */
+async function categoryTargetMargin(restaurantId: number, menuItemId: number | null): Promise<number | null> {
+  if (!menuItemId) return null;
+  const item = await prisma.menuItem.findFirst({ where: { id: menuItemId, restaurantId }, select: { category: true } });
+  if (!item) return null;
+  const cat = await prisma.menuCategory.findFirst({ where: { restaurantId, name: item.category }, select: { targetMargin: true } });
+  return cat?.targetMargin ?? null;
+}
+
+/** ¿La receta usa el insumo, directo o a través de sub-recetas? */
+function usesItem(recipes: Map<number, RecipeRow>, recipeId: number, itemId: number, seen = new Set<number>()): boolean {
+  if (seen.has(recipeId)) return false;
+  seen.add(recipeId);
+  const r = recipes.get(recipeId);
+  if (!r) return false;
+  return r.ingredients.some(l => l.inventoryItemId === itemId || (l.subRecipeId !== null && usesItem(recipes, l.subRecipeId, itemId, seen)));
+}
+
+export interface CostAlertDish {
+  menuItemId: number;
+  menuItemName: string;
+  recipeId: number;
+  recipeName: string;
+  menuItemPrice: number | null;
+  costBefore: number;
+  costNow: number;
+  previousMargin: number | null;
+  currentMargin: number | null;
+  targetMargin: number;
+  belowTarget: boolean;
+  /** Precio con IVA que restablece el margen objetivo */
+  suggestedPrice: number | null;
+}
+
+export interface CostAlert {
+  inventoryItemId: number;
+  itemName: string;
+  unit: string;
+  previousCost: number;
+  currentCost: number;
+  changePct: number;
+  changedAt: string;
+  dishes: CostAlertDish[];
+  /** Recetas afectadas sin plato en la carta (ej. sub-recetas) */
+  otherRecipes: string[];
+}
+
+export interface MenuItemCost {
+  menuItemId: number;
+  recipeId: number;
+  recipeName: string;
+  costPerServing: number;
+  complete: boolean;
+  margin: number;
+  actualMargin: number | null;
+  actualFoodCostPct: number | null;
+  belowTarget: boolean;
+  suggestedPrice: number | null;
+}
+
 export const recipesService = {
+  /**
+   * Alertas de costos (tarea 2.8): insumos que subieron en los últimos `days`
+   * días (según el historial de precios) y qué platos se ven afectados, con su
+   * margen anterior y actual y el precio que restablece el margen objetivo.
+   */
+  async costAlerts(restaurantId: number, days = 30): Promise<CostAlert[]> {
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+    const changes = await prisma.priceHistory.findMany({
+      where: { restaurantId, createdAt: { gte: since }, previousCost: { not: null } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      include: { inventoryItem: { select: { id: true, name: true, unit: true, costPerUnit: true } } },
+    });
+    // Por insumo: el costo de antes del primer cambio del período contra el actual
+    const byItem = new Map<number, { first: (typeof changes)[number]; last: (typeof changes)[number] }>();
+    for (const c of changes) {
+      const e = byItem.get(c.inventoryItemId);
+      byItem.set(c.inventoryItemId, { first: e?.first ?? c, last: c });
+    }
+    const { rows } = await loadBook(restaurantId);
+    const recipes = new Map(rows.map(r => [r.id, r]));
+    const now = new CostBook(recipes);
+
+    const alerts: CostAlert[] = [];
+    for (const [itemId, { first, last }] of byItem) {
+      const previousCost = Number(first.previousCost);
+      const currentCost = Number(first.inventoryItem.costPerUnit);
+      if (!(currentCost > previousCost)) continue; // solo subas
+      const before = new CostBook(recipes, new Map([[itemId, previousCost]]));
+      const affected = rows.filter(r => usesItem(recipes, r.id, itemId));
+      const dishes = affected.filter(r => r.menuItem).map((r) => {
+        const cNow = costOf(r, now);
+        const cBefore = costOf(r, before);
+        return {
+          menuItemId: r.menuItemId!, menuItemName: r.menuItem!.name, recipeId: r.id, recipeName: r.name,
+          menuItemPrice: cNow.menuItemPrice,
+          costBefore: cBefore.costPerServing, costNow: cNow.costPerServing,
+          previousMargin: cBefore.actualMargin, currentMargin: cNow.actualMargin,
+          targetMargin: cNow.margin, belowTarget: cNow.belowTarget, suggestedPrice: cNow.suggestedPrice,
+        };
+      });
+      if (affected.length === 0) continue;
+      alerts.push({
+        inventoryItemId: itemId, itemName: first.inventoryItem.name, unit: first.inventoryItem.unit,
+        previousCost, currentCost, changePct: (currentCost - previousCost) / previousCost,
+        changedAt: last.createdAt.toISOString(),
+        dishes: dishes.sort((a, b) => Number(b.belowTarget) - Number(a.belowTarget)),
+        otherRecipes: affected.filter(r => !r.menuItem).map(r => r.name),
+      });
+    }
+    return alerts.sort((a, b) => b.changedAt.localeCompare(a.changedAt));
+  },
+
+  /**
+   * Costo y margen de cada plato de la carta que tiene receta (tarea 2.7). Si un
+   * plato tiene más de una receta vinculada, vale la más reciente.
+   */
+  async menuCosts(restaurantId: number): Promise<MenuItemCost[]> {
+    const { rows, book } = await loadBook(restaurantId);
+    const byItem = new Map<number, RecipeRow>();
+    for (const r of rows) {
+      if (r.menuItemId === null) continue;
+      const prev = byItem.get(r.menuItemId);
+      if (!prev || r.updatedAt > prev.updatedAt) byItem.set(r.menuItemId, r);
+    }
+    return [...byItem.values()].map((r) => {
+      const c = costOf(r, book);
+      return {
+        menuItemId: r.menuItemId!, recipeId: r.id, recipeName: r.name,
+        costPerServing: c.costPerServing, complete: c.complete,
+        margin: c.margin, actualMargin: c.actualMargin, actualFoodCostPct: c.actualFoodCostPct,
+        belowTarget: c.belowTarget, suggestedPrice: c.suggestedPrice,
+      };
+    });
+  },
+
   async list(restaurantId: number) {
     const { rows, book } = await loadBook(restaurantId);
     return rows.map(r => ({ ...r, cost: costOf(r, book) }));
@@ -333,6 +510,8 @@ export const recipesService = {
     }
     const ingredients = await validateIngredients(restaurantId, null, data.ingredients);
     const yieldUnits = yieldOrFail(data.yieldQty, data.yieldUnit);
+    // Sin margen indicado: el objetivo de la categoría del plato (o 50 %)
+    const margin = data.profitPct ?? (await categoryTargetMargin(restaurantId, data.menuItemId ?? null)) ?? 0.5;
 
     const recipe = await prisma.recipe.create({
       data: {
@@ -341,7 +520,7 @@ export const recipesService = {
         menuItemId: data.menuItemId ?? null,
         yield: data.yield ?? 1,
         ...(yieldUnits ?? {}),
-        profitPct: data.profitPct ?? 0.5,
+        profitPct: margin,
         vatPct: data.vatPct ?? 0.21,
         notes: data.notes ?? null,
         ingredients: { create: ingredients },
