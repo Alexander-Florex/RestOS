@@ -470,6 +470,10 @@ model InventoryItem {
   unit         String
   minStock     Float             @default(0)
   costPerUnit  Decimal           @default(0) @db.Decimal(10, 4)
+  /// Equivalencia entre familias (tarea 2.1): "1 <unit> = equivalenceQty <equivalenceUnit>",
+  /// ej. huevo: 1 un = 60 g. Permite usar el insumo en recetas con otra familia de unidad.
+  equivalenceQty  Float?
+  equivalenceUnit String?
   supplier     String?
   lastRestocked DateTime?
   recipeIngredients RecipeIngredient[]

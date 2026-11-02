@@ -26,6 +26,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { cn } from '../lib/utils';
+import { FAMILY_LABEL, normalizeUnit, unitFamily, UNIT_LIST, UNITS } from '@shared/units';
 
 interface FormState {
   name: string;
@@ -35,6 +36,9 @@ interface FormState {
   minStock: string;
   costPerUnit: string;
   supplier: string;
+  /** Equivalencia opcional: 1 <unit> = eqQty <eqUnit> */
+  eqQty: string;
+  eqUnit: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -45,7 +49,17 @@ const EMPTY_FORM: FormState = {
   minStock: '',
   costPerUnit: '',
   supplier: '',
+  eqQty: '',
+  eqUnit: 'g',
 };
+
+/** Unidades válidas para la equivalencia (las de otra familia) y la elegida en el formulario. */
+function equivalenceUnits(form: FormState) {
+  const unit = normalizeUnit(form.unit);
+  if (!unit) return { others: [] as string[], selected: '' };
+  const others = UNIT_LIST.filter(u => UNITS[u].family !== unitFamily(unit));
+  return { others, selected: (others as string[]).includes(form.eqUnit) ? form.eqUnit : others[0] };
+}
 
 export function InventoryPage() {
   const { user, can } = useAuth();
@@ -101,6 +115,8 @@ export function InventoryPage() {
       minStock: String(item.minStock),
       costPerUnit: item.costPerUnit,
       supplier: item.supplier ?? '',
+      eqQty: item.equivalenceQty != null ? String(item.equivalenceQty) : '',
+      eqUnit: item.equivalenceUnit ?? 'g',
     });
     setEditing(item);
     setCreating(false);
@@ -143,6 +159,9 @@ export function InventoryPage() {
         minStock,
         costPerUnit,
         supplier: form.supplier.trim() || null,
+        // Vacío = sin equivalencia
+        equivalenceQty: form.eqQty === '' ? null : Number(form.eqQty),
+        equivalenceUnit: form.eqQty === '' ? null : equivalenceUnits(form).selected,
       };
       if (editing) {
         await inventoryApi.update(editing.id, data);
@@ -406,13 +425,42 @@ export function InventoryPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="unit">Unidad *</Label>
-                <Input
+                <Select
                   id="unit" value={form.unit}
                   onChange={(e) => setForm(f => ({ ...f, unit: e.target.value }))}
-                  disabled={submitting} placeholder="kg, L, caja..."
-                />
+                  disabled={submitting}
+                >
+                  <option value="" disabled>Elegí la unidad</option>
+                  {/* Unidad vieja que no se reconoce: se muestra para poder corregirla */}
+                  {form.unit && !normalizeUnit(form.unit) && <option value={form.unit}>{form.unit} (revisar)</option>}
+                  {UNIT_LIST.map(u => <option key={u} value={u}>{UNITS[u].label}</option>)}
+                </Select>
               </div>
             </div>
+
+            {/* Equivalencia entre familias (tarea 2.1): ej. huevo en "un" usado en recetas en gramos */}
+            {normalizeUnit(form.unit) && (() => {
+              const fam = unitFamily(normalizeUnit(form.unit)!);
+              const { others, selected } = equivalenceUnits(form);
+              return (
+                <div className="space-y-2">
+                  <Label htmlFor="eqQty">Equivalencia (opcional)</Label>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="shrink-0 text-muted-foreground">1 {normalizeUnit(form.unit)} =</span>
+                    <Input id="eqQty" type="number" step="0.01" min="0" inputMode="decimal" className="w-24"
+                      value={form.eqQty} onChange={(e) => setForm(f => ({ ...f, eqQty: e.target.value }))}
+                      disabled={submitting} placeholder="60" />
+                    <Select value={selected}
+                      onChange={(e) => setForm(f => ({ ...f, eqUnit: e.target.value }))} disabled={submitting} aria-label="Unidad de la equivalencia">
+                      {others.map(u => <option key={u} value={u}>{UNITS[u as keyof typeof UNITS].label}</option>)}
+                    </Select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Para usarlo en recetas medido en otra familia ({FAMILY_LABEL[fam]} ↔ otra). Ej.: 1 un = 60 g.
+                  </p>
+                </div>
+              );
+            })()}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">

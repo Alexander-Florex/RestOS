@@ -520,6 +520,9 @@ export interface InventoryItem {
   unit: string;
   minStock: number;
   costPerUnit: string; // Prisma Decimal viene como string
+  /** "1 <unit> = equivalenceQty <equivalenceUnit>" (otra familia de unidad), ej. 1 un = 60 g */
+  equivalenceQty: number | null;
+  equivalenceUnit: string | null;
   supplier: string | null;
   lastRestocked: string | null;
   createdAt: string;
@@ -534,6 +537,8 @@ export interface CreateInventoryBody {
   minStock?: number;
   costPerUnit?: number;
   supplier?: string | null;
+  equivalenceQty?: number | null;
+  equivalenceUnit?: string | null;
 }
 
 export const inventoryApi = {
@@ -573,8 +578,26 @@ export interface RecipeIngredient {
   inventoryItem: InventoryItem;
 }
 
+export interface RecipeCostLine {
+  ingredientId: number;
+  inventoryItemId: number;
+  name: string;
+  quantity: number;
+  unit: string;
+  /** Cantidad en la unidad del insumo (null si no se pudo convertir) */
+  convertedQty: number | null;
+  itemUnit: string;
+  cost: number | null;
+  error: string | null;
+}
+
 export interface RecipeCost {
+  /** Suma de las líneas que se pudieron calcular */
   costTotal: number;
+  lines: RecipeCostLine[];
+  /** Líneas con unidad inconvertible: el costo está incompleto */
+  warnings: string[];
+  complete: boolean;
   costPerServing: number;
   suggestedPrice: number;
   menuItemPrice: number | null;

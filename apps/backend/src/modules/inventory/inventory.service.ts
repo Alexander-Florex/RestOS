@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 import { audit, changedFields } from '../../lib/audit.js';
+import { FAMILY_LABEL, normalizeUnit, unitFamily, UNIT_LIST } from '../../shared/units.js';
 
 function emitChanged(restaurantId: number, item: InventoryItem) { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_CHANGED, item); }
 function emitCreated(restaurantId: number, item: InventoryItem) { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_CREATED, item); }
@@ -19,9 +20,39 @@ export interface CreateInventoryData {
   minStock?: number;
   costPerUnit?: number;
   supplier?: string;
+  /** "1 <unit> = equivalenceQty <equivalenceUnit>" (otra familia). null = quitarla */
+  equivalenceQty?: number | null;
+  equivalenceUnit?: string | null;
 }
 
 export interface UpdateInventoryData extends Partial<CreateInventoryData> {}
+
+const VALID_UNITS = UNIT_LIST.join(', ');
+
+/** Unidad del insumo normalizada ("Grs" → "g"); rechaza las que no se pueden convertir. */
+function unitOrFail(raw: string): string {
+  const unit = normalizeUnit(raw);
+  if (!unit) throw HttpError.badRequest(`Unidad no reconocida: "${raw}". Usá una de: ${VALID_UNITS}`);
+  return unit;
+}
+
+/**
+ * Valida la equivalencia contra la unidad (final) del insumo. Devuelve los
+ * valores a guardar, o undefined si no se tocó.
+ */
+function equivalenceOrFail(itemUnit: string, qty: number | null | undefined, rawUnit: string | null | undefined) {
+  if (qty === undefined && rawUnit === undefined) return undefined;
+  if (qty === null || rawUnit === null || rawUnit === '' ) return { equivalenceQty: null, equivalenceUnit: null };
+  const unit = normalizeUnit(itemUnit);
+  if (!unit) throw HttpError.badRequest(`Corregí primero la unidad del insumo ("${itemUnit}") para cargar una equivalencia`);
+  const eqUnit = rawUnit ? normalizeUnit(rawUnit) : null;
+  if (!eqUnit) throw HttpError.badRequest(`Unidad de la equivalencia no reconocida. Usá una de: ${VALID_UNITS}`);
+  if (!(qty !== undefined && qty > 0)) throw HttpError.badRequest('La equivalencia tiene que ser mayor a 0');
+  if (unitFamily(eqUnit) === unitFamily(unit)) {
+    throw HttpError.badRequest(`La equivalencia tiene que ser de otra familia (el insumo ya está en ${FAMILY_LABEL[unitFamily(unit)]})`);
+  }
+  return { equivalenceQty: qty, equivalenceUnit: eqUnit };
+}
 
 export const inventoryService = {
   async list(restaurantId: number, opts?: { category?: InventoryCategory; search?: string }): Promise<InventoryItem[]> {
@@ -46,13 +77,16 @@ export const inventoryService = {
     if (data.minStock !== undefined && data.minStock < 0) {
       throw HttpError.badRequest('El stock mínimo no puede ser negativo');
     }
+    const unit = unitOrFail(data.unit);
+    const equivalence = equivalenceOrFail(unit, data.equivalenceQty, data.equivalenceUnit);
     const item = await prisma.inventoryItem.create({
       data: {
         restaurantId,
         name: data.name,
         category: data.category,
         quantity: data.quantity,
-        unit: data.unit,
+        unit,
+        ...equivalence,
         minStock: data.minStock ?? 0,
         costPerUnit: data.costPerUnit ?? 0,
         supplier: data.supplier ?? null,
@@ -71,14 +105,25 @@ export const inventoryService = {
     if (data.minStock !== undefined && data.minStock < 0) {
       throw HttpError.badRequest('El stock mínimo no puede ser negativo');
     }
+    const unit = data.unit !== undefined ? unitOrFail(data.unit) : current.unit;
+    const equivalence = equivalenceOrFail(unit, data.equivalenceQty, data.equivalenceUnit);
+    // Si cambia la unidad a la misma familia que la equivalencia guardada, la equivalencia ya no tiene sentido
+    if (equivalence === undefined && data.unit !== undefined && current.equivalenceUnit) {
+      const eqUnit = normalizeUnit(current.equivalenceUnit);
+      const newUnit = normalizeUnit(unit);
+      if (eqUnit && newUnit && unitFamily(eqUnit) === unitFamily(newUnit)) {
+        throw HttpError.badRequest('La nueva unidad es de la misma familia que la equivalencia: quitá o cambiá la equivalencia');
+      }
+    }
     const item = await prisma.$transaction(async (tx) => {
       const updated = await tx.inventoryItem.update({
         where: { id },
         data: {
+          ...(equivalence ?? {}),
           ...(data.name !== undefined ? { name: data.name } : {}),
           ...(data.category !== undefined ? { category: data.category } : {}),
           ...(data.quantity !== undefined ? { quantity: data.quantity } : {}),
-          ...(data.unit !== undefined ? { unit: data.unit } : {}),
+          ...(data.unit !== undefined ? { unit } : {}),
           ...(data.minStock !== undefined ? { minStock: data.minStock } : {}),
           ...(data.costPerUnit !== undefined ? { costPerUnit: data.costPerUnit } : {}),
           ...(data.supplier !== undefined ? { supplier: data.supplier } : {}),

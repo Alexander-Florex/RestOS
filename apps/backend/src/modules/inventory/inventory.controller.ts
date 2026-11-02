@@ -17,6 +17,9 @@ const createSchema = z.object({
   minStock: z.coerce.number().nonnegative().optional(),
   costPerUnit: z.coerce.number().nonnegative().optional(),
   supplier: z.string().trim().optional().nullable(),
+  // Equivalencia entre familias (ej. 1 un = 60 g); null la quita
+  equivalenceQty: z.coerce.number().positive().optional().nullable(),
+  equivalenceUnit: z.string().trim().max(20).optional().nullable(),
 });
 
 const updateSchema = createSchema.partial();

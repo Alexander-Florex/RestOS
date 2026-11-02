@@ -1,8 +1,9 @@
 // ──────────────────────────────────────────────
 // recipes.service.ts — Recetas y costos
 //
-// Costo de elaboración = suma de (cantidad de cada ingrediente × costPerUnit
-// del InventoryItem). Como costPerUnit vive en InventoryItem, el costo de
+// Costo de elaboración = suma de (cantidad de cada ingrediente, convertida a la
+// unidad del insumo (tarea 2.1), × costPerUnit del InventoryItem). Ej.: 200 g de
+// un insumo que cuesta $X por kg = 0,2 × X. Como costPerUnit vive en InventoryItem, el costo de
 // toda receta que lo use queda actualizado automáticamente al leer (no se
 // desnormaliza ni se cachea).
 //
@@ -10,6 +11,7 @@
 // ──────────────────────────────────────────────
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
+import { convertUnits, normalizeUnit, UnitError, UNIT_LIST } from '../../shared/units.js';
 
 export interface RecipeIngredientInput {
   inventoryItemId: number;
@@ -29,8 +31,26 @@ export interface CreateRecipeData {
 
 export interface UpdateRecipeData extends Partial<CreateRecipeData> {}
 
+export interface RecipeCostLine {
+  ingredientId: number;
+  inventoryItemId: number;
+  name: string;
+  quantity: number;
+  unit: string;
+  /** Cantidad pasada a la unidad del insumo (null si no se pudo convertir) */
+  convertedQty: number | null;
+  itemUnit: string;
+  cost: number | null;
+  error: string | null;
+}
+
 export interface RecipeCost {
+  /** Costo de las líneas que se pudieron calcular */
   costTotal: number;
+  lines: RecipeCostLine[];
+  /** Líneas que no suman al costo (unidad inconvertible): el costo está incompleto */
+  warnings: string[];
+  complete: boolean;
   costPerServing: number;
   suggestedPrice: number;
   menuItemPrice: number | null;
@@ -42,20 +62,43 @@ const recipeInclude = {
   menuItem: true,
 } as const;
 
-function computeCost(
-  recipe: { yield: number; profitPct: number; vatPct: number; menuItem: { price: unknown } | null;
-    ingredients: Array<{ quantity: number; inventoryItem: { costPerUnit: unknown } }> }
-): RecipeCost {
-  const costTotal = recipe.ingredients.reduce(
-    (sum, ing) => sum + ing.quantity * Number(ing.inventoryItem.costPerUnit),
-    0
-  );
+type CostInput = {
+  yield: number; profitPct: number; vatPct: number; menuItem: { price: unknown } | null;
+  ingredients: Array<{
+    id: number; quantity: number; unit: string;
+    inventoryItem: { id: number; name: string; unit: string; costPerUnit: unknown; equivalenceQty: number | null; equivalenceUnit: string | null };
+  }>;
+};
+
+export function computeCost(recipe: CostInput): RecipeCost {
+  const lines: RecipeCostLine[] = recipe.ingredients.map((ing) => {
+    const item = ing.inventoryItem;
+    const base = {
+      ingredientId: ing.id, inventoryItemId: item.id, name: item.name,
+      quantity: ing.quantity, unit: ing.unit, itemUnit: item.unit,
+    };
+    try {
+      const convertedQty = convertUnits(ing.quantity, ing.unit, item.unit, {
+        itemUnit: item.unit,
+        eq: item.equivalenceQty && item.equivalenceUnit ? { qty: item.equivalenceQty, unit: item.equivalenceUnit } : null,
+      });
+      return { ...base, convertedQty, cost: convertedQty * Number(item.costPerUnit), error: null };
+    } catch (err) {
+      // Datos viejos con una unidad que no se entiende: se avisa, no se inventa un costo
+      return { ...base, convertedQty: null, cost: null, error: err instanceof UnitError ? err.message : 'No se pudo convertir' };
+    }
+  });
+  const warnings = lines.filter(l => l.error).map(l => `${l.name}: ${l.error}`);
+  const costTotal = lines.reduce((sum, l) => sum + (l.cost ?? 0), 0);
   const costPerServing = recipe.yield > 0 ? costTotal / recipe.yield : costTotal;
   const suggestedPrice = costPerServing * (1 + recipe.profitPct) * (1 + recipe.vatPct);
   const menuItemPrice = recipe.menuItem ? Number(recipe.menuItem.price) : null;
 
   return {
     costTotal,
+    lines,
+    warnings,
+    complete: warnings.length === 0,
     costPerServing,
     suggestedPrice,
     menuItemPrice,
@@ -87,7 +130,7 @@ export const recipesService = {
       const menuItem = await prisma.menuItem.findFirst({ where: { id: data.menuItemId, restaurantId } });
       if (!menuItem) throw HttpError.badRequest('El ítem del menú indicado no existe');
     }
-    await assertIngredientsBelongToRestaurant(restaurantId, data.ingredients);
+    const ingredients = await validateIngredients(restaurantId, data.ingredients);
 
     const recipe = await prisma.recipe.create({
       data: {
@@ -98,13 +141,7 @@ export const recipesService = {
         profitPct: data.profitPct ?? 0.5,
         vatPct: data.vatPct ?? 0.21,
         notes: data.notes ?? null,
-        ingredients: {
-          create: data.ingredients.map(ing => ({
-            inventoryItemId: ing.inventoryItemId,
-            quantity: ing.quantity,
-            unit: ing.unit,
-          })),
-        },
+        ingredients: { create: ingredients },
       },
       include: recipeInclude,
     });
@@ -118,9 +155,7 @@ export const recipesService = {
       const menuItem = await prisma.menuItem.findFirst({ where: { id: data.menuItemId, restaurantId } });
       if (!menuItem) throw HttpError.badRequest('El ítem del menú indicado no existe');
     }
-    if (data.ingredients) {
-      await assertIngredientsBelongToRestaurant(restaurantId, data.ingredients);
-    }
+    const ingredients = data.ingredients ? await validateIngredients(restaurantId, data.ingredients) : null;
 
     const recipe = await prisma.$transaction(async (tx) => {
       if (data.ingredients) {
@@ -135,15 +170,7 @@ export const recipesService = {
           ...(data.profitPct !== undefined ? { profitPct: data.profitPct } : {}),
           ...(data.vatPct !== undefined ? { vatPct: data.vatPct } : {}),
           ...(data.notes !== undefined ? { notes: data.notes } : {}),
-          ...(data.ingredients ? {
-            ingredients: {
-              create: data.ingredients.map(ing => ({
-                inventoryItemId: ing.inventoryItemId,
-                quantity: ing.quantity,
-                unit: ing.unit,
-              })),
-            },
-          } : {}),
+          ...(ingredients ? { ingredients: { create: ingredients } } : {}),
         },
         include: recipeInclude,
       });
@@ -158,11 +185,31 @@ export const recipesService = {
   },
 };
 
-async function assertIngredientsBelongToRestaurant(restaurantId: number, ingredients: RecipeIngredientInput[]) {
+/**
+ * Los ingredientes existen en el inventario del restaurante y su unidad se
+ * puede convertir a la del insumo (tarea 2.1). Devuelve las líneas a guardar,
+ * con la unidad normalizada ("Grs" → "g").
+ */
+async function validateIngredients(restaurantId: number, ingredients: RecipeIngredientInput[]) {
   if (ingredients.length === 0) throw HttpError.badRequest('La receta debe tener al menos un ingrediente');
   const ids = ingredients.map(i => i.inventoryItemId);
-  const count = await prisma.inventoryItem.count({ where: { id: { in: ids }, restaurantId } });
-  if (count !== new Set(ids).size) {
+  const items = await prisma.inventoryItem.findMany({ where: { id: { in: ids }, restaurantId } });
+  if (items.length !== new Set(ids).size) {
     throw HttpError.badRequest('Alguno de los ingredientes no existe en el inventario de este restaurante');
   }
+  const byId = new Map(items.map(i => [i.id, i]));
+  return ingredients.map((ing) => {
+    const item = byId.get(ing.inventoryItemId)!;
+    const unit = normalizeUnit(ing.unit);
+    if (!unit) throw HttpError.badRequest(`"${item.name}": unidad no reconocida "${ing.unit}". Usá una de: ${UNIT_LIST.join(', ')}`);
+    try {
+      convertUnits(1, unit, item.unit, {
+        itemUnit: item.unit,
+        eq: item.equivalenceQty && item.equivalenceUnit ? { qty: item.equivalenceQty, unit: item.equivalenceUnit } : null,
+      });
+    } catch (err) {
+      throw HttpError.badRequest(`"${item.name}" (se maneja en ${item.unit}): ${err instanceof UnitError ? err.message : 'unidad incompatible'}`);
+    }
+    return { inventoryItemId: ing.inventoryItemId, quantity: ing.quantity, unit };
+  });
 }

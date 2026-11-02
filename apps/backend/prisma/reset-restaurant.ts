@@ -69,7 +69,12 @@ async function main() {
         process.exit(1);
       }
       console.log(`🗑️  Borrando restaurante #${id} ("${existing.name}") y todo su contenido (cascade)...`);
-      await prisma.restaurant.delete({ where: { id } });
+      // Las recetas van primero: RecipeIngredient → InventoryItem es Restrict y el
+      // borrado en cascada del restaurante fallaría si alguna receta usa un insumo.
+      await prisma.$transaction([
+        prisma.recipe.deleteMany({ where: { restaurantId: id } }),
+        prisma.restaurant.delete({ where: { id } }),
+      ]);
     }
   }
 

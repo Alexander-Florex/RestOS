@@ -25,6 +25,15 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from './ui/dialog';
 import { cn } from '../lib/utils';
+import { canConvert, normalizeUnit, UNIT_LIST, UNITS } from '@shared/units';
+import type { InventoryItem } from '../lib/api';
+
+/** Unidades en las que se puede cargar un insumo en una receta (misma familia o con equivalencia). */
+function unitsFor(item: InventoryItem | undefined): string[] {
+  if (!item) return UNIT_LIST;
+  const eq = item.equivalenceQty && item.equivalenceUnit ? { qty: item.equivalenceQty, unit: item.equivalenceUnit } : null;
+  return UNIT_LIST.filter(u => canConvert(u, item.unit, { itemUnit: item.unit, eq }));
+}
 
 interface IngredientRow {
   inventoryItemId: string;
@@ -221,6 +230,14 @@ export function RecipesPage() {
                   </div>
                 </div>
 
+                {/* Costo incompleto: hay ingredientes con una unidad que no se puede convertir */}
+                {!cost.complete && (
+                  <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-2.5 text-xs text-amber-200">
+                    <p className="font-semibold">Costo incompleto: corregí la unidad de</p>
+                    {cost.warnings.map(w => <p key={w}>• {w}</p>)}
+                  </div>
+                )}
+
                 {diff !== null && (
                   <div className={cn(
                     'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium',
@@ -314,7 +331,8 @@ export function RecipesPage() {
                     <Select value={row.inventoryItemId}
                       onChange={e => {
                         const inv = availableInventory.find(i => String(i.id) === e.target.value);
-                        updateRow(idx, { inventoryItemId: e.target.value, unit: inv ? inv.unit : row.unit });
+                        // Por defecto, la unidad del insumo (normalizada)
+                        updateRow(idx, { inventoryItemId: e.target.value, unit: inv ? normalizeUnit(inv.unit) ?? inv.unit : row.unit });
                       }}
                       disabled={submitting} className="flex-1">
                       <option value="">— insumo —</option>
@@ -323,9 +341,19 @@ export function RecipesPage() {
                     <Input type="number" min="0" step="0.01" value={row.quantity}
                       onChange={e => updateRow(idx, { quantity: e.target.value })}
                       disabled={submitting} placeholder="Cant." className="w-20" />
-                    <Input value={row.unit}
-                      onChange={e => updateRow(idx, { unit: e.target.value })}
-                      disabled={submitting} placeholder="Unidad" className="w-20" />
+                    {(() => {
+                      const inv = availableInventory.find(i => String(i.id) === row.inventoryItemId);
+                      const options = unitsFor(inv);
+                      return (
+                        <Select value={row.unit} onChange={e => updateRow(idx, { unit: e.target.value })}
+                          disabled={submitting} className="w-24" aria-label="Unidad">
+                          <option value="" disabled>Unidad</option>
+                          {/* Unidad vieja no convertible: se muestra para corregirla */}
+                          {row.unit && !options.includes(normalizeUnit(row.unit) ?? '') && <option value={row.unit}>{row.unit} ⚠</option>}
+                          {options.map(u => <option key={u} value={u}>{UNITS[u as keyof typeof UNITS].label}</option>)}
+                        </Select>
+                      );
+                    })()}
                     <Button type="button" variant="ghost" size="icon" onClick={() => removeRow(idx)}
                       disabled={submitting || form.ingredients.length === 1} className="text-rose-400 hover:text-rose-300">
                       <Trash className="h-4 w-4" />
