@@ -11,7 +11,7 @@
 // - El precio del MenuItem se snapshotea al momento del pedido.
 // - Se denormaliza `itemName` por si el item se borra después.
 // ──────────────────────────────────────────────
-import { TableStatus, type Order, type OrderItem, type Prisma } from '@prisma/client';
+import { OrderStatus, TableStatus, type Order, type OrderItem, type Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
@@ -70,12 +70,18 @@ function assertTableAcceptsOrder(
 
 export const ordersService = {
   /**
-   * Lista pedidos. Si se pasa tableId, devuelve solo los de esa mesa.
-   * Ordenados del más nuevo al más viejo.
+   * Lista pedidos, del más nuevo al más viejo. Si se pasa tableId, solo los de esa mesa.
+   * Por defecto solo los abiertos (la cuenta actual); `status: 'ALL'` incluye el
+   * historial (cobrados y anulados).
    */
-  async list(restaurantId: number, opts?: { tableId?: number }): Promise<OrderWithItems[]> {
+  async list(restaurantId: number, opts?: { tableId?: number; status?: OrderStatus | 'ALL' }): Promise<OrderWithItems[]> {
+    const status = opts?.status ?? OrderStatus.OPEN;
     return prisma.order.findMany({
-      where: { restaurantId, ...(opts?.tableId ? { tableId: opts.tableId } : {}) },
+      where: {
+        restaurantId,
+        ...(opts?.tableId ? { tableId: opts.tableId } : {}),
+        ...(status === 'ALL' ? {} : { status }),
+      },
       include: { items: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -96,7 +102,7 @@ export const ordersService = {
    */
   async getTableTotal(restaurantId: number, tableId: number): Promise<number> {
     const orders = await prisma.order.findMany({
-      where: { restaurantId, tableId },
+      where: { restaurantId, tableId, status: OrderStatus.OPEN },
       include: { items: true },
     });
     let totalCents = 0;
@@ -201,19 +207,36 @@ export const ordersService = {
     return result.order;
   },
 
-  /** Elimina un pedido individual. Solo permitido si la mesa sigue abierta (sin venta). */
   /**
-   * Bloquea la mesa igual que el cobro: si se está cobrando, la anulación espera
-   * y, cuando el cobro termina, el pedido ya no existe (404). Así no se cobra
-   * un pedido que se acaba de anular.
+   * Anula un pedido abierto: queda CANCELLED con motivo, quién y cuándo (no se
+   * borra, tarea 1.3). Bloquea la mesa igual que el cobro: si se está cobrando,
+   * la anulación espera y, cuando el cobro termina, el pedido ya está cobrado (409).
    */
-  async remove(restaurantId: number, id: number): Promise<void> {
+  async cancel(
+    restaurantId: number,
+    id: number,
+    opts: { reason: string; cancelledById?: number | null },
+  ): Promise<OrderWithItems> {
+    const reason = opts.reason.trim();
+    if (!reason) throw HttpError.badRequest('Indicá el motivo de la anulación');
+
     const order = await ordersService.getById(restaurantId, id);
-    await prisma.$transaction(async (tx) => {
+    const cancelled = await prisma.$transaction(async (tx) => {
       await lockTable(tx, restaurantId, order.tableId);
-      const { count } = await tx.order.deleteMany({ where: { id, restaurantId } });
-      if (count !== 1) throw HttpError.notFound('Pedido no encontrado (la mesa ya pudo haberse cobrado)');
+      const { count } = await tx.order.updateMany({
+        where: { id, restaurantId, status: OrderStatus.OPEN },
+        data: {
+          status: OrderStatus.CANCELLED,
+          cancelReason: reason,
+          cancelledById: opts.cancelledById ?? null,
+          closedAt: new Date(),
+        },
+      });
+      if (count !== 1) throw HttpError.conflict('El pedido ya fue cobrado o anulado');
+      return tx.order.findUniqueOrThrow({ where: { id }, include: { items: true } });
     });
+    // Para las pantallas sale de la cuenta abierta igual que antes
     emitOrderDeleted(restaurantId, id, order.tableId);
+    return cancelled;
   },
 };

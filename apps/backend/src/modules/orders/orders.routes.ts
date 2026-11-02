@@ -20,6 +20,7 @@ router.get('/table/:tableId',  asyncHandler(ordersController.listByTable));
 router.post('/',               requirePermission('orders.create'), asyncHandler(ordersController.create));
 
 // Borrar — solo admin/staff
-router.delete('/:id',          requirePermission('orders.delete'), asyncHandler(ordersController.remove));
+// Anular (con motivo). Los pedidos no se borran: quedan en el historial (tarea 1.3)
+router.post('/:id/cancel',     requirePermission('orders.delete'), asyncHandler(ordersController.cancel));
 
 export { router as ordersRouter };

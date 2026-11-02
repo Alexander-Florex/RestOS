@@ -110,6 +110,11 @@ export const tablesService = {
     if (table.status !== TableStatus.AVAILABLE) {
       throw HttpError.badRequest('No se puede eliminar una mesa que no está libre');
     }
+    // Borrar la mesa borraría en cascada su historial de pedidos (tarea 1.3)
+    const history = await prisma.order.count({ where: { tableId: id, restaurantId } });
+    if (history > 0) {
+      throw HttpError.conflict('La mesa tiene historial de pedidos: deshabilitala en lugar de borrarla.');
+    }
     await prisma.table.delete({ where: { id } });
     emitTableDeleted(restaurantId, id);
   },
@@ -165,7 +170,7 @@ export const tablesService = {
     const table = await prisma.$transaction(async (tx) => {
       const locked = await lockTable(tx, restaurantId, id);
       if (!locked) throw HttpError.notFound('Mesa no encontrada');
-      const pending = await tx.order.count({ where: { tableId: id, restaurantId } });
+      const pending = await tx.order.count({ where: { tableId: id, restaurantId, status: 'OPEN' } });
       if (pending > 0) {
         throw HttpError.conflict('La mesa tiene pedidos sin cobrar. Cobrala o anulá los pedidos antes de liberarla.');
       }

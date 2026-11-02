@@ -11,7 +11,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
-import { tablesApi, ApiError, type Table, printingApi } from '../lib/api';
+import { tablesApi, ApiError, type Table, type Order, printingApi } from '../lib/api';
 import {
   TABLE_STATUS_LABEL, TABLE_STATUS_STYLE, elapsedSince,
 } from '../lib/table-helpers';
@@ -24,6 +24,7 @@ import { PrintButton } from './PrintButton';
 import { AddOrderDialog } from './AddOrderDialog';
 import { cn } from '../lib/utils';
 import { ItemModifiers } from './ItemModifiers';
+import { CancelOrderDialog } from './CancelOrderDialog';
 
 interface TableDetailModalProps {
   table: Table | null;
@@ -37,6 +38,8 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
   const canCharge = can('sales.charge');
   // Cargar pedidos e imprimir comandas: mismo permiso que en el backend
   const canOrder = can('orders.create');
+  const canCancel = can('orders.delete');
+  const [cancelling, setCancelling] = useState<Order | null>(null);
 
   const [openingMode, setOpeningMode] = useState(false);
   const [guestCount, setGuestCount] = useState(1);
@@ -212,6 +215,8 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                 <>
                   {/* Cada pedido individualmente con su botón de imprimir */}
                   <div className="max-h-72 space-y-3 overflow-y-auto">
+                    {/* Anular con motivo (diálogo anidado: no cierra el detalle de la mesa) */}
+                    <CancelOrderDialog order={cancelling} onClose={() => setCancelling(null)} />
                     {orders.map((order, idx) => {
                       const isLatest = idx === orders.length - 1;
                       const orderSubtotal = order.items.reduce(
@@ -243,6 +248,17 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                                 </span>
                               )}
                             </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                            {canCancel && (
+                              <button
+                                onClick={() => setCancelling(order)}
+                                className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-rose-500/40 hover:text-rose-400"
+                                title={`Anular pedido #${order.id} (pide motivo)`}
+                              >
+                                <XCircle className="h-3 w-3" />
+                                Anular
+                              </button>
+                            )}
                             {/* Botón reimprimir comanda — quien puede tomar pedidos */}
                             {canOrder && (
                               <button
@@ -258,6 +274,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                                 Reimprimir
                               </button>
                             )}
+                            </div>
                           </div>
 
                           {/* Items del pedido */}

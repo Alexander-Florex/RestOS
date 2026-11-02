@@ -375,12 +375,19 @@ export interface OrderItem {
   modifiers?: ItemModifier[] | null;
 }
 
+export type OrderStatus = 'OPEN' | 'PAID' | 'CANCELLED';
+
 export interface Order {
   id: number;
   tableId: number;
   notes: string | null;
   createdById: number | null;
   createdAt: string;
+  /** OPEN: en la cuenta · PAID: cobrado · CANCELLED: anulado */
+  status?: OrderStatus;
+  saleId?: number | null;
+  closedAt?: string | null;
+  cancelReason?: string | null;
   items: OrderItem[];
 }
 
@@ -399,8 +406,9 @@ export const ordersApi = {
   create: (data: CreateOrderBody) =>
     request<{ order: Order }>('/orders', { method: 'POST', body: data }),
 
-  remove: (id: number) =>
-    request<void>(`/orders/${id}`, { method: 'DELETE' }),
+  /** Anula un pedido abierto con motivo (no se borra: queda en el historial). */
+  cancel: (id: number, reason: string) =>
+    request<{ order: Order }>(`/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
 };
 
 // ──────────────────────────────────────────────

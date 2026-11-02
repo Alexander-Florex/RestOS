@@ -12,11 +12,11 @@
 //    - Calcula el total en centavos desde los orders (leídos DESPUÉS del lock)
 //    - Exige amount >= total (no se aceptan cobros parciales)
 //    - Crea el registro de Sale + snapshot de items
-//    - Borra los Orders de la mesa (que cascada borra OrderItems)
+//    - Marca los pedidos abiertos como PAID vinculados a la venta (no se borran, tarea 1.3)
 //    - Cierra la mesa (vuelve a AVAILABLE, limpia guestCount/openedAt)
 // 5. Emite sale:registered y table:changed
 // ──────────────────────────────────────────────
-import { PaymentMethod, SaleChannel, TableStatus, type Sale, type Prisma } from '@prisma/client';
+import { OrderStatus, PaymentMethod, SaleChannel, TableStatus, type Sale, type Prisma } from '@prisma/client';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
@@ -133,7 +133,7 @@ export const salesService = {
   },
 
   /**
-   * Registra venta + cierra mesa + borra orders, todo en una transacción.
+   * Registra venta + cierra mesa + marca los pedidos como cobrados, todo en una transacción.
    * Guarda un snapshot de items en sale_items para reportes posteriores.
    *
    * Concurrencia: la mesa se bloquea con SELECT ... FOR UPDATE antes de leer
@@ -164,7 +164,8 @@ export const salesService = {
 
         // 2. Leer pedidos con la mesa ya bloqueada
         const orders = await tx.order.findMany({
-          where: { tableId: input.tableId, restaurantId },
+          // Solo la cuenta abierta: los cobrados/anulados de antes quedan en el historial
+          where: { tableId: input.tableId, restaurantId, status: OrderStatus.OPEN },
           include: { items: { include: { menuItem: true } } },
         });
 
@@ -263,8 +264,15 @@ export const salesService = {
           });
         }
 
-        // Borrar TODOS los pedidos de la mesa (cascade borra OrderItems)
-        await tx.order.deleteMany({ where: { tableId: input.tableId, restaurantId } });
+        // Los pedidos cobrados quedan en el historial, vinculados a la venta.
+        // Se marcan exactamente los que se sumaron (leídos con la mesa bloqueada).
+        const paid = await tx.order.updateMany({
+          where: { id: { in: orders.map(o => o.id) }, restaurantId, status: OrderStatus.OPEN },
+          data: { status: OrderStatus.PAID, saleId: sale.id, closedAt: sale.closedAt },
+        });
+        if (paid.count !== orders.length) {
+          throw HttpError.conflict('Los pedidos de la mesa cambiaron durante el cobro. Volvé a intentarlo.');
+        }
 
         const updatedTable = await tx.table.findUniqueOrThrow({ where: { id: input.tableId } });
         return { sale, updatedTable };

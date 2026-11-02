@@ -10,7 +10,7 @@ export const PERMISSIONS = [
   { key: 'app.dashboard',       group: 'General',     label: 'Usar el panel completo',             description: 'Sin este permiso, la persona ve solo la vista móvil de toma de pedidos.' },
   { key: 'orders.create',       group: 'Servicio',    label: 'Tomar pedidos',                      description: 'Cargar pedidos en mesas y para llevar.' },
   { key: 'orders.view',         group: 'Servicio',    label: 'Ver todos los pedidos',              description: 'Listado general de pedidos.' },
-  { key: 'orders.delete',       group: 'Servicio',    label: 'Anular pedidos',                     description: 'Eliminar pedidos de una mesa.' },
+  { key: 'orders.delete',       group: 'Servicio',    label: 'Anular pedidos',                     description: 'Anular pedidos de una mesa (con motivo; quedan en el historial).' },
   { key: 'tables.operate',      group: 'Servicio',    label: 'Operar mesas',                       description: 'Abrir, pedir cuenta, cerrar y reservar mesas.' },
   { key: 'reservations.manage', group: 'Servicio',    label: 'Gestionar reservas',                 description: 'Crear, editar y cancelar reservas.' },
   { key: 'sales.charge',        group: 'Caja',        label: 'Cobrar',                             description: 'Cobrar mesas y pedidos para llevar, e imprimir la cuenta.' },

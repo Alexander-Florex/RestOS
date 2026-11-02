@@ -377,7 +377,7 @@ export const printingService = {
   }): Promise<void> {
     const table = await prisma.table.findFirst({
       where: { id: opts.tableId, restaurantId: opts.restaurantId },
-      include: { orders: { include: { items: true } } },
+      include: { orders: { where: { status: 'OPEN' }, include: { items: true } } },
     });
     if (!table) throw HttpError.notFound('Mesa no encontrada');
     const allItems: Array<{ key: string; name: string; quantity: number; price: number; notes?: string | null; modifiers: string[] }> = [];
