@@ -39,6 +39,7 @@ model Restaurant {
   takeawayOrders TakeawayOrder[]
   menuOptionGroups MenuItemOptionGroup[]
   auditLogs        AuditLog[]
+  itemChanges      OrderItemChange[]
 
   @@map("restaurants")
 }
@@ -65,6 +66,8 @@ model User {
   ordersCreated    Order[]         @relation("OrderCreatedBy")
   ordersCancelled  Order[]         @relation("OrderCancelledBy")
   auditLogs        AuditLog[]
+  itemChangesRequested OrderItemChange[] @relation("ChangeRequestedBy")
+  itemChangesResolved  OrderItemChange[] @relation("ChangeResolvedBy")
   salesCreated     Sale[]          @relation("SaleRegisteredBy")
   takeawaysCreated TakeawayOrder[] @relation("TakeawayCreatedBy")
 
@@ -284,6 +287,7 @@ model Order {
   /// Id que genera el dispositivo (tarea 1.5): si el pedido se reintenta tras
   /// un corte, el servidor devuelve el ya creado en vez de duplicarlo
   clientRequestId String?   @db.VarChar(64)
+  itemChanges   OrderItemChange[]
 
   @@unique([restaurantId, clientRequestId])
   @@index([restaurantId])
@@ -312,9 +316,80 @@ model OrderItem {
   notes      String?
   /// Copia de lo elegido al pedir (ver lib/modifiers.ts)
   modifiers  Json?
+  /// ACTIVE: se cobra · VOIDED: anulado por un cambio de plato (no se cobra) — tarea 5.8
+  status     OrderItemStatus @default(ACTIVE)
+  voidedAt   DateTime?
+  voidReason String?         @db.Text
+  changes    OrderItemChange[]
 
   @@index([orderId])
   @@map("order_items")
+}
+
+enum OrderItemStatus {
+  ACTIVE
+  VOIDED
+}
+
+// ── Cambios de platos (tarea 5.8) ──
+// REMAKE: rehacer (se cobra una sola vez). REPLACE: cambiar por otro plato
+// (el original no se cobra). Si el plato ya estaba hecho, es una pérdida (merma).
+// El mozo puede pedir un cambio (PENDING); lo aprueba Caja o Administrador.
+enum ItemChangeType {
+  REMAKE
+  REPLACE
+}
+
+enum ItemChangeStatus {
+  PENDING
+  APPLIED
+  REJECTED
+}
+
+/// De quién fue el error (lo resuelven en el salón)
+enum ItemChangeFault {
+  KITCHEN
+  WAITER
+  CUSTOMER
+  OTHER
+}
+
+model OrderItemChange {
+  id                    Int              @id @default(autoincrement())
+  restaurantId          Int
+  restaurant            Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orderId               Int
+  order                 Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItemId           Int
+  orderItem             OrderItem        @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  type                  ItemChangeType
+  status                ItemChangeStatus @default(PENDING)
+  /// Unidades afectadas (ej. 1 de "2x César")
+  quantity              Int
+  reason                String           @db.Text
+  fault                 ItemChangeFault?
+  /// Ya estaba hecho: lo que se tira es pérdida
+  wasPrepared           Boolean          @default(false)
+  /// Copia del ítem original al pedir el cambio (nombre, precio, opciones)
+  itemSnapshot          Json
+  replacementMenuItemId Int?
+  replacementOptionIds  Json?
+  replacementNotes      String?          @db.Text
+  /// Ítems resultantes al aplicar (el nuevo y la parte anulada)
+  newOrderItemId        Int?
+  voidedOrderItemId     Int?
+  requestedById         Int?
+  requestedBy           User?            @relation("ChangeRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  resolvedById          Int?
+  resolvedBy            User?            @relation("ChangeResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  rejectReason          String?          @db.Text
+  createdAt             DateTime         @default(now())
+  resolvedAt            DateTime?
+
+  @@index([restaurantId, status])
+  @@index([restaurantId, createdAt])
+  @@index([orderId])
+  @@map("order_item_changes")
 }
 
 // ──────────────────────────────────────────────

@@ -26,7 +26,7 @@ export function CancelOrderDialog({ order, onClose }: { order: Order | null; onC
 
   useEffect(() => { if (order) { setReason(''); setSaving(false); } }, [order]);
 
-  const total = order?.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0) ?? 0;
+  const total = order?.items.filter(i => i.status !== 'VOIDED').reduce((s, i) => s + Number(i.price) * i.quantity, 0) ?? 0;
   const valid = reason.trim().length >= 3;
 
   async function confirm() {

@@ -18,6 +18,7 @@ const GROUPS: Array<{ id: string; label: string; actions: string }> = [
   { id: '',        label: 'Todo',              actions: '' },
   { id: 'cobros',  label: 'Cobros',            actions: 'sale.create,takeaway.pay' },
   { id: 'anul',    label: 'Anulaciones',       actions: 'order.cancel,takeaway.cancel' },
+  { id: 'cambios', label: 'Cambios y rehechos', actions: 'order.item' },
   { id: 'carta',   label: 'Carta y precios',   actions: 'menu' },
   { id: 'stock',   label: 'Stock',             actions: 'inventory' },
   { id: 'cuentas', label: 'Usuarios y roles',  actions: 'user,role' },
@@ -28,6 +29,9 @@ const ACTION_LABEL: Record<string, { label: string; tone: string }> = {
   'takeaway.pay':      { label: 'Cobro para llevar',    tone: 'bg-brand-500/15 text-brand-300' },
   'takeaway.cancel':   { label: 'Para llevar cancelado', tone: 'bg-rose-500/15 text-rose-300' },
   'order.cancel':      { label: 'Pedido anulado',       tone: 'bg-rose-500/15 text-rose-300' },
+  'order.item.remake': { label: 'Plato rehecho',        tone: 'bg-amber-500/15 text-amber-300' },
+  'order.item.replace': { label: 'Plato cambiado',      tone: 'bg-amber-500/15 text-amber-300' },
+  'order.item.reject': { label: 'Cambio rechazado',     tone: 'bg-white/[0.08] text-foreground/80' },
   'menu.price':        { label: 'Cambio de precio',     tone: 'bg-amber-500/15 text-amber-300' },
   'menu.options':      { label: 'Opciones del plato',   tone: 'bg-amber-500/15 text-amber-300' },
   'menu.delete':       { label: 'Plato borrado',        tone: 'bg-rose-500/15 text-rose-300' },
@@ -66,6 +70,12 @@ function summary(e: AuditEntry): string {
       return `${b.customerName} · ${b.total != null ? formatMoney(b.total) : ''}`;
     case 'order.cancel':
       return `Pedido #${e.entityId} · ${(b.items ?? []).map((i: Data) => `${i.quantity}x ${i.itemName}`).join(', ')} · ${formatMoney(b.total ?? 0)}`;
+    case 'order.item.remake':
+      return `Mesa ${b.tableNumber} · ${b.quantity}x ${b.itemName} · pérdida ${formatMoney(a.lostValue)}`;
+    case 'order.item.replace':
+      return `Mesa ${b.tableNumber} · ${b.quantity}x ${b.itemName} → ${a.itemName}${a.wasPrepared ? ` · pérdida ${formatMoney(a.lostValue)}` : ''}`;
+    case 'order.item.reject':
+      return `${b.quantity}x ${b.itemName} · pedido por: ${b.reason}`;
     case 'menu.price':
       return `${a.name}: ${formatMoney(b.price)} → ${formatMoney(a.price)}`;
     case 'menu.options':

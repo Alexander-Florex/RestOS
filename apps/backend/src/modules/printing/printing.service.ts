@@ -279,7 +279,8 @@ export const printingService = {
   async printOrder(opts: { restaurantId: number; orderId: number; printerName?: string; restaurantName: string; }): Promise<void> {
     const order = await prisma.order.findFirst({
       where: { id: opts.orderId, restaurantId: opts.restaurantId },
-      include: { items: true, table: true },
+      // Reimpresión de la comanda: solo lo que sigue en pie (sin platos cambiados)
+      include: { items: { where: { status: 'ACTIVE' } }, table: true },
     });
     if (!order) throw HttpError.notFound('Pedido no encontrado');
 
@@ -377,7 +378,7 @@ export const printingService = {
   }): Promise<void> {
     const table = await prisma.table.findFirst({
       where: { id: opts.tableId, restaurantId: opts.restaurantId },
-      include: { orders: { where: { status: 'OPEN' }, include: { items: true } } },
+      include: { orders: { where: { status: 'OPEN' }, include: { items: { where: { status: 'ACTIVE' } } } } },
     });
     if (!table) throw HttpError.notFound('Mesa no encontrada');
     const allItems: Array<{ key: string; name: string; quantity: number; price: number; notes?: string | null; modifiers: string[] }> = [];

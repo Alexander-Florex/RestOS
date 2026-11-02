@@ -14,6 +14,7 @@ export const PERMISSIONS = [
   { key: 'tables.operate',      group: 'Servicio',    label: 'Operar mesas',                       description: 'Abrir, pedir cuenta, cerrar y reservar mesas.' },
   { key: 'reservations.manage', group: 'Servicio',    label: 'Gestionar reservas',                 description: 'Crear, editar y cancelar reservas.' },
   { key: 'sales.charge',        group: 'Caja',        label: 'Cobrar',                             description: 'Cobrar mesas y pedidos para llevar, e imprimir la cuenta.' },
+  { key: 'orders.change.approve', group: 'Caja',      label: 'Autorizar cambios de platos',        description: 'Aprobar o hacer directamente cambios de plato pedidos por el mozo.' },
   { key: 'takeaway.cancel',     group: 'Caja',        label: 'Cancelar pedidos para llevar',       description: 'Cancelar un pedido para llevar que no se cobró.' },
   { key: 'sales.view',          group: 'Caja',        label: 'Ver ventas',                         description: 'Historial de ventas y totales del día.' },
   { key: 'reports.view',        group: 'Caja',        label: 'Ver reportes',                       description: 'Reportes de ventas, ranking de platos y exportación CSV.' },
@@ -50,6 +51,8 @@ export const SYSTEM_ROLES = {
     permissions: [
       'app.dashboard', 'orders.create', 'orders.view', 'orders.delete', 'tables.operate',
       'reservations.manage', 'sales.charge', 'takeaway.cancel', 'sales.view', 'reports.view',
+      // Agregado por la migración 20261102150000_order_item_changes (tarea 5.8)
+      'orders.change.approve',
       'menu.availability', 'inventory.view', 'inventory.adjust',
     ] as Permission[],
   },

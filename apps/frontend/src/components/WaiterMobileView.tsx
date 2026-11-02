@@ -27,6 +27,8 @@ import { useOrderCart, type CartLine } from '../hooks/useOrderCart';
 import { defaultOptionIds, hasOptions, lineKey, needsChoice, selectionModifiers } from '../lib/modifiers';
 import { cn } from '../lib/utils';
 import { submitOrder } from '../lib/order-queue';
+import { TableOrderSheet } from './TableOrderSheet';
+import { useChangeNotifications } from '../hooks/useChangeNotifications';
 
 type Step = 'tables' | 'type' | 'takeaway-name' | 'guests' | 'menu';
 type OrderType = 'dine-in' | 'takeaway';
@@ -47,11 +49,15 @@ export function WaiterMobileView() {
   const [lastOrderId, setLastOrderId] = useState<number | null>(null);
   // Selector de opciones/nota: plato nuevo (line undefined) o una línea ya cargada para editar
   const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine } | null>(null);
+  // Ver lo que ya pidió la mesa (rehacer / cambiar platos, tarea 5.8)
+  const [tableOrderOpen, setTableOrderOpen] = useState(false);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
   // Flujo para llevar SIN mesa — true cuando el mesero toca "Para llevar" en la lista
   const [standaloneTakeaway, setStandaloneTakeaway] = useState(false);
 
   useTick(30_000);
+  // Aviso cuando caja aprueba o rechaza un cambio que pidió este mozo
+  useChangeNotifications();
 
   const { orders: previousOrders } = useTableOrders(
     selectedTable && selectedTable.status !== 'AVAILABLE' ? selectedTable.id : null
@@ -385,7 +391,8 @@ export function WaiterMobileView() {
             onQuickAdd={quickAdd}
             onCustomize={(item, line) => setCustomizing({ item, line })}
             loading={loadingMenu}
-            previousItemsCount={previousOrders.flatMap(o => o.items).length}
+            previousItemsCount={previousOrders.flatMap(o => o.items).filter(i => i.status !== 'VOIDED').length}
+            onShowTableOrder={() => setTableOrderOpen(true)}
             orderType={orderType}
             customerName={customerName}
           />
@@ -442,6 +449,12 @@ export function WaiterMobileView() {
         onConfirm={confirmCustomize}
       />
 
+      {/* Lo que ya pidió la mesa: rehacer o cambiar platos */}
+      {selectedTable && (
+        <TableOrderSheet open={tableOrderOpen} onClose={() => setTableOrderOpen(false)}
+          orders={previousOrders} tableId={selectedTable.id} tableNumber={selectedTable.number} />
+      )}
+
       {/* Modal cobrar y cerrar (mesero — sin impresión) */}
       {selectedTable && (
         <CloseTableModal
@@ -450,7 +463,7 @@ export function WaiterMobileView() {
           onClose={() => setCloseModalOpen(false)}
           onSuccess={() => { setCloseModalOpen(false); backToTables(); }}
           orders={previousOrders}
-          total={previousOrders.flatMap(o => o.items).reduce(
+          total={previousOrders.flatMap(o => o.items).filter(i => i.status !== 'VOIDED').reduce(
             (s, i) => s + Number(i.price) * i.quantity, 0
           )}
         />
@@ -586,7 +599,7 @@ function GuestStep({ table, guestCount, onChange, onConfirm }: {
 
 function MenuStep({
   menu, categories, activeCategory, onCategoryChange,
-  cart, onQuickAdd, onCustomize, loading, previousItemsCount, orderType, customerName,
+  cart, onQuickAdd, onCustomize, loading, previousItemsCount, onShowTableOrder, orderType, customerName,
 }: {
   menu: MenuItem[];
   categories: string[];
@@ -597,6 +610,7 @@ function MenuStep({
   onCustomize: (item: MenuItem, line?: CartLine) => void;
   loading: boolean;
   previousItemsCount: number;
+  onShowTableOrder: () => void;
   orderType: OrderType;
   customerName: string;
 }) {
@@ -616,10 +630,12 @@ function MenuStep({
       )}
 
       {previousItemsCount > 0 && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-300">
-          <ShoppingBag className="h-3.5 w-3.5" />
-          Esta mesa ya tiene {previousItemsCount} ítems pedidos. Lo que sumés será un pedido nuevo.
-        </div>
+        <button onClick={onShowTableOrder}
+          className="mb-3 flex w-full items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/5 px-3 py-2.5 text-left text-xs text-sky-300">
+          <ShoppingBag className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">Esta mesa ya tiene {previousItemsCount} ítems pedidos. Lo que sumés será un pedido nuevo.</span>
+          <span className="shrink-0 font-semibold underline underline-offset-2">Ver / cambiar</span>
+        </button>
       )}
 
       {/* Tabs de categorías */}

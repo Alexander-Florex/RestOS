@@ -17,6 +17,7 @@ import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
 import { toCents, fromCents } from '../../lib/money.js';
 import { optionGroupsInclude, resolveItemOptions } from '../../lib/modifiers.js';
+import { rejectPendingChangesForOrders } from './order-changes.service.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 import { audit } from '../../lib/audit.js';
 
@@ -115,7 +116,8 @@ export const ordersService = {
   async getTableTotal(restaurantId: number, tableId: number): Promise<number> {
     const orders = await prisma.order.findMany({
       where: { restaurantId, tableId, status: OrderStatus.OPEN },
-      include: { items: true },
+      // Los platos anulados por un cambio no suman (tarea 5.8)
+      include: { items: { where: { status: 'ACTIVE' } } },
     });
     let totalCents = 0;
     for (const order of orders) {
@@ -258,6 +260,7 @@ export const ordersService = {
         },
       });
       if (count !== 1) throw HttpError.conflict('El pedido ya fue cobrado o anulado');
+      await rejectPendingChangesForOrders(tx, [id], 'Se anuló el pedido');
       await audit(tx, {
         restaurantId, action: 'order.cancel', entity: 'Order', entityId: id,
         userId: opts.cancelledById ?? undefined,

@@ -20,6 +20,11 @@ export const SocketEvents = {
   // Pedidos
   ORDER_CREATED:           'order:created',
   ORDER_DELETED:           'order:deleted',
+  // Un pedido abierto cambió (plato anulado, reemplazado o rehecho) — tarea 5.8
+  ORDER_UPDATED:           'order:updated',
+  // Pedidos de cambio de plato: el mozo pide, caja aprueba o rechaza
+  ORDER_CHANGE_REQUESTED:  'order-change:requested',
+  ORDER_CHANGE_RESOLVED:   'order-change:resolved',
   // Ventas
   SALE_REGISTERED:         'sale:registered',
   // Inventario

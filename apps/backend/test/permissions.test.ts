@@ -49,5 +49,13 @@ test('la migración de roles otorga los mismos permisos que SYSTEM_ROLES', async
   assert.ok(arrays[0].every(p => isPermission(p)), 'permisos inexistentes en la migración');
   assert.deepEqual(effectivePermissions({ key: 'ADMIN', permissions: arrays[0] }), ALL_PERMISSIONS);
   assert.deepEqual(arrays[1], [...SYSTEM_ROLES.WAITER.permissions]);
-  assert.deepEqual(arrays[2], [...SYSTEM_ROLES.CASHIER.permissions]);
+  // Cajero: lo de esa migración + lo que sumaron migraciones posteriores con JSON_ARRAY_APPEND
+  const { readdir } = await import('node:fs/promises');
+  const dir = new URL('../prisma/migrations/', import.meta.url);
+  let later = '';
+  for (const name of (await readdir(dir)).filter(n => n > '20261014120000_roles_and_permissions')) {
+    later += await readFile(new URL(`${name}/migration.sql`, dir), 'utf8').catch(() => '');
+  }
+  const appended = [...later.matchAll(/JSON_ARRAY_APPEND\(`permissions`, '\$', '([^']+)'\)\s*WHERE `key` = 'CASHIER'/g)].map(m => m[1]);
+  assert.deepEqual([...arrays[2], ...appended].sort(), [...SYSTEM_ROLES.CASHIER.permissions].sort());
 });

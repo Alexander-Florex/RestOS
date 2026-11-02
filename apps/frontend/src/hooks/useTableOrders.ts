@@ -59,7 +59,12 @@ export function useTableOrders(tableId: number | null): UseTableOrdersResult {
       if (payload.tableId !== tableId) return;
       refresh();
     };
-    // Al registrar venta, se borran los orders de esa mesa
+    // Un plato cambiado o rehecho (tarea 5.8): recargar la cuenta
+    const onUpdated = (order: Order) => {
+      if (order.tableId !== tableId) return;
+      refresh();
+    };
+    // Al registrar venta, los pedidos de esa mesa pasan a cobrados
     const onSale = (sale: { tableId: number | null }) => {
       if (sale.tableId !== tableId) return;
       setOrders([]);
@@ -68,11 +73,13 @@ export function useTableOrders(tableId: number | null): UseTableOrdersResult {
 
     socket.on(SocketEvents.ORDER_CREATED, onCreated);
     socket.on(SocketEvents.ORDER_DELETED, onDeleted);
+    socket.on(SocketEvents.ORDER_UPDATED, onUpdated);
     socket.on(SocketEvents.SALE_REGISTERED, onSale);
 
     return () => {
       socket.off(SocketEvents.ORDER_CREATED, onCreated);
       socket.off(SocketEvents.ORDER_DELETED, onDeleted);
+      socket.off(SocketEvents.ORDER_UPDATED, onUpdated);
       socket.off(SocketEvents.SALE_REGISTERED, onSale);
     };
   }, [tableId, refresh]);

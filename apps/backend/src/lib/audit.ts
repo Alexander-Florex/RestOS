@@ -19,6 +19,9 @@ export const AUDIT_ACTIONS = [
   'takeaway.pay',       // cobro de para llevar
   'takeaway.cancel',    // cancelación de para llevar
   'order.cancel',       // anulación de pedido (con motivo)
+  'order.item.remake',  // plato rehecho (se cobra una vez; pérdida)
+  'order.item.replace', // plato cambiado por otro (el original no se cobra)
+  'order.item.reject',  // pedido de cambio rechazado por caja
   'menu.price',         // cambio de precio de un plato
   'menu.options',       // cambio de opciones/recargos de un plato
   'menu.delete',        // plato borrado

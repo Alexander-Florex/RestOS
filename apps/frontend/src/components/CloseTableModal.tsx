@@ -64,7 +64,8 @@ export function CloseTableModal({
   }, [open, total]);
 
   const change = Number(amount) - total;
-  const items = orders.flatMap(o => o.items);
+  // Los platos cambiados no se cobran (tarea 5.8)
+  const items = orders.flatMap(o => o.items).filter(i => i.status !== 'VOIDED');
 
   async function handleFile(file: File) {
     if (!file.type.startsWith('image/')) {

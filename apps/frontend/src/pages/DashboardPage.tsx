@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LogOut, Home, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText,
+  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import type { Permission } from '../lib/permissions';
@@ -28,10 +28,12 @@ import { ReportsPage } from '../components/ReportsPage';
 import { RecipesPage } from '../components/RecipesPage';
 import { RolesPage } from '../components/RolesPage';
 import { AuditPage } from '../components/AuditPage';
+import { ChangesPage } from '../components/ChangesPage';
+import { useChangeNotifications } from '../hooks/useChangeNotifications';
 import { BrandMark, EASE_OUT, PageTransition } from '../components/ui/motion';
 import { cn } from '../lib/utils';
 
-type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit';
+type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes';
 
 interface NavItem {
   id: View;
@@ -49,6 +51,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { id: 'tables',       label: 'Mapa de mesas', icon: LayoutGrid },
       { id: 'takeaway',     label: 'Para llevar',   icon: ShoppingBag },
       { id: 'reservations', label: 'Reservas',      icon: CalendarDays },
+      { id: 'changes',      label: 'Cambios',       icon: Replace, perm: 'orders.change.approve' },
     ],
   },
   {
@@ -100,6 +103,9 @@ export function DashboardPage() {
     setMoreOpen(false);
     window.scrollTo({ top: 0 });
   }
+  // Avisos de cambios de platos: al pedir uno, "Ver" lleva a la pantalla Cambios
+  useChangeNotifications(() => go('changes'));
+
 
   return (
     <div className="flex min-h-[100dvh] text-foreground">
@@ -216,6 +222,7 @@ export function DashboardPage() {
                 {shown === 'users'        && <UsersPage />}
                 {shown === 'roles'        && <RolesPage />}
                 {shown === 'audit'        && <AuditPage />}
+                {shown === 'changes'      && <ChangesPage />}
               </PageTransition>
             </AnimatePresence>
           </div>

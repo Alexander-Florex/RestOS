@@ -26,6 +26,7 @@ import { lockTable } from '../../lib/table-lock.js';
 import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money.js';
 import { localDayKey, localDaysRange, type DayKey } from '../../lib/time.js';
 import { modifiersKey } from '../../lib/modifiers.js';
+import { rejectPendingChangesForOrders } from '../orders/order-changes.service.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 import { audit } from '../../lib/audit.js';
 
@@ -167,7 +168,8 @@ export const salesService = {
         const orders = await tx.order.findMany({
           // Solo la cuenta abierta: los cobrados/anulados de antes quedan en el historial
           where: { tableId: input.tableId, restaurantId, status: OrderStatus.OPEN },
-          include: { items: { include: { menuItem: true } } },
+          // Los platos anulados por un cambio no se cobran (tarea 5.8)
+          include: { items: { where: { status: 'ACTIVE' }, include: { menuItem: true } } },
         });
 
         // Calcular total real desde los items + construir snapshot agregado
@@ -274,6 +276,8 @@ export const salesService = {
         if (paid.count !== orders.length) {
           throw HttpError.conflict('Los pedidos de la mesa cambiaron durante el cobro. Volvé a intentarlo.');
         }
+        // Pedidos de cambio que nadie aprobó: se cierran (la mesa ya se cobró)
+        await rejectPendingChangesForOrders(tx, orders.map(o => o.id), 'Se cobró la mesa antes de aprobarlo');
 
         await audit(tx, {
           restaurantId, action: 'sale.create', entity: 'Sale', entityId: sale.id,

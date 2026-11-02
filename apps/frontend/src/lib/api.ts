@@ -373,6 +373,9 @@ export interface OrderItem {
   price: string;
   notes: string | null;
   modifiers?: ItemModifier[] | null;
+  /** ACTIVE: se cobra · VOIDED: anulado por un cambio de plato (no se cobra) */
+  status?: 'ACTIVE' | 'VOIDED';
+  voidReason?: string | null;
 }
 
 export type OrderStatus = 'OPEN' | 'PAID' | 'CANCELLED';
@@ -407,6 +410,28 @@ export const ordersApi = {
 
   create: (data: CreateOrderBody) =>
     request<{ order: Order }>('/orders', { method: 'POST', body: data }),
+
+  // ── Cambios de platos (tarea 5.8) ──
+  /** Rehacer: se cobra una sola vez; lo tirado queda como pérdida. */
+  remakeItem: (itemId: number, body: { quantity: number; reason: string; fault?: ItemChangeFault | null }) =>
+    request<{ change: ItemChange }>(`/orders/items/${itemId}/remake`, { method: 'POST', body }),
+  /** Cambiar por otro plato. Con permiso de autorizar se aplica; si no, queda pendiente para caja. */
+  replaceItem: (itemId: number, body: {
+    quantity: number; reason: string; fault?: ItemChangeFault | null; wasPrepared: boolean;
+    replacement: { menuItemId: number; optionIds?: number[]; notes?: string | null };
+  }) => request<{ change: ItemChange }>(`/orders/items/${itemId}/replace`, { method: 'POST', body }),
+  listChanges: (filters: { status?: ItemChangeStatus; from?: Date; to?: Date; tableId?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (filters.status) params.set('status', filters.status);
+    if (filters.from) params.set('from', dayParam(filters.from));
+    if (filters.to) params.set('to', dayParam(filters.to));
+    if (filters.tableId) params.set('tableId', String(filters.tableId));
+    const qs = params.toString();
+    return request<{ changes: ItemChange[] }>(`/orders/changes${qs ? `?${qs}` : ''}`);
+  },
+  approveChange: (id: number) => request<{ change: ItemChange }>(`/orders/changes/${id}/approve`, { method: 'POST' }),
+  rejectChange: (id: number, reason?: string) =>
+    request<{ change: ItemChange }>(`/orders/changes/${id}/reject`, { method: 'POST', body: { reason: reason || null } }),
 
   /** Anula un pedido abierto con motivo (no se borra: queda en el historial). */
   cancel: (id: number, reason: string) =>
@@ -1019,6 +1044,7 @@ export const takeawayApi = {
 // ──────────────────────────────────────────────
 export type AuditAction =
   | 'sale.create' | 'takeaway.pay' | 'takeaway.cancel' | 'order.cancel'
+  | 'order.item.remake' | 'order.item.replace' | 'order.item.reject'
   | 'menu.price' | 'menu.options' | 'menu.delete'
   | 'inventory.restock' | 'inventory.consume' | 'inventory.update' | 'inventory.delete'
   | 'user.create' | 'user.update' | 'user.toggle' | 'user.delete'
@@ -1060,3 +1086,36 @@ export const auditApi = {
   },
   actors: () => request<{ actors: Array<{ userId: number | null; userName: string }> }>('/audit/actors'),
 };
+
+// ──────────────────────────────────────────────
+// Cambios de platos (tarea 5.8)
+// ──────────────────────────────────────────────
+export type ItemChangeType = 'REMAKE' | 'REPLACE';
+export type ItemChangeStatus = 'PENDING' | 'APPLIED' | 'REJECTED';
+/** De quién fue el error */
+export type ItemChangeFault = 'KITCHEN' | 'WAITER' | 'CUSTOMER' | 'OTHER';
+
+export interface ItemChange {
+  id: number;
+  orderId: number;
+  orderItemId: number;
+  type: ItemChangeType;
+  status: ItemChangeStatus;
+  quantity: number;
+  reason: string;
+  fault: ItemChangeFault | null;
+  /** Ya estaba hecho: es pérdida */
+  wasPrepared: boolean;
+  itemSnapshot: { itemName: string; price: string; modifiers: ItemModifier[] | null; notes: string | null };
+  replacementMenuItemId: number | null;
+  /** Nombre del plato de reemplazo */
+  replacementName: string | null;
+  replacementNotes: string | null;
+  newOrderItemId: number | null;
+  rejectReason: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+  order: { id: number; tableId: number; status: OrderStatus; table: { number: number } };
+  requestedBy: { id: number; name: string } | null;
+  resolvedBy: { id: number; name: string } | null;
+}
