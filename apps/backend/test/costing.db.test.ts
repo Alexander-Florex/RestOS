@@ -271,3 +271,14 @@ test('alertas: sube un insumo y avisa qué platos pierden margen (también vía 
   await inventoryService.update(rid, aceite.id, { costPerUnit: 3000 });
   assert.deepEqual(await recipesService.costAlerts(rid), []);
 });
+
+test('alertas: cargar el precio de un insumo que estaba en $0 no es una suba', async () => {
+  const { rid, aceite } = await chimichurriSetup();
+  await prisma.inventoryItem.update({ where: { id: aceite.id }, data: { costPerUnit: 0 } });
+  await prisma.priceHistory.deleteMany({ where: { inventoryItemId: aceite.id } });
+  await inventoryService.update(rid, aceite.id, { costPerUnit: 4000 }); // $0 → $4.000
+  assert.deepEqual(await recipesService.costAlerts(rid), []);
+  await inventoryService.update(rid, aceite.id, { costPerUnit: 5000 }); // esta sí es suba
+  const [alert] = await recipesService.costAlerts(rid);
+  close(alert.previousCost, 4000);
+});

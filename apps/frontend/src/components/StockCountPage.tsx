@@ -345,7 +345,7 @@ function CountSheet({ id, onBack }: { id: number; onBack: () => void }) {
   const groupByArea = count.storageAreaId === null;
 
   return (
-    <div className="mx-auto max-w-2xl pb-28">
+    <div className="mx-auto max-w-2xl">
       {/* Encabezado fijo: sector, avance y búsqueda */}
       <div className="sticky top-0 z-10 -mx-4 mb-3 space-y-2 border-b border-white/[0.06] bg-background/90 px-4 pb-3 pt-2 backdrop-blur">
         <div className="flex items-center gap-2">
@@ -450,9 +450,10 @@ function CountSheet({ id, onBack }: { id: number; onBack: () => void }) {
         </ul>
       )}
 
-      {/* Barra inferior: revisar y cerrar */}
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-white/[0.06] bg-background/95 p-3 backdrop-blur md:left-[264px]">
-        <div className="mx-auto flex max-w-2xl items-center gap-3">
+      {/* Barra inferior: revisar y cerrar. Sticky (no fixed): la página está dentro de una
+          animación con transform, que rompe position: fixed. En celular queda sobre el menú. */}
+      <div className="sticky bottom-24 z-20 mt-4 rounded-2xl border border-white/[0.08] bg-background/95 p-3 shadow-lg backdrop-blur md:bottom-4">
+        <div className="flex items-center gap-3">
           <p className="flex-1 text-xs text-muted-foreground">
             {count.lines.length - countedCount > 0
               ? `${count.lines.length - countedCount} sin contar (no se tocan)`

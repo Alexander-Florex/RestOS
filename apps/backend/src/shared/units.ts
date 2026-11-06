@@ -35,7 +35,7 @@ const ALIASES: Record<string, Unit> = {
   ml: 'ml', mililitro: 'ml', mililitros: 'ml',
   cc: 'cc', cm3: 'cc',
   l: 'l', lt: 'l', lts: 'l', litro: 'l', litros: 'l',
-  un: 'un', u: 'un', uni: 'un', unid: 'un', unids: 'un', unidad: 'un', unidades: 'un',
+  un: 'un', u: 'un', ud: 'un', uds: 'un', uni: 'un', unid: 'un', unids: 'un', unidad: 'un', unidades: 'un',
   pcs: 'un', pc: 'un', pza: 'un', pzas: 'un', pieza: 'un', piezas: 'un',
   docena: 'docena', docenas: 'docena', doc: 'docena',
   maple: 'maple', maples: 'maple',

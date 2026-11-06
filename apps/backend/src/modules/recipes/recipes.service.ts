@@ -427,7 +427,8 @@ export const recipesService = {
   async costAlerts(restaurantId: number, days = 30): Promise<CostAlert[]> {
     const since = new Date(Date.now() - days * 24 * 3600 * 1000);
     const changes = await prisma.priceHistory.findMany({
-      where: { restaurantId, createdAt: { gte: since }, previousCost: { not: null } },
+      // Pasar de $0 (sin precio) a un precio es cargarlo por primera vez, no una suba
+      where: { restaurantId, createdAt: { gte: since }, previousCost: { gt: 0 } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       include: { inventoryItem: { select: { id: true, name: true, unit: true, costPerUnit: true } } },
     });
