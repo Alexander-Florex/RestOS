@@ -532,6 +532,9 @@ export interface InventoryItem {
   purchasePrice: string | null;
   /** Merma por defecto en recetas (0–0,95) */
   wastePct: number;
+  /** Sector de guardado (tarea 3.1) y orden dentro del sector para el conteo */
+  storageAreaId: number | null;
+  countOrder: number;
   supplier: string | null;
   lastRestocked: string | null;
   createdAt: string;
@@ -552,6 +555,28 @@ export interface CreateInventoryBody {
   purchaseUnit?: string | null;
   purchasePrice?: number | null;
   wastePct?: number;
+  storageAreaId?: number | null;
+  countOrder?: number;
+}
+
+/** La cantidad no se edita: va por reponer, consumir, ajustar o un conteo. */
+export type UpdateInventoryBody = Partial<Omit<CreateInventoryBody, 'quantity'>>;
+
+export type StockMovementType = 'PURCHASE' | 'SALE' | 'PRODUCTION' | 'CONSUMPTION' | 'WASTE' | 'ADJUSTMENT' | 'COUNT';
+
+export interface StockMovement {
+  id: number;
+  inventoryItemId: number;
+  type: StockMovementType;
+  /** Con signo, en la unidad del insumo */
+  quantity: number;
+  balanceAfter: number;
+  unitCost: string | null;
+  reason: string | null;
+  reference: string | null;
+  stockCountId: number | null;
+  userName: string | null;
+  createdAt: string;
 }
 
 export interface PriceHistoryEntry {
@@ -579,7 +604,7 @@ export const inventoryApi = {
   create: (data: CreateInventoryBody) =>
     request<{ item: InventoryItem }>('/inventory', { method: 'POST', body: data }),
 
-  update: (id: number, data: Partial<CreateInventoryBody>) =>
+  update: (id: number, data: UpdateInventoryBody) =>
     request<{ item: InventoryItem }>(`/inventory/${id}`, { method: 'PATCH', body: data }),
 
   remove: (id: number) =>
@@ -594,8 +619,120 @@ export const inventoryApi = {
   restock: (id: number, amount: number) =>
     request<{ item: InventoryItem }>(`/inventory/${id}/restock`, { method: 'POST', body: { amount } }),
 
-  consume: (id: number, amount: number) =>
-    request<{ item: InventoryItem }>(`/inventory/${id}/consume`, { method: 'POST', body: { amount } }),
+  consume: (id: number, amount: number, reason?: string) =>
+    request<{ item: InventoryItem }>(`/inventory/${id}/consume`, { method: 'POST', body: { amount, reason } }),
+
+  /** Fija la cantidad real con un motivo (queda como movimiento de ajuste). */
+  adjust: (id: number, quantity: number, reason: string) =>
+    request<{ item: InventoryItem }>(`/inventory/${id}/adjust`, { method: 'POST', body: { quantity, reason } }),
+
+  movements: (id: number) =>
+    request<{ movements: StockMovement[] }>(`/inventory/${id}/movements`),
+};
+
+// ──────────────────────────────────────────────
+// Sectores de guardado (tarea 3.1)
+// ──────────────────────────────────────────────
+export interface StorageArea {
+  id: number;
+  name: string;
+  sortOrder: number;
+  itemCount: number;
+}
+
+export const storageAreasApi = {
+  list: () => request<{ areas: StorageArea[] }>('/storage-areas'),
+  create: (data: { name: string; sortOrder?: number }) =>
+    request<{ area: StorageArea }>('/storage-areas', { method: 'POST', body: data }),
+  update: (id: number, data: { name?: string; sortOrder?: number }) =>
+    request<{ area: StorageArea }>(`/storage-areas/${id}`, { method: 'PATCH', body: data }),
+  remove: (id: number) => request<void>(`/storage-areas/${id}`, { method: 'DELETE' }),
+};
+
+// ──────────────────────────────────────────────
+// Toma de inventario (tarea 3.3)
+// ──────────────────────────────────────────────
+export type StockCountStatus = 'OPEN' | 'CLOSED' | 'CANCELLED';
+
+export interface StockCountSummaryRow {
+  id: number;
+  storageAreaId: number | null;
+  areaName: string;
+  status: StockCountStatus;
+  notes: string | null;
+  startedByName: string | null;
+  closedByName: string | null;
+  startedAt: string;
+  closedAt: string | null;
+  totalLines: number;
+  countedLines: number;
+  differences: number;
+  differenceValue: number;
+}
+
+export interface StockCountLine {
+  id: number;
+  inventoryItemId: number | null;
+  itemName: string;
+  unit: string;
+  position: number;
+  /** null = sin contar */
+  countedQty: number | null;
+  countedAt: string | null;
+  countedByName: string | null;
+  /** Solo en conteos cerrados (mientras está abierto se cuenta a ciegas) */
+  expectedQty: number | null;
+  difference: number | null;
+  unitCost: string | null;
+  reason: string | null;
+  /** Sector actual del insumo (para agrupar el conteo de todo el stock) */
+  areaName: string | null;
+}
+
+export interface StockCount {
+  id: number;
+  storageAreaId: number | null;
+  areaName: string;
+  status: StockCountStatus;
+  notes: string | null;
+  startedByName: string | null;
+  closedByName: string | null;
+  startedAt: string;
+  closedAt: string | null;
+  lines: StockCountLine[];
+}
+
+export interface StockCountPreview {
+  totalLines: number;
+  countedLines: number;
+  uncounted: number;
+  differenceValue: number;
+  differences: {
+    lineId: number;
+    itemName: string;
+    unit: string;
+    countedQty: number;
+    expectedQty: number;
+    difference: number;
+    value: number;
+    reason: string | null;
+  }[];
+}
+
+export const stockCountsApi = {
+  list: () => request<{ counts: StockCountSummaryRow[] }>('/stock-counts'),
+  get: (id: number) => request<{ count: StockCount }>(`/stock-counts/${id}`),
+  /** storageAreaId null = todo el stock */
+  create: (storageAreaId: number | null, notes?: string) =>
+    request<{ count: StockCount }>('/stock-counts', { method: 'POST', body: { storageAreaId, notes } }),
+  setLine: (id: number, lineId: number, data: { countedQty?: number | null; reason?: string | null }) =>
+    request<{ line: StockCountLine }>(`/stock-counts/${id}/lines/${lineId}`, { method: 'PUT', body: data }),
+  summary: (id: number) => request<{ summary: StockCountPreview }>(`/stock-counts/${id}/summary`),
+  close: (id: number, notes?: string) =>
+    request<{ count: StockCount; summary: { differences: number; differenceValue: number; countedLines: number } }>(
+      `/stock-counts/${id}/close`, { method: 'POST', body: { notes } }),
+  cancel: (id: number, reason?: string) =>
+    request<{ count: StockCount }>(`/stock-counts/${id}/cancel`, { method: 'POST', body: { reason } }),
 };
 
 // ──────────────────────────────────────────────
@@ -1170,6 +1307,7 @@ export type AuditAction =
   | 'order.item.remake' | 'order.item.replace' | 'order.item.reject'
   | 'menu.price' | 'menu.options' | 'menu.delete'
   | 'inventory.restock' | 'inventory.consume' | 'inventory.update' | 'inventory.delete'
+  | 'inventory.adjust' | 'inventory.count.close' | 'inventory.count.cancel'
   | 'user.create' | 'user.update' | 'user.toggle' | 'user.delete'
   | 'role.create' | 'role.update' | 'role.delete';
 

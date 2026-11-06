@@ -14,7 +14,7 @@ export type Permission =
   | 'sales.charge' | 'sales.view' | 'reports.view'
   | 'takeaway.cancel' | 'takeaway.delete'
   | 'menu.availability' | 'menu.manage'
-  | 'inventory.view' | 'inventory.adjust' | 'inventory.manage'
+  | 'inventory.view' | 'inventory.adjust' | 'inventory.count' | 'inventory.manage'
   | 'recipes.manage' | 'staff.manage' | 'users.manage' | 'audit.view' | 'orders.change.approve';
 
 /** true si el usuario tiene el permiso. Con varios, alcanza con uno. */

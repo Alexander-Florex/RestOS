@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LogOut, Home, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace,
+  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace, ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import type { Permission } from '../lib/permissions';
@@ -21,6 +21,7 @@ import { TableMap } from '../components/TableMap';
 import { MenuPage } from '../components/MenuPage';
 import { SalesHistoryPage } from '../components/SalesHistoryPage';
 import { InventoryPage } from '../components/InventoryPage';
+import { StockCountPage } from '../components/StockCountPage';
 import { StaffPage } from '../components/StaffPage';
 import { UsersPage } from '../components/UsersPage';
 import { ReservationsPage } from '../components/ReservationsPage';
@@ -33,7 +34,7 @@ import { useChangeNotifications } from '../hooks/useChangeNotifications';
 import { BrandMark, EASE_OUT, PageTransition } from '../components/ui/motion';
 import { cn } from '../lib/utils';
 
-type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes';
+type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'stock-count' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes';
 
 interface NavItem {
   id: View;
@@ -59,6 +60,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { id: 'menu',      label: 'Menú',       icon: BookOpen },
       { id: 'inventory', label: 'Inventario', icon: Package, perm: 'inventory.view' },
+      { id: 'stock-count', label: 'Conteo',   icon: ClipboardList, perm: 'inventory.count' },
       { id: 'recipes',   label: 'Recetas',    icon: Calculator, perm: 'recipes.manage' },
     ],
   },
@@ -217,6 +219,7 @@ export function DashboardPage() {
                 {shown === 'sales'        && <SalesHistoryPage />}
                 {shown === 'reports'      && <ReportsPage />}
                 {shown === 'inventory'    && <InventoryPage />}
+                {shown === 'stock-count'  && <StockCountPage />}
                 {shown === 'recipes'      && <RecipesPage />}
                 {shown === 'staff'        && <StaffPage />}
                 {shown === 'users'        && <UsersPage />}

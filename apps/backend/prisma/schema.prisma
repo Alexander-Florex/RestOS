@@ -41,6 +41,9 @@ model Restaurant {
   auditLogs        AuditLog[]
   itemChanges      OrderItemChange[]
   priceHistory     PriceHistory[]
+  storageAreas     StorageArea[]
+  stockMovements   StockMovement[]
+  stockCounts      StockCount[]
 
   @@map("restaurants")
 }
@@ -486,6 +489,14 @@ model InventoryItem {
   /// Merma por defecto al usarlo en recetas (tarea 2.4), 0–0,95. Ej. 0,2 = 20 % se pierde al limpiar
   wastePct      Float             @default(0)
   priceHistory  PriceHistory[]
+  /// Sector donde se guarda (tarea 3.1) y orden dentro del sector para el conteo
+  storageAreaId Int?
+  storageArea   StorageArea?      @relation(fields: [storageAreaId], references: [id], onDelete: SetNull)
+  countOrder    Int               @default(0)
+  /// El stock es la suma de movimientos (tarea 3.2); `quantity` es el saldo,
+  /// actualizado en la misma transacción que cada movimiento.
+  movements     StockMovement[]
+  countLines    StockCountLine[]
   supplier     String?
   lastRestocked DateTime?
   recipeIngredients RecipeIngredient[]
@@ -493,6 +504,7 @@ model InventoryItem {
   updatedAt    DateTime          @updatedAt
 
   @@index([restaurantId])
+  @@index([storageAreaId])
   @@map("inventory_items")
 }
 
@@ -501,6 +513,121 @@ enum InventoryCategory {
   BEVERAGE
   SUPPLIES
   EQUIPMENT
+}
+
+// ──────────────────────────────────────────────
+// STOCK REAL (Fase 3)
+// ──────────────────────────────────────────────
+
+/// Sector de guardado (tarea 3.1): carnes, cámara, depósito... Ordena el conteo.
+model StorageArea {
+  id           Int             @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String          @db.VarChar(100)
+  sortOrder    Int             @default(0)
+  items        InventoryItem[]
+  counts       StockCount[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([restaurantId, name])
+  @@map("storage_areas")
+}
+
+enum StockMovementType {
+  PURCHASE    // compra / reposición
+  SALE        // descuento por venta (tarea 3.4)
+  PRODUCTION  // elaboración (tarea 3.5)
+  CONSUMPTION // uso registrado a mano (botón "Consumir")
+  WASTE       // merma con motivo (tarea 3.7)
+  ADJUSTMENT  // corrección a mano, con motivo (incluye el saldo inicial)
+  COUNT       // diferencia de una toma de inventario
+}
+
+/// Movimiento de stock (tarea 3.2). Cantidad con signo, en la unidad del insumo.
+model StockMovement {
+  id              Int               @id @default(autoincrement())
+  restaurantId    Int
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  inventoryItemId Int
+  inventoryItem   InventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  type            StockMovementType
+  quantity        Float
+  /// Saldo del insumo después de este movimiento
+  balanceAfter    Float
+  /// Costo por unidad al momento del movimiento
+  unitCost        Decimal?          @db.Decimal(10, 4)
+  reason          String?           @db.VarChar(500)
+  /// Origen legible, ej. "Conteo #12"
+  reference       String?           @db.VarChar(100)
+  stockCountId    Int?
+  userId          Int?
+  userName        String?
+  createdAt       DateTime          @default(now())
+
+  @@index([inventoryItemId, createdAt])
+  @@index([restaurantId, createdAt])
+  @@index([stockCountId])
+  @@map("stock_movements")
+}
+
+enum StockCountStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+/// Toma de inventario (tarea 3.3): por sector o de todo el stock.
+model StockCount {
+  id            Int              @id @default(autoincrement())
+  restaurantId  Int
+  restaurant    Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  storageAreaId Int?
+  storageArea   StorageArea?     @relation(fields: [storageAreaId], references: [id], onDelete: SetNull)
+  /// Copia del nombre del sector ("Todo el stock" si no tiene)
+  areaName      String           @db.VarChar(100)
+  status        StockCountStatus @default(OPEN)
+  /// Mientras está abierto: "area:<id>" o "all"; al cerrar o cancelar, NULL.
+  /// Único: no puede haber dos conteos abiertos del mismo sector.
+  openKey       String?          @db.VarChar(30)
+  notes         String?          @db.VarChar(1000)
+  startedById   Int?
+  startedByName String?
+  closedById    Int?
+  closedByName  String?
+  startedAt     DateTime         @default(now())
+  closedAt      DateTime?
+  lines         StockCountLine[]
+
+  @@unique([restaurantId, openKey])
+  @@index([restaurantId, startedAt])
+  @@map("stock_counts")
+}
+
+model StockCountLine {
+  id              Int            @id @default(autoincrement())
+  stockCountId    Int
+  stockCount      StockCount     @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  inventoryItemId Int?
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  /// Copias: el historial se lee igual aunque el insumo cambie o se borre
+  itemName        String
+  unit            String
+  position        Int
+  /// null = todavía no se contó (al cerrar se saltea, no se pone en 0)
+  countedQty      Float?
+  countedAt       DateTime?
+  countedByName   String?
+  /// Al cerrar: lo que decía el sistema y la diferencia (contado − sistema)
+  expectedQty     Float?
+  difference      Float?
+  unitCost        Decimal?       @db.Decimal(10, 4)
+  reason          String?        @db.VarChar(300)
+
+  @@unique([stockCountId, inventoryItemId])
+  @@index([stockCountId, position])
+  @@map("stock_count_lines")
 }
 
 // ──────────────────────────────────────────────

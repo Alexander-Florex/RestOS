@@ -31,6 +31,10 @@ export const SocketEvents = {
   INVENTORY_ITEM_CHANGED:  'inventory-item:changed',
   INVENTORY_ITEM_CREATED:  'inventory-item:created',
   INVENTORY_ITEM_DELETED:  'inventory-item:deleted',
+  // Sectores de guardado (tarea 3.1): se renombraron, agregaron o borraron
+  STORAGE_AREAS_CHANGED:   'storage-areas:changed',
+  // Toma de inventario (tarea 3.3): se cargó un número, se cerró o se descartó
+  STOCK_COUNT_CHANGED:     'stock-count:changed',
   // Staff
   STAFF_CHANGED:           'staff:changed',
   STAFF_CREATED:           'staff:created',

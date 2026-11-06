@@ -37,7 +37,10 @@ const ACTION_LABEL: Record<string, { label: string; tone: string }> = {
   'menu.delete':       { label: 'Plato borrado',        tone: 'bg-rose-500/15 text-rose-300' },
   'inventory.restock': { label: 'Reposición',           tone: 'bg-sky-500/15 text-sky-300' },
   'inventory.consume': { label: 'Consumo de stock',     tone: 'bg-sky-500/15 text-sky-300' },
-  'inventory.update':  { label: 'Ajuste de stock/costo', tone: 'bg-amber-500/15 text-amber-300' },
+  'inventory.update':  { label: 'Cambio de costo/mínimo', tone: 'bg-amber-500/15 text-amber-300' },
+  'inventory.adjust':  { label: 'Ajuste de stock',      tone: 'bg-amber-500/15 text-amber-300' },
+  'inventory.count.close':  { label: 'Conteo cerrado',  tone: 'bg-sky-500/15 text-sky-300' },
+  'inventory.count.cancel': { label: 'Conteo descartado', tone: 'bg-white/[0.08] text-foreground/80' },
   'inventory.delete':  { label: 'Insumo borrado',       tone: 'bg-rose-500/15 text-rose-300' },
   'user.create':       { label: 'Usuario creado',       tone: 'bg-white/[0.08] text-foreground/80' },
   'user.update':       { label: 'Usuario modificado',   tone: 'bg-white/[0.08] text-foreground/80' },
@@ -100,6 +103,12 @@ function summary(e: AuditEntry): string {
     }
     case 'inventory.delete':
       return `${b.name} (${b.quantity} ${b.unit})`;
+    case 'inventory.adjust':
+      return `${b.name}: ${b.quantity} → ${a.quantity} ${b.unit}`;
+    case 'inventory.count.close':
+      return `${a.area}: ${a.countedLines}/${a.totalLines} contados · ${a.differences} diferencia(s) · ${formatMoney(a.differenceValue)}`;
+    case 'inventory.count.cancel':
+      return `${b.area}`;
     case 'user.create':
       return `${a.name} (${a.username}) · rol ${a.role}`;
     case 'user.toggle':

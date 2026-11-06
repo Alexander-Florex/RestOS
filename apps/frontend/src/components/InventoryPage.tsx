@@ -5,8 +5,13 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Edit, Trash2, Loader2, Search, AlertTriangle, PackagePlus, RefreshCw, History,
+  ArrowLeftRight, SlidersHorizontal, Warehouse,
 } from 'lucide-react';
 import { useInventory } from '../hooks/useInventory';
+import { useStorageAreas } from '../hooks/useStorageAreas';
+import { StockMovementsDialog, fmtQty } from './StockMovementsDialog';
+import { StorageAreasDialog } from './StorageAreasDialog';
+import { Textarea } from './ui/textarea';
 import {
   inventoryApi, type InventoryItem, type InventoryCategory, ApiError,
 } from '../lib/api';
@@ -47,9 +52,15 @@ interface FormState {
   pPrice: string;
   /** Merma por defecto, en % (tarea 2.4) */
   wastePct: string;
+  /** Sector (tarea 3.1): '' = sin sector */
+  storageAreaId: string;
+  /** Orden dentro del sector para el conteo */
+  countOrder: string;
 }
 
 const EMPTY_FORM: FormState = {
+  storageAreaId: '',
+  countOrder: '',
   name: '',
   category: 'FOOD',
   quantity: '',
@@ -115,8 +126,18 @@ export function InventoryPage() {
   const confirm = useConfirm();
 
   const { items, loading } = useInventory();
+  const { areas } = useStorageAreas();
+  const areaName = useMemo(() => new Map(areas.map(a => [a.id, a.name])), [areas]);
   const [filter, setFilter] = useState<InventoryCategory | 'ALL' | 'LOW'>('ALL');
+  // Sector: 'ALL', 'NONE' (sin sector) o el id
+  const [areaFilter, setAreaFilter] = useState('ALL');
   const [search, setSearch] = useState('');
+  const [movementsItem, setMovementsItem] = useState<InventoryItem | null>(null);
+  const [areasOpen, setAreasOpen] = useState(false);
+  // Ajuste a mano de la cantidad (tarea 3.2): cantidad real + motivo
+  const [adjusting, setAdjusting] = useState<InventoryItem | null>(null);
+  const [adjustQty, setAdjustQty] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
   const [editing, setEditing] = useState<InventoryItem | null>(null);
   const [creating, setCreating] = useState(false);
   const [restocking, setRestocking] = useState<InventoryItem | null>(null);
@@ -138,13 +159,15 @@ export function InventoryPage() {
       } else if (filter !== 'ALL' && item.category !== filter) {
         return false;
       }
+      if (areaFilter === 'NONE' && item.storageAreaId !== null) return false;
+      if (areaFilter !== 'ALL' && areaFilter !== 'NONE' && String(item.storageAreaId) !== areaFilter) return false;
       // Búsqueda
       if (s && !item.name.toLowerCase().includes(s) && !(item.supplier ?? '').toLowerCase().includes(s)) {
         return false;
       }
       return true;
     });
-  }, [items, filter, search]);
+  }, [items, filter, areaFilter, search]);
 
   const lowCount = useMemo(
     () => items.filter(i => stockLevel(i) !== 'OK').length,
@@ -172,6 +195,8 @@ export function InventoryPage() {
       pUnit: item.purchaseUnit ?? '',
       pPrice: item.purchasePrice != null ? String(Number(item.purchasePrice)) : '',
       wastePct: item.wastePct ? String(Math.round(item.wastePct * 1000) / 10) : '',
+      storageAreaId: item.storageAreaId !== null ? String(item.storageAreaId) : '',
+      countOrder: item.countOrder ? String(item.countOrder) : '',
     });
     setEditing(item);
     setCreating(false);
@@ -188,9 +213,10 @@ export function InventoryPage() {
       toast.error('Nombre y unidad son obligatorios');
       return;
     }
-    const quantity = Number(form.quantity);
+    // La cantidad solo se carga al crear; después va por reponer, ajustar o contar
+    const quantity = form.quantity === '' ? 0 : Number(form.quantity);
     const minStock = form.minStock === '' ? 0 : Number(form.minStock);
-    if (Number.isNaN(quantity) || quantity < 0) {
+    if (!editing && (Number.isNaN(quantity) || quantity < 0)) {
       toast.error('La cantidad debe ser un número ≥ 0');
       return;
     }
@@ -204,13 +230,20 @@ export function InventoryPage() {
       return;
     }
 
+    const countOrder = form.countOrder === '' ? 0 : Number(form.countOrder);
+    if (!Number.isInteger(countOrder) || countOrder < 0) {
+      toast.error('El orden en el conteo tiene que ser un número entero ≥ 0');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const data = {
         name: form.name.trim(),
         category: form.category,
-        quantity,
         unit: form.unit.trim(),
+        storageAreaId: form.storageAreaId === '' ? null : Number(form.storageAreaId),
+        countOrder,
         minStock,
         costPerUnit,
         supplier: form.supplier.trim() || null,
@@ -229,7 +262,7 @@ export function InventoryPage() {
         // Subió el costo: avisar si algún plato pierde margen (tarea 2.8)
         if (Number(saved.costPerUnit) > Number(editing.costPerUnit)) void warnCostIncrease(saved.id, saved.name);
       } else {
-        await inventoryApi.create(data);
+        await inventoryApi.create({ ...data, quantity });
         toast.success(`"${data.name}" agregado al inventario`);
       }
       closeForm();
@@ -274,6 +307,29 @@ export function InventoryPage() {
     }
   }
 
+  function openAdjust(item: InventoryItem) {
+    setAdjusting(item);
+    setAdjustQty(String(item.quantity));
+    setAdjustReason('');
+  }
+
+  async function handleAdjust() {
+    if (!adjusting) return;
+    const qty = Number(adjustQty);
+    if (adjustQty === '' || Number.isNaN(qty) || qty < 0) { toast.error('Ingresá la cantidad real (≥ 0)'); return; }
+    if (adjustReason.trim().length < 3) { toast.error('Escribí el motivo del ajuste'); return; }
+    setSubmitting(true);
+    try {
+      await inventoryApi.adjust(adjusting.id, qty, adjustReason.trim());
+      toast.success(`"${adjusting.name}" ajustado a ${fmtQty(qty)} ${adjusting.unit}`);
+      setAdjusting(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error al ajustar');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground">
@@ -298,10 +354,16 @@ export function InventoryPage() {
           </p>
         </div>
         {isAdmin && (
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            Nuevo ítem
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setAreasOpen(true)}>
+              <Warehouse className="h-4 w-4" />
+              Sectores
+            </Button>
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              Nuevo ítem
+            </Button>
+          </div>
         )}
       </div>
 
@@ -323,14 +385,23 @@ export function InventoryPage() {
 
       {/* Búsqueda + filtros */}
       <div className="mb-6 space-y-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por nombre o proveedor..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por nombre o proveedor..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          {areas.length > 0 && (
+            <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)} aria-label="Filtrar por sector" className="sm:w-60">
+              <option value="ALL">Todos los sectores</option>
+              {areas.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+              <option value="NONE">Sin sector</option>
+            </Select>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -388,6 +459,7 @@ export function InventoryPage() {
                     <p className="font-medium truncate">{item.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {INVENTORY_CATEGORY_LABEL[item.category]}
+                      {item.storageAreaId !== null && areaName.has(item.storageAreaId) && ` · ${areaName.get(item.storageAreaId)}`}
                       {item.supplier && ` · ${item.supplier}`}
                     </p>
                   </div>
@@ -404,7 +476,7 @@ export function InventoryPage() {
                   <div>
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Stock</p>
                     <p className="text-xl font-bold tabular-nums">
-                      {item.quantity}
+                      {fmtQty(item.quantity)}
                       <span className="ml-1 text-sm font-normal text-muted-foreground">{item.unit}</span>
                     </p>
                     {item.minStock > 0 && (
@@ -442,11 +514,17 @@ export function InventoryPage() {
                       Reabastecer
                     </Button>
                   )}
+                  <Button variant="ghost" size="icon" onClick={() => setMovementsItem(item)} title="Movimientos de stock" aria-label={`Movimientos de ${item.name}`}>
+                    <ArrowLeftRight className="h-4 w-4" />
+                  </Button>
                   <Button variant="ghost" size="icon" onClick={() => setHistoryItem(item)} title="Historial de precios" aria-label={`Historial de precios de ${item.name}`}>
                     <History className="h-4 w-4" />
                   </Button>
                   {isAdmin && (
                     <>
+                      <Button variant="ghost" size="icon" onClick={() => openAdjust(item)} title="Ajustar cantidad" aria-label={`Ajustar cantidad de ${item.name}`}>
+                        <SlidersHorizontal className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => openEdit(item)} title="Editar">
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -536,15 +614,25 @@ export function InventoryPage() {
             })()}
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="quantity">Cantidad *</Label>
-                <Input
-                  id="quantity" type="number" step="0.01" inputMode="decimal"
-                  value={form.quantity}
-                  onChange={(e) => setForm(f => ({ ...f, quantity: e.target.value }))}
-                  disabled={submitting} placeholder="45"
-                />
-              </div>
+              {editing ? (
+                <div className="space-y-2">
+                  <Label>Cantidad</Label>
+                  <p className="flex h-10 items-center text-sm tabular-nums">
+                    {fmtQty(editing.quantity)} {editing.unit}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">Se cambia con Reabastecer, Ajustar o un conteo.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="quantity">Cantidad inicial</Label>
+                  <Input
+                    id="quantity" type="number" step="0.01" inputMode="decimal"
+                    value={form.quantity}
+                    onChange={(e) => setForm(f => ({ ...f, quantity: e.target.value }))}
+                    disabled={submitting} placeholder="0"
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="minStock">Stock mínimo</Label>
                 <Input
@@ -603,6 +691,24 @@ export function InventoryPage() {
               </div>
             </div>
 
+            {/* Sector y orden en el conteo (tarea 3.1) */}
+            <div className="grid grid-cols-[1fr_auto] gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="storageArea">Sector</Label>
+                <Select id="storageArea" value={form.storageAreaId} disabled={submitting}
+                  onChange={(e) => setForm(f => ({ ...f, storageAreaId: e.target.value }))}>
+                  <option value="">— sin sector —</option>
+                  {areas.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="countOrder" title="Posición dentro del sector al contar (menor = primero)">Orden</Label>
+                <Input id="countOrder" type="number" step="1" min="0" inputMode="numeric" className="w-20"
+                  value={form.countOrder} onChange={(e) => setForm(f => ({ ...f, countOrder: e.target.value }))}
+                  disabled={submitting} placeholder="0" />
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="supplier">Proveedor</Label>
               <Input
@@ -624,6 +730,47 @@ export function InventoryPage() {
       </Dialog>
 
       <PriceHistoryDialog item={historyItem} onClose={() => setHistoryItem(null)} />
+      <StockMovementsDialog item={movementsItem} onClose={() => setMovementsItem(null)} />
+      <StorageAreasDialog open={areasOpen} onClose={() => setAreasOpen(false)} areas={areas} />
+
+      {/* Ajuste a mano (tarea 3.2): cantidad real + motivo; queda como movimiento */}
+      <Dialog open={adjusting !== null} onOpenChange={(v) => !v && setAdjusting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <SlidersHorizontal className="h-5 w-5 text-brand-400" />
+              Ajustar "{adjusting?.name}"
+            </DialogTitle>
+            <DialogDescription>
+              Hoy figura: <span className="font-semibold text-foreground">{adjusting && fmtQty(adjusting.quantity)} {adjusting?.unit}</span>.
+              Para el conteo semanal usá la pantalla Conteo.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="adjustQty">Cantidad real ({adjusting?.unit})</Label>
+            <Input id="adjustQty" type="number" step="0.01" min="0" inputMode="decimal" autoFocus className="text-lg tabular-nums"
+              value={adjustQty} onChange={(e) => setAdjustQty(e.target.value)} disabled={submitting} />
+            {adjusting && adjustQty !== '' && !Number.isNaN(Number(adjustQty)) && Number(adjustQty) !== adjusting.quantity && (
+              <p className="text-xs text-muted-foreground">
+                Diferencia: <span className="font-semibold">{fmtQty(Number(adjustQty) - adjusting.quantity, true)} {adjusting.unit}</span>
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="adjustReason">Motivo *</Label>
+            <Textarea id="adjustReason" rows={2} maxLength={500} value={adjustReason}
+              onChange={(e) => setAdjustReason(e.target.value)} disabled={submitting}
+              placeholder="Ej.: se cargó mal la compra del lunes" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdjusting(null)} disabled={submitting}>Cancelar</Button>
+            <Button onClick={handleAdjust} disabled={submitting || adjustReason.trim().length < 3}>
+              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Ajustar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal reabastecer */}
       <Dialog open={restocking !== null} onOpenChange={(v) => !v && setRestocking(null)}>

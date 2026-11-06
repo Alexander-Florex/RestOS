@@ -25,6 +25,7 @@
 import 'dotenv/config';
 import { PrismaClient, UserRole } from '@prisma/client';
 import { SYSTEM_ROLES, type SystemRoleKey } from '../src/lib/permissions.js';
+import { createDefaultStorageAreas } from '../src/lib/default-storage-areas.js';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -91,6 +92,9 @@ async function main() {
     const role = await prisma.role.create({ data: { restaurantId: restaurant.id, key, name: def.name, permissions: [...def.permissions] } });
     if (key === 'ADMIN') adminRoleId = role.id;
   }
+
+  // Sectores de guardado de la planilla de stock (tarea 3.1)
+  await createDefaultStorageAreas(prisma, restaurant.id);
 
   const password = await bcrypt.hash(adminPass, ROUNDS);
   const admin = await prisma.user.create({

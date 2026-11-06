@@ -29,6 +29,9 @@ export const AUDIT_ACTIONS = [
   'inventory.consume',  // consumo/baja de stock
   'inventory.update',   // cambio de cantidad o costo a mano
   'inventory.delete',   // insumo borrado
+  'inventory.adjust',   // cantidad corregida a mano, con motivo (tarea 3.2)
+  'inventory.count.close',  // toma de inventario cerrada (tarea 3.3)
+  'inventory.count.cancel', // toma de inventario descartada
   'user.create',
   'user.update',
   'user.toggle',        // activar / desactivar

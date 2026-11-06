@@ -10,6 +10,7 @@ import { PrismaClient, UserRole, TableStatus, StockStatus, InventoryCategory, St
 import bcrypt from 'bcryptjs';
 import { checkSeedAllowed } from './seed-guard.js';
 import { SYSTEM_ROLES, type SystemRoleKey } from '../src/lib/permissions.js';
+import { createDefaultStorageAreas } from '../src/lib/default-storage-areas.js';
 
 const prisma = new PrismaClient();
 const ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
@@ -170,7 +171,16 @@ async function main() {
   await prisma.inventoryItem.createMany({
     data: inventoryData.map(i => ({ ...i, restaurantId, lastRestocked: new Date() })),
   });
-  console.log(`📦 ${inventoryData.length} ítems de inventario creados.`);
+  // El stock es la suma de movimientos (tarea 3.2): el saldo de arranque entra como uno
+  const seededItems = await prisma.inventoryItem.findMany({ where: { restaurantId } });
+  await prisma.stockMovement.createMany({
+    data: seededItems.map(i => ({
+      restaurantId, inventoryItemId: i.id, type: 'ADJUSTMENT' as const,
+      quantity: i.quantity, balanceAfter: i.quantity, unitCost: i.costPerUnit, reason: 'Saldo inicial',
+    })),
+  });
+  await createDefaultStorageAreas(prisma, restaurantId);
+  console.log(`📦 ${inventoryData.length} ítems de inventario creados (y los sectores de guardado).`);
 
   // ── STAFF ──
   const staffData = [

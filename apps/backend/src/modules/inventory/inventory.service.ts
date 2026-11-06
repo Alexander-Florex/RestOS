@@ -15,6 +15,7 @@ import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 import { audit, changedFields } from '../../lib/audit.js';
 import { currentContext } from '../../lib/request-context.js';
 import { convertUnits, FAMILY_LABEL, normalizeUnit, unitFamily, UnitError, UNIT_LIST } from '../../shared/units.js';
+import { applyMovement, lockItem } from '../../lib/stock.js';
 
 function emitChanged(restaurantId: number, item: InventoryItem) { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_CHANGED, item); }
 function emitCreated(restaurantId: number, item: InventoryItem) { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_CREATED, item); }
@@ -40,9 +41,14 @@ export interface CreateInventoryData {
   purchasePrice?: number | null;
   /** Merma por defecto al usarlo en recetas, 0–0,95 */
   wastePct?: number;
+  /** Sector de guardado (tarea 3.1); null = sin sector */
+  storageAreaId?: number | null;
+  /** Orden dentro del sector para el conteo */
+  countOrder?: number;
 }
 
-export interface UpdateInventoryData extends Partial<CreateInventoryData> {}
+/** La cantidad no se edita: cambia solo con movimientos (reponer, consumir, ajustar, contar). */
+export interface UpdateInventoryData extends Partial<Omit<CreateInventoryData, 'quantity'>> {}
 
 export interface RestockOptions {
   /** Cantidad en la unidad del insumo... */
@@ -78,6 +84,14 @@ function equivalenceOrFail(itemUnit: string, qty: number | null | undefined, raw
     throw HttpError.badRequest(`La equivalencia tiene que ser de otra familia (el insumo ya está en ${FAMILY_LABEL[unitFamily(unit)]})`);
   }
   return { equivalenceQty: qty, equivalenceUnit: eqUnit };
+}
+
+/** El sector tiene que ser del mismo restaurante. */
+async function areaOrFail(restaurantId: number, areaId: number | null | undefined) {
+  if (areaId === undefined || areaId === null) return areaId;
+  const area = await prisma.storageArea.findFirst({ where: { id: areaId, restaurantId }, select: { id: true } });
+  if (!area) throw HttpError.badRequest('Sector no encontrado');
+  return areaId;
 }
 
 function wasteOrFail(waste: number | undefined) {
@@ -189,6 +203,7 @@ export const inventoryService = {
     const equivalence = equivalenceOrFail(unit, data.equivalenceQty, data.equivalenceUnit);
     const presentation = presentationOrFail(data, null);
     const wastePct = wasteOrFail(data.wastePct);
+    const storageAreaId = await areaOrFail(restaurantId, data.storageAreaId);
     const costPerUnit = presentation?.purchaseQty
       ? presentationCostPerUnit(
           { unit, equivalenceQty: equivalence?.equivalenceQty ?? null, equivalenceUnit: equivalence?.equivalenceUnit ?? null },
@@ -197,16 +212,19 @@ export const inventoryService = {
       : data.costPerUnit ?? 0;
 
     const item = await prisma.$transaction(async (tx) => {
+      // Se crea en 0: la cantidad inicial entra como movimiento "saldo inicial"
       const created = await tx.inventoryItem.create({
         data: {
           restaurantId,
           name: data.name,
           category: data.category,
-          quantity: data.quantity,
+          quantity: 0,
           unit,
           ...equivalence,
           ...(presentation ?? {}),
           ...(wastePct !== undefined ? { wastePct } : {}),
+          ...(storageAreaId !== undefined ? { storageAreaId } : {}),
+          ...(data.countOrder !== undefined ? { countOrder: data.countOrder } : {}),
           minStock: data.minStock ?? 0,
           costPerUnit,
           supplier: data.supplier ?? null,
@@ -214,6 +232,11 @@ export const inventoryService = {
         },
       });
       if (costPerUnit > 0) await recordPrice(tx, created, null, source);
+      if (data.quantity > 0) {
+        const locked = await lockItem(tx, restaurantId, created.id);
+        await applyMovement(tx, locked!, { type: 'ADJUSTMENT', delta: data.quantity, reason: 'Saldo inicial' });
+        return tx.inventoryItem.findUniqueOrThrow({ where: { id: created.id } });
+      }
       return created;
     });
     emitCreated(restaurantId, item);
@@ -222,9 +245,6 @@ export const inventoryService = {
 
   async update(restaurantId: number, id: number, data: UpdateInventoryData, source: PriceSource = PriceSource.MANUAL): Promise<InventoryItem> {
     const current = await inventoryService.getById(restaurantId, id);
-    if (data.quantity !== undefined && data.quantity < 0) {
-      throw HttpError.badRequest('La cantidad no puede ser negativa');
-    }
     if (data.minStock !== undefined && data.minStock < 0) {
       throw HttpError.badRequest('El stock mínimo no puede ser negativo');
     }
@@ -243,6 +263,7 @@ export const inventoryService = {
       purchasePrice: current.purchasePrice !== null ? Number(current.purchasePrice) : null,
     });
     const wastePct = wasteOrFail(data.wastePct);
+    const storageAreaId = await areaOrFail(restaurantId, data.storageAreaId);
 
     // Costo final: si (después del cambio) hay presentación, se calcula; si no, el que venga a mano
     const finalPresentation = presentation ?? (current.purchaseQty !== null
@@ -263,7 +284,8 @@ export const inventoryService = {
           ...(wastePct !== undefined ? { wastePct } : {}),
           ...(data.name !== undefined ? { name: data.name } : {}),
           ...(data.category !== undefined ? { category: data.category } : {}),
-          ...(data.quantity !== undefined ? { quantity: data.quantity } : {}),
+          ...(storageAreaId !== undefined ? { storageAreaId } : {}),
+          ...(data.countOrder !== undefined ? { countOrder: data.countOrder } : {}),
           ...(data.unit !== undefined ? { unit } : {}),
           ...(data.minStock !== undefined ? { minStock: data.minStock } : {}),
           ...(costPerUnit !== undefined ? { costPerUnit } : {}),
@@ -271,11 +293,11 @@ export const inventoryService = {
         },
       });
       await recordPrice(tx, updated, current.costPerUnit, source);
-      // Cantidad o costo cambiados a mano: quedan registrados (el resto de los campos no)
+      // Costo o mínimo cambiados a mano: quedan registrados (la cantidad va por movimientos)
       const diff = changedFields(
-        { quantity: current.quantity, costPerUnit: String(current.costPerUnit), minStock: current.minStock },
-        { quantity: updated.quantity, costPerUnit: String(updated.costPerUnit), minStock: updated.minStock },
-        ['quantity', 'costPerUnit', 'minStock'],
+        { costPerUnit: String(current.costPerUnit), minStock: current.minStock },
+        { costPerUnit: String(updated.costPerUnit), minStock: updated.minStock },
+        ['costPerUnit', 'minStock'],
       );
       if (diff) {
         await audit(tx, {
@@ -335,13 +357,19 @@ export const inventoryService = {
         })
       : undefined;
 
-    // increment atómico: dos reposiciones simultáneas no se pisan
+    // Fila bloqueada: dos reposiciones simultáneas quedan en fila y no se pisan
     const qty = amount;
     const item = await prisma.$transaction(async (tx) => {
+      const locked = await lockItem(tx, restaurantId, id);
+      if (!locked) throw HttpError.notFound('Ítem de inventario no encontrado');
+      await applyMovement(tx, locked, {
+        type: 'PURCHASE', delta: qty,
+        unitCost: newCost ?? locked.costPerUnit,
+        reference: opts.presentations !== undefined ? `${opts.presentations} × ${current.purchaseQty} ${current.purchaseUnit}` : null,
+      });
       const updated = await tx.inventoryItem.update({
         where: { id },
         data: {
-          quantity: { increment: qty },
           lastRestocked: new Date(),
           ...(newCost !== undefined ? { costPerUnit: newCost, purchasePrice: opts.purchasePrice } : {}),
         },
@@ -363,26 +391,64 @@ export const inventoryService = {
   },
 
   /** Consume: resta `amount`. Rechaza consumir más de lo que hay en vez de dejar el stock en 0 a escondidas. */
-  async consume(restaurantId: number, id: number, amount: number): Promise<InventoryItem> {
-    const current = await inventoryService.getById(restaurantId, id);
+  async consume(restaurantId: number, id: number, amount: number, reason?: string | null): Promise<InventoryItem> {
     if (amount <= 0) throw HttpError.badRequest('La cantidad a consumir debe ser mayor a 0');
     const item = await prisma.$transaction(async (tx) => {
-      const { count } = await tx.inventoryItem.updateMany({
-        where: { id, restaurantId, quantity: { gte: amount } },
-        data: { quantity: { decrement: amount } },
-      });
-      if (count !== 1) {
-        throw HttpError.badRequest(`No hay stock suficiente de "${current.name}" (quedan ${current.quantity} ${current.unit})`);
+      const locked = await lockItem(tx, restaurantId, id);
+      if (!locked) throw HttpError.notFound('Ítem de inventario no encontrado');
+      if (locked.quantity + 1e-9 < amount) {
+        throw HttpError.badRequest(`No hay stock suficiente de "${locked.name}" (quedan ${locked.quantity} ${locked.unit})`);
       }
+      const before = locked.quantity;
+      await applyMovement(tx, locked, { type: 'CONSUMPTION', delta: -amount, reason: reason ?? null });
       const updated = await tx.inventoryItem.findUniqueOrThrow({ where: { id } });
       await audit(tx, {
         restaurantId, action: 'inventory.consume', entity: 'InventoryItem', entityId: id,
-        before: { name: updated.name, quantity: updated.quantity + amount, unit: updated.unit },
+        before: { name: updated.name, quantity: before, unit: updated.unit },
         after: { quantity: updated.quantity, amount },
+        reason: reason ?? null,
       });
       return updated;
     });
     emitChanged(restaurantId, item);
     return item;
+  },
+
+  /**
+   * Ajuste a mano (tarea 3.2): fija la cantidad real y registra la diferencia
+   * como movimiento con motivo obligatorio. Reemplaza editar la cantidad.
+   */
+  async adjust(restaurantId: number, id: number, quantity: number, reason: string): Promise<InventoryItem> {
+    if (!(quantity >= 0)) throw HttpError.badRequest('La cantidad no puede ser negativa');
+    const why = reason.trim();
+    if (why.length < 3) throw HttpError.badRequest('Escribí el motivo del ajuste');
+    const item = await prisma.$transaction(async (tx) => {
+      const locked = await lockItem(tx, restaurantId, id);
+      if (!locked) throw HttpError.notFound('Ítem de inventario no encontrado');
+      const before = locked.quantity;
+      const delta = quantity - before;
+      if (Math.abs(delta) < 1e-9) throw HttpError.badRequest(`"${locked.name}" ya tiene ${before} ${locked.unit}`);
+      await applyMovement(tx, locked, { type: 'ADJUSTMENT', delta, reason: why });
+      const updated = await tx.inventoryItem.findUniqueOrThrow({ where: { id } });
+      await audit(tx, {
+        restaurantId, action: 'inventory.adjust', entity: 'InventoryItem', entityId: id,
+        before: { name: updated.name, quantity: before, unit: updated.unit },
+        after: { quantity: updated.quantity, difference: updated.quantity - before },
+        reason: why,
+      });
+      return updated;
+    });
+    emitChanged(restaurantId, item);
+    return item;
+  },
+
+  /** Movimientos del insumo, del más nuevo al más viejo. */
+  async movements(restaurantId: number, id: number, limit = 200) {
+    await inventoryService.getById(restaurantId, id);
+    return prisma.stockMovement.findMany({
+      where: { restaurantId, inventoryItemId: id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: Math.min(Math.max(limit, 1), 500),
+    });
   },
 };

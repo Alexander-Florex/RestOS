@@ -15,6 +15,8 @@ import { recipesRouter } from './modules/recipes/recipes.routes.js';
 import { ordersRouter } from './modules/orders/orders.routes.js';
 import { salesRouter } from './modules/sales/sales.routes.js';
 import { inventoryRouter } from './modules/inventory/inventory.routes.js';
+import { storageAreasRouter } from './modules/storage-areas/storage-areas.routes.js';
+import { stockCountsRouter } from './modules/stock-counts/stock-counts.routes.js';
 import { staffRouter } from './modules/staff/staff.routes.js';
 import { reservationsRouter } from './modules/reservations/reservations.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
@@ -105,6 +107,8 @@ export function buildApp(): Express {
   app.use('/api/orders',       ordersRouter);
   app.use('/api/sales',        salesRouter);
   app.use('/api/inventory',    inventoryRouter);
+  app.use('/api/storage-areas', storageAreasRouter);
+  app.use('/api/stock-counts', stockCountsRouter);
   app.use('/api/staff',        staffRouter);
   app.use('/api/reservations', reservationsRouter);
   app.use('/api/reports',      reportsRouter);
