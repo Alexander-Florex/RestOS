@@ -42,7 +42,9 @@ const EMPTY_ITEM: ItemForm = {
 
 export function MenuPage() {
   const { user, can } = useAuth();
+  // menu.manage edita la carta; menu.availability solo pausa platos y marca stock (ej. Cajero)
   const isAdmin = can('menu.manage');
+  const canAvailability = can('menu.manage', 'menu.availability');
   const confirm = useConfirm();
 
   const { items, loading } = useMenu();
@@ -137,10 +139,21 @@ export function MenuPage() {
 
   async function handleToggleItem(item: MenuItem) {
     try {
-      await menuApi.update(item.id, { enabled: !item.enabled });
+      await menuApi.toggle(item.id);
       toast.success(`"${item.name}" ${item.enabled ? 'deshabilitado' : 'habilitado'}`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
+    }
+  }
+
+  async function handleCycleStock(item: MenuItem) {
+    const order: StockStatus[] = ['IN_STOCK', 'LOW_STOCK', 'OUT_OF_STOCK'];
+    const next = order[(order.indexOf(item.stock as StockStatus) + 1) % order.length];
+    try {
+      await menuApi.setStock(item.id, next);
+      toast.success(`"${item.name}": ${STOCK_LABEL[next].toLowerCase()}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error al cambiar el stock');
     }
   }
 
@@ -227,14 +240,6 @@ export function MenuPage() {
     }
   }
 
-  if (!isAdmin) {
-    return (
-      <div className="glass rounded-3xl p-12 text-center">
-        <p className="text-sm text-muted-foreground">Tu rol no tiene permiso para editar la carta.</p>
-      </div>
-    );
-  }
-
   if (loading || categoriesLoading) {
     return <div className="flex items-center justify-center py-24"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
@@ -250,24 +255,30 @@ export function MenuPage() {
             {items.filter(i => i.enabled).length} ítems activos · {categories.length} categorías
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant={view === 'categories' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setView(v => v === 'categories' ? 'menu' : 'categories')}
-          >
-            <Tag className="h-4 w-4" />
-            Categorías
-          </Button>
-          <Button size="sm" onClick={openCreateItem}>
-            <Plus className="h-4 w-4" />
-            Nuevo ítem
-          </Button>
-        </div>
+        {isAdmin ? (
+          <div className="flex gap-2">
+            <Button
+              variant={view === 'categories' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setView(v => v === 'categories' ? 'menu' : 'categories')}
+            >
+              <Tag className="h-4 w-4" />
+              Categorías
+            </Button>
+            <Button size="sm" onClick={openCreateItem}>
+              <Plus className="h-4 w-4" />
+              Nuevo ítem
+            </Button>
+          </div>
+        ) : canAvailability && (
+          <p className="max-w-xs text-xs text-muted-foreground sm:text-right">
+            Podés pausar platos y marcar su stock. Tocá el estado de stock para cambiarlo.
+          </p>
+        )}
       </div>
 
       {/* VISTA CATEGORÍAS */}
-      {view === 'categories' && (
+      {isAdmin && view === 'categories' && (
         <div className="mb-6 glass rounded-3xl p-5">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-sm font-semibold">
@@ -362,11 +373,11 @@ export function MenuPage() {
       {/* Tabla de ítems */}
       {filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-sm text-muted-foreground">
-          No hay ítems en esta categoría. Creá el primero con "+ Nuevo ítem".
+          {isAdmin ? 'No hay ítems en esta categoría. Creá el primero con "+ Nuevo ítem".' : 'No hay ítems en esta categoría.'}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-2xl border border-border">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-white/[0.04] text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 text-left font-medium">Nombre</th>
@@ -374,7 +385,7 @@ export function MenuPage() {
                 <th className="px-4 py-3 text-right font-medium">Precio</th>
                 <th className="px-4 py-3 text-center font-medium">Stock</th>
                 <th className="px-4 py-3 text-center font-medium">Activo</th>
-                <th className="px-4 py-3 text-center font-medium">Acciones</th>
+                {isAdmin && <th className="px-4 py-3 text-center font-medium">Acciones</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -401,19 +412,35 @@ export function MenuPage() {
                       {canSeeCosts && <MenuCostBadge cost={menuCosts.get(item.id)} />}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider', ss.text, ss.bg)}>
+                      <button
+                        type="button"
+                        disabled={!canAvailability}
+                        onClick={() => handleCycleStock(item)}
+                        title={canAvailability ? 'Cambiar estado de stock' : undefined}
+                        className={cn(
+                          'rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider transition-opacity',
+                          ss.text, ss.bg,
+                          canAvailability ? 'cursor-pointer hover:opacity-80' : 'cursor-default',
+                        )}
+                      >
                         {STOCK_LABEL[item.stock as StockStatus]}
-                      </span>
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button onClick={() => handleToggleItem(item)}>
+                      <button
+                        type="button"
+                        disabled={!canAvailability}
+                        onClick={() => handleToggleItem(item)}
+                        aria-label={item.enabled ? `Deshabilitar ${item.name}` : `Habilitar ${item.name}`}
+                        className="disabled:cursor-default"
+                      >
                         {item.enabled
                           ? <ToggleRight className="mx-auto h-5 w-5 text-brand-400" />
                           : <ToggleLeft className="mx-auto h-5 w-5 text-muted-foreground" />
                         }
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    {isAdmin && <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <Button variant="ghost" size="icon" onClick={() => openEditItem(item)}><Edit className="h-4 w-4" /></Button>
                         <Button variant="ghost" size="icon" onClick={() => setOptionsItem(item)} title="Opciones (ingredientes, término, agregados)" aria-label={`Opciones de ${item.name}`}>
@@ -423,7 +450,7 @@ export function MenuPage() {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-                    </td>
+                    </td>}
                   </tr>
                 );
               })}

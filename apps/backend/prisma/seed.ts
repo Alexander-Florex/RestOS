@@ -44,8 +44,11 @@ async function main() {
   console.log('🧹 Tablas limpiadas.\n');
 
   // ── RESTAURANTE (tenant demo) ──
+  // id fijo: sin esto el autoincremento sigue después de cada seed (2, 3, ...)
+  // y el login demo con "ID de restaurante 1" deja de funcionar.
   const restaurant = await prisma.restaurant.create({
     data: {
+      id: 1,
       name: 'RestOS Demo',
       email: 'contacto@restosdemo.com',
       phone: '+54 11 5555-0000',
@@ -65,9 +68,9 @@ async function main() {
 
   // ── USUARIOS (los que loguean al sistema) ──
   const users = [
-    { username: 'admin',     email: 'admin@resto.com', name: 'Administrador',   role: UserRole.ADMIN,  roleId: roleIds.ADMIN,   plain: 'admin123'  },
-    { username: 'mesero1',   email: 'maria@resto.com', name: 'María Rodríguez', role: UserRole.WAITER, roleId: roleIds.WAITER,  plain: 'waiter123' },
-    { username: 'personal1', email: 'juan@resto.com',  name: 'Juan García',     role: UserRole.STAFF,  roleId: roleIds.CASHIER, plain: 'staff123'  },
+    { username: 'admin',     email: 'admin@resto.com', name: 'Administrador',   role: UserRole.ADMIN,  roleKey: 'ADMIN' as const,   plain: 'admin123'  },
+    { username: 'mesero1',   email: 'maria@resto.com', name: 'María Rodríguez', role: UserRole.WAITER, roleKey: 'WAITER' as const,  plain: 'waiter123' },
+    { username: 'personal1', email: 'juan@resto.com',  name: 'Juan García',     role: UserRole.STAFF,  roleKey: 'CASHIER' as const, plain: 'staff123'  },
   ];
 
   for (const u of users) {
@@ -79,14 +82,14 @@ async function main() {
         email: u.email,
         name: u.name,
         role: u.role,
-        roleId: u.roleId,
+        roleId: roleIds[u.roleKey],
         password,
       },
     });
   }
   console.log(`👤 ${users.length} usuarios creados (passwords hasheadas con bcrypt).`);
   console.log(`   restaurantId = ${restaurantId} (usar este valor para hacer login)`);
-  users.forEach(u => console.log(`   - ${u.username.padEnd(10)} / ${u.plain.padEnd(10)} (${u.role})`));
+  users.forEach(u => console.log(`   - ${u.username.padEnd(10)} / ${u.plain.padEnd(10)} (${SYSTEM_ROLES[u.roleKey].name})`));
   console.log('');
 
   // ── SECCIONES ──
@@ -128,22 +131,30 @@ async function main() {
 
   // ── MENÚ ──
   const menuData = [
-    { name: 'Pizza Margherita',    category: 'main-dishes', price: 18.50, description: 'Mozzarella fresca y albahaca',       stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Pasta Carbonara',     category: 'main-dishes', price: 16.99, description: 'Pasta cremosa con panceta',          stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Salmón a la Plancha', category: 'main-dishes', price: 24.99, description: 'Salmón atlántico con hierbas',       stock: StockStatus.LOW_STOCK,    enabled: true  },
-    { name: 'Bife Término Medio',  category: 'main-dishes', price: 32.99, description: 'Corte premium de res',               stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Tacos de Pollo',      category: 'main-dishes', price: 11.99, description: 'Tacos estilo mexicano',              stock: StockStatus.OUT_OF_STOCK, enabled: false },
-    { name: 'Vino de la Casa',     category: 'drinks',      price:  8.50, description: 'Tinto o blanco',                     stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Agua con Gas',        category: 'drinks',      price:  3.99, description: 'San Pellegrino',                     stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Té Frío',             category: 'drinks',      price:  3.50, description: 'Recién preparado',                   stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Cerveza Artesanal',   category: 'drinks',      price:  6.99, description: 'Selección de microcervecería local', stock: StockStatus.LOW_STOCK,    enabled: true  },
-    { name: 'Ensalada César',      category: 'appetizers',  price: 12.99, description: 'Lechuga romana con parmesano',       stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Papas Fritas',        category: 'appetizers',  price:  5.99, description: 'Papas doradas crujientes',           stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Verduras Salteadas',  category: 'appetizers',  price: 14.50, description: 'Verduras de estación',               stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Tiramisú',            category: 'desserts',    price:  7.99, description: 'Clásico postre italiano',            stock: StockStatus.IN_STOCK,     enabled: true  },
-    { name: 'Torta de Chocolate',  category: 'desserts',    price:  8.50, description: 'Capas de chocolate intenso',         stock: StockStatus.LOW_STOCK,    enabled: true  },
-    { name: 'Sorbete de Frutas',   category: 'desserts',    price:  6.99, description: 'Sorbete refrescante de fruta',       stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Pizza Margherita',    category: 'Principales', price: 18500, description: 'Mozzarella fresca y albahaca',       stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Pasta Carbonara',     category: 'Principales', price: 17000, description: 'Pasta cremosa con panceta',          stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Salmón a la Plancha', category: 'Principales', price: 25000, description: 'Salmón atlántico con hierbas',       stock: StockStatus.LOW_STOCK,    enabled: true  },
+    { name: 'Bife Término Medio',  category: 'Principales', price: 33000, description: 'Corte premium de res',               stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Tacos de Pollo',      category: 'Principales', price: 12000, description: 'Tacos estilo mexicano',              stock: StockStatus.OUT_OF_STOCK, enabled: false },
+    { name: 'Vino de la Casa',     category: 'Bebidas',     price:  8500, description: 'Tinto o blanco',                     stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Agua con Gas',        category: 'Bebidas',     price:  4000, description: 'San Pellegrino',                     stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Té Frío',             category: 'Bebidas',     price:  3500, description: 'Recién preparado',                   stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Cerveza Artesanal',   category: 'Bebidas',     price:  7000, description: 'Selección de microcervecería local', stock: StockStatus.LOW_STOCK,    enabled: true  },
+    { name: 'Ensalada César',      category: 'Entradas',    price: 13000, description: 'Lechuga romana con parmesano',       stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Papas Fritas',        category: 'Entradas',    price:  6000, description: 'Papas doradas crujientes',           stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Verduras Salteadas',  category: 'Entradas',    price: 14500, description: 'Verduras de estación',               stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Tiramisú',            category: 'Postres',     price:  8000, description: 'Clásico postre italiano',            stock: StockStatus.IN_STOCK,     enabled: true  },
+    { name: 'Torta de Chocolate',  category: 'Postres',     price:  8500, description: 'Capas de chocolate intenso',         stock: StockStatus.LOW_STOCK,    enabled: true  },
+    { name: 'Sorbete de Frutas',   category: 'Postres',     price:  7000, description: 'Sorbete refrescante de fruta',       stock: StockStatus.IN_STOCK,     enabled: true  },
   ];
+  // Las categorías existen como entidad: sin esto el filtro de la carta queda vacío
+  const menuCategories = [
+    { name: 'Entradas',    color: '#f59e0b' },
+    { name: 'Principales', color: '#f97316' },
+    { name: 'Postres',     color: '#ec4899' },
+    { name: 'Bebidas',     color: '#0ea5e9' },
+  ];
+  await prisma.menuCategory.createMany({ data: menuCategories.map((c, order) => ({ ...c, order, restaurantId })) });
   await prisma.menuItem.createMany({ data: menuData.map(m => ({ ...m, restaurantId })) });
   console.log(`🍽️  ${menuData.length} platos creados.`);
 
