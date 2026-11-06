@@ -17,6 +17,7 @@ import { formatMoney, saleOriginLabel } from '../lib/format';
 import { getSocket, SocketEvents } from '../lib/socket';
 import { AnimatedMoney, AnimatedNumber, EASE_OUT, PageHeader, SpotlightCard, Stagger, StaggerItem } from './ui/motion';
 import { cn } from '../lib/utils';
+import { BackupStatusCard } from './BackupStatusCard';
 
 type View = 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'staff' | 'users';
 
@@ -100,6 +101,9 @@ export function DashboardHome({ onNavigate }: { onNavigate: (view: View) => void
         title={<>{greeting()}, <span className="text-gradient">{firstName}</span></>}
         description="Así viene el día en el local."
       />
+
+      {/* Respaldo nocturno (tarea 6.3): solo para quien puede verlo */}
+      {can('system.backup') && <BackupStatusCard />}
 
       <Stagger className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         {/* KPI principal */}

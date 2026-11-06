@@ -29,6 +29,7 @@ export const PERMISSIONS = [
   { key: 'takeaway.delete',     group: 'Administración', label: 'Borrar pedidos para llevar',      description: 'Eliminar definitivamente un pedido para llevar.' },
   { key: 'staff.manage',        group: 'Administración', label: 'Gestionar personal',              description: 'Fichas del equipo.' },
   { key: 'users.manage',        group: 'Administración', label: 'Gestionar usuarios y roles',      description: 'Crear cuentas, asignar roles y definir permisos.' },
+  { key: 'system.backup',      group: 'Administración', label: 'Ver estado del respaldo',         description: 'Ver en el inicio si el respaldo nocturno se hizo y se copió fuera del local.' },
   { key: 'audit.view',          group: 'Administración', label: 'Ver auditoría',                   description: 'Quién cobró, anuló pedidos, cambió precios, stock o usuarios, y cuándo.' },
 ] as const;
 

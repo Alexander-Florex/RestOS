@@ -1332,6 +1332,24 @@ export interface AuditPage {
   entries: AuditEntry[];
 }
 
+// ──────────────────────────────────────────────
+// Estado del respaldo nocturno (tarea 6.3) — permiso system.backup
+// ──────────────────────────────────────────────
+export type BackupHealth = 'ok' | 'solo-local' | 'atrasado' | 'falla' | 'nunca' | 'sin-configurar';
+
+export interface BackupStatus {
+  health: BackupHealth;
+  destinations: ('copia' | 'sftp')[];
+  lastCompleteDay: string | null;
+  lastLocalAt: string | null;
+  lastError: string | null;
+  pending: number;
+}
+
+export const systemApi = {
+  backup: () => request<{ backup: BackupStatus }>('/system/backup'),
+};
+
 export const auditApi = {
   /** Sin fechas: últimos 7 días. `action`: acciones o prefijos separados por coma. */
   list: (filters: { from?: Date; to?: Date; action?: string; userId?: number; page?: number; pageSize?: number } = {}) => {
