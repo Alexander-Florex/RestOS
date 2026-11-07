@@ -49,7 +49,7 @@ function q(p: string): string {
 export function sftpUploadScript(dir: string, files: string[]): string {
   const lines = [`-mkdir ${q(dir)}`, `cd ${q(dir)}`];
   for (const f of files) {
-    const name = path.basename(f);
+    const name = f.split(/[\\/]/).pop() ?? f;   // vale para rutas de Windows aunque corra en Linux
     lines.push(`-rm ${q(name + '.part')}`, `put ${q(f)} ${q(name + '.part')}`, `-rm ${q(name)}`, `rename ${q(name + '.part')} ${q(name)}`);
   }
   return lines.join('\n') + '\n';
