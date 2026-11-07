@@ -8,6 +8,20 @@ Guía paso a paso para dejar RestOS funcionando en la PC del local que hace de s
 
 Tiempo estimado: 1 a 2 horas. Hacelo fuera del horario de servicio.
 
+> **¿La PC ya tiene una versión anterior de RestOS con XAMPP?** No sigas esta guía: corré, en PowerShell **como administrador** y fuera de horario:
+>
+> ```powershell
+> irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/main/deploy/windows/actualizar-desde-xampp.ps1 -OutFile $env:TEMP\actualizar-restos.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\actualizar-restos.ps1
+> ```
+>
+> Detiene la versión anterior y desactiva su tarea `RestOS-Watcher`. Respalda la base en `C:\RestOS\respaldos`, baja el código, compila y aplica las migraciones. Si algo falla, vuelve atrás solo. Si sale bien:
+> - Deja la tarea **"RestOS"**, que arranca con Windows sin iniciar sesión y se reinicia si se cae (`deploy\windows\iniciar-restos.ps1`, sin NSSM).
+> - Deja el respaldo nocturno programado.
+> - Pasa la red a Privada y abre el puerto del `.env` (también para ZeroTier).
+> - Si Apache servía las pantallas viejas, las cambia por una página que redirige al sistema nuevo.
+>
+> El puerto sigue siendo el del `.env` (3000 en esa PC). Para las próximas actualizaciones, la misma línea. Antes de actualizar, para ver cómo está la PC: `irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/main/deploy/windows/diagnostico.ps1 | iex`.
+
 ---
 
 ## 0. Antes de empezar
