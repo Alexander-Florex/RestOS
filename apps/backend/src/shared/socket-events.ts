@@ -20,12 +20,21 @@ export const SocketEvents = {
   // Pedidos
   ORDER_CREATED:           'order:created',
   ORDER_DELETED:           'order:deleted',
+  // Un pedido abierto cambió (plato anulado, reemplazado o rehecho) — tarea 5.8
+  ORDER_UPDATED:           'order:updated',
+  // Pedidos de cambio de plato: el mozo pide, caja aprueba o rechaza
+  ORDER_CHANGE_REQUESTED:  'order-change:requested',
+  ORDER_CHANGE_RESOLVED:   'order-change:resolved',
   // Ventas
   SALE_REGISTERED:         'sale:registered',
   // Inventario
   INVENTORY_ITEM_CHANGED:  'inventory-item:changed',
   INVENTORY_ITEM_CREATED:  'inventory-item:created',
   INVENTORY_ITEM_DELETED:  'inventory-item:deleted',
+  // Sectores de guardado (tarea 3.1): se renombraron, agregaron o borraron
+  STORAGE_AREAS_CHANGED:   'storage-areas:changed',
+  // Toma de inventario (tarea 3.3): se cargó un número, se cerró o se descartó
+  STOCK_COUNT_CHANGED:     'stock-count:changed',
   // Staff
   STAFF_CHANGED:           'staff:changed',
   STAFF_CREATED:           'staff:created',

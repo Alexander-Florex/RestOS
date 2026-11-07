@@ -10,10 +10,11 @@ export const PERMISSIONS = [
   { key: 'app.dashboard',       group: 'General',     label: 'Usar el panel completo',             description: 'Sin este permiso, la persona ve solo la vista móvil de toma de pedidos.' },
   { key: 'orders.create',       group: 'Servicio',    label: 'Tomar pedidos',                      description: 'Cargar pedidos en mesas y para llevar.' },
   { key: 'orders.view',         group: 'Servicio',    label: 'Ver todos los pedidos',              description: 'Listado general de pedidos.' },
-  { key: 'orders.delete',       group: 'Servicio',    label: 'Anular pedidos',                     description: 'Eliminar pedidos de una mesa.' },
+  { key: 'orders.delete',       group: 'Servicio',    label: 'Anular pedidos',                     description: 'Anular pedidos de una mesa (con motivo; quedan en el historial).' },
   { key: 'tables.operate',      group: 'Servicio',    label: 'Operar mesas',                       description: 'Abrir, pedir cuenta, cerrar y reservar mesas.' },
   { key: 'reservations.manage', group: 'Servicio',    label: 'Gestionar reservas',                 description: 'Crear, editar y cancelar reservas.' },
   { key: 'sales.charge',        group: 'Caja',        label: 'Cobrar',                             description: 'Cobrar mesas y pedidos para llevar, e imprimir la cuenta.' },
+  { key: 'orders.change.approve', group: 'Caja',      label: 'Autorizar cambios de platos',        description: 'Aprobar o hacer directamente cambios de plato pedidos por el mozo.' },
   { key: 'takeaway.cancel',     group: 'Caja',        label: 'Cancelar pedidos para llevar',       description: 'Cancelar un pedido para llevar que no se cobró.' },
   { key: 'sales.view',          group: 'Caja',        label: 'Ver ventas',                         description: 'Historial de ventas y totales del día.' },
   { key: 'reports.view',        group: 'Caja',        label: 'Ver reportes',                       description: 'Reportes de ventas, ranking de platos y exportación CSV.' },
@@ -21,12 +22,15 @@ export const PERMISSIONS = [
   { key: 'menu.manage',         group: 'Carta y stock', label: 'Editar la carta',                  description: 'Crear, editar y borrar platos y categorías.' },
   { key: 'inventory.view',      group: 'Carta y stock', label: 'Ver inventario',                   description: 'Consultar el stock de insumos.' },
   { key: 'inventory.adjust',    group: 'Carta y stock', label: 'Ajustar stock',                    description: 'Registrar reposiciones y consumos.' },
-  { key: 'inventory.manage',    group: 'Carta y stock', label: 'Editar insumos',                   description: 'Crear, editar y borrar insumos.' },
+  { key: 'inventory.count',     group: 'Carta y stock', label: 'Contar stock',                     description: 'Hacer la toma de inventario por sector y cerrarla (corrige el stock con las diferencias).' },
+  { key: 'inventory.manage',    group: 'Carta y stock', label: 'Editar insumos',                   description: 'Crear, editar y borrar insumos y sectores, y corregir la cantidad a mano (con motivo).' },
   { key: 'recipes.manage',      group: 'Carta y stock', label: 'Recetas y costos',                 description: 'Ver y editar recetas y su costo.' },
   { key: 'tables.manage',       group: 'Administración', label: 'Configurar salón',                description: 'Crear, editar y borrar mesas y secciones.' },
   { key: 'takeaway.delete',     group: 'Administración', label: 'Borrar pedidos para llevar',      description: 'Eliminar definitivamente un pedido para llevar.' },
   { key: 'staff.manage',        group: 'Administración', label: 'Gestionar personal',              description: 'Fichas del equipo.' },
   { key: 'users.manage',        group: 'Administración', label: 'Gestionar usuarios y roles',      description: 'Crear cuentas, asignar roles y definir permisos.' },
+  { key: 'system.backup',      group: 'Administración', label: 'Ver estado del respaldo',         description: 'Ver en el inicio si el respaldo nocturno se hizo y se copió fuera del local.' },
+  { key: 'audit.view',          group: 'Administración', label: 'Ver auditoría',                   description: 'Quién cobró, anuló pedidos, cambió precios, stock o usuarios, y cuándo.' },
 ] as const;
 
 export type Permission = typeof PERMISSIONS[number]['key'];
@@ -49,6 +53,8 @@ export const SYSTEM_ROLES = {
     permissions: [
       'app.dashboard', 'orders.create', 'orders.view', 'orders.delete', 'tables.operate',
       'reservations.manage', 'sales.charge', 'takeaway.cancel', 'sales.view', 'reports.view',
+      // Agregado por la migración 20261102150000_order_item_changes (tarea 5.8)
+      'orders.change.approve',
       'menu.availability', 'inventory.view', 'inventory.adjust',
     ] as Permission[],
   },

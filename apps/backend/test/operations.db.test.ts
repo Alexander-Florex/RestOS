@@ -169,7 +169,7 @@ test('anular un pedido mientras se cobra: o se cobra sin él, o la anulación fa
 
   const [sale, removal] = await Promise.allSettled([
     salesService.create(restaurantId, { tableId, paymentMethod: 'CASH', amount: 3001 }),
-    ordersService.remove(restaurantId, extra.id),
+    ordersService.cancel(restaurantId, extra.id, { reason: 'test de concurrencia' }),
   ]);
 
   const saved = await prisma.sale.findFirst({ where: { restaurantId } });
@@ -177,7 +177,7 @@ test('anular un pedido mientras se cobra: o se cobra sin él, o la anulación fa
     // La anulación entró primero: la venta no puede incluir el pedido anulado
     assert.equal(saved?.total.toFixed(2), '1500.50');
   } else if (removal.status === 'rejected') {
-    // El cobro entró primero: el pedido se cobró y ya no existe para anular
+    // El cobro entró primero: el pedido ya está cobrado y no se puede anular
     assert.equal(sale.status, 'fulfilled');
     assert.equal(saved?.total.toFixed(2), '3001.00');
   }

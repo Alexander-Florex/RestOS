@@ -9,6 +9,8 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { WaiterMobileView } from './components/WaiterMobileView';
 import { ConfirmDialogProvider } from './components/ui/confirm-dialog';
+import { ConnectionBanner } from './components/ConnectionBanner';
+import { PendingOrders } from './components/PendingOrders';
 
 function AuthGate() {
   const { user, loading, can } = useAuth();
@@ -29,11 +31,17 @@ function AuthGate() {
 
   if (!user) return <LoginPage />;
 
-  // Sin acceso al panel (por ejemplo, Mesero): vista móvil de toma de pedidos
-  if (!can('app.dashboard')) return <WaiterMobileView />;
-
-  // El resto usa el panel; cada sección se muestra según los permisos del rol
-  return <DashboardPage />;
+  return (
+    <>
+      {/* Aviso visible si se corta la conexión con el servidor (tarea 1.5) */}
+      <ConnectionBanner />
+      {/* Pedidos guardados sin conexión: se reenvían solos (tarea 1.5) */}
+      <PendingOrders />
+      {/* Sin acceso al panel (por ejemplo, Mesero): vista móvil de toma de pedidos.
+          El resto usa el panel; cada sección se muestra según los permisos del rol. */}
+      {can('app.dashboard') ? <DashboardPage /> : <WaiterMobileView />}
+    </>
+  );
 }
 
 export default function App() {

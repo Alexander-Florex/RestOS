@@ -17,6 +17,11 @@ const schema = z.object({
   // Solo si hay un proxy/túnel adelante (ej. Cloudflare Tunnel): sin esto, el
   // límite de login por IP vería a todos con la IP del proxy. Ej.: "loopback" o "1".
   TRUST_PROXY: z.string().optional(),
+  // Servidor del local (tarea 6.1): el backend sirve también las pantallas (build de
+  // Vite), así celulares y PC entran a una sola dirección. Por defecto: sí en producción
+  // si existe el build. FRONTEND_DIST: carpeta del build (por defecto ../frontend/dist).
+  SERVE_FRONTEND: z.enum(['true', 'false']).optional(),
+  FRONTEND_DIST: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

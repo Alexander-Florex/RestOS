@@ -12,11 +12,11 @@
 //    - Calcula el total en centavos desde los orders (leídos DESPUÉS del lock)
 //    - Exige amount >= total (no se aceptan cobros parciales)
 //    - Crea el registro de Sale + snapshot de items
-//    - Borra los Orders de la mesa (que cascada borra OrderItems)
+//    - Marca los pedidos abiertos como PAID vinculados a la venta (no se borran, tarea 1.3)
 //    - Cierra la mesa (vuelve a AVAILABLE, limpia guestCount/openedAt)
 // 5. Emite sale:registered y table:changed
 // ──────────────────────────────────────────────
-import { PaymentMethod, SaleChannel, TableStatus, type Sale } from '@prisma/client';
+import { OrderStatus, PaymentMethod, SaleChannel, TableStatus, type Sale, type Prisma } from '@prisma/client';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
@@ -25,7 +25,10 @@ import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
 import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money.js';
 import { localDayKey, localDaysRange, type DayKey } from '../../lib/time.js';
+import { modifiersKey } from '../../lib/modifiers.js';
+import { rejectPendingChangesForOrders } from '../orders/order-changes.service.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { audit } from '../../lib/audit.js';
 
 const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads', 'sales');
 
@@ -132,7 +135,7 @@ export const salesService = {
   },
 
   /**
-   * Registra venta + cierra mesa + borra orders, todo en una transacción.
+   * Registra venta + cierra mesa + marca los pedidos como cobrados, todo en una transacción.
    * Guarda un snapshot de items en sale_items para reportes posteriores.
    *
    * Concurrencia: la mesa se bloquea con SELECT ... FOR UPDATE antes de leer
@@ -163,8 +166,10 @@ export const salesService = {
 
         // 2. Leer pedidos con la mesa ya bloqueada
         const orders = await tx.order.findMany({
-          where: { tableId: input.tableId, restaurantId },
-          include: { items: { include: { menuItem: true } } },
+          // Solo la cuenta abierta: los cobrados/anulados de antes quedan en el historial
+          where: { tableId: input.tableId, restaurantId, status: OrderStatus.OPEN },
+          // Los platos anulados por un cambio no se cobran (tarea 5.8)
+          include: { items: { where: { status: 'ACTIVE' }, include: { menuItem: true } } },
         });
 
         // Calcular total real desde los items + construir snapshot agregado
@@ -176,14 +181,16 @@ export const salesService = {
           category: string;
           quantity: number;
           priceCents: number;
+          modifiers: Prisma.JsonValue | null;
         }>();
 
         for (const order of orders) {
           for (const item of order.items) {
             const priceCents = toCents(item.price);
             totalCents += priceCents * item.quantity;
-            // Clave de agrupación: menuItemId + price (mismo item con mismo precio se agrupa)
-            const key = `${item.menuItemId ?? `name:${item.itemName}`}-${priceCents}`;
+            // Clave de agrupación: plato + precio + opciones elegidas. Dos César "sin
+            // croutones" se suman; una César común queda en otra línea.
+            const key = `${item.menuItemId ?? `name:${item.itemName}`}-${priceCents}-${modifiersKey(item.modifiers)}`;
             const existing = snapshot.get(key);
             if (existing) {
               existing.quantity += item.quantity;
@@ -194,6 +201,7 @@ export const salesService = {
                 category: item.menuItem?.category ?? 'unknown',
                 quantity: item.quantity,
                 priceCents,
+                modifiers: item.modifiers,
               });
             }
           }
@@ -254,12 +262,32 @@ export const salesService = {
               quantity: s.quantity,
               price: fromCents(s.priceCents),
               subtotal: fromCents(s.priceCents * s.quantity),
+              modifiers: s.modifiers ?? undefined,
             })),
           });
         }
 
-        // Borrar TODOS los pedidos de la mesa (cascade borra OrderItems)
-        await tx.order.deleteMany({ where: { tableId: input.tableId, restaurantId } });
+        // Los pedidos cobrados quedan en el historial, vinculados a la venta.
+        // Se marcan exactamente los que se sumaron (leídos con la mesa bloqueada).
+        const paid = await tx.order.updateMany({
+          where: { id: { in: orders.map(o => o.id) }, restaurantId, status: OrderStatus.OPEN },
+          data: { status: OrderStatus.PAID, saleId: sale.id, closedAt: sale.closedAt },
+        });
+        if (paid.count !== orders.length) {
+          throw HttpError.conflict('Los pedidos de la mesa cambiaron durante el cobro. Volvé a intentarlo.');
+        }
+        // Pedidos de cambio que nadie aprobó: se cierran (la mesa ya se cobró)
+        await rejectPendingChangesForOrders(tx, orders.map(o => o.id), 'Se cobró la mesa antes de aprobarlo');
+
+        await audit(tx, {
+          restaurantId, action: 'sale.create', entity: 'Sale', entityId: sale.id,
+          userId: input.registeredById ?? undefined,
+          after: {
+            tableNumber: locked.number, paymentMethod: input.paymentMethod,
+            total: sale.total, amount: sale.amount, orderIds: orders.map(o => o.id),
+            notes: input.notes ?? null, receipt: !!imageUrl,
+          },
+        });
 
         const updatedTable = await tx.table.findUniqueOrThrow({ where: { id: input.tableId } });
         return { sale, updatedTable };

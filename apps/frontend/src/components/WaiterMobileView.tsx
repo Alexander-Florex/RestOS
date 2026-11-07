@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import {
   LogOut, ArrowLeft, Send, Loader2, Minus, Plus,
   Users, Clock, ShoppingBag, X, Printer, MessageSquare, CreditCard,
-  UtensilsCrossed, Package, ChevronRight, AlertTriangle,
+  UtensilsCrossed, Package, ChevronRight, AlertTriangle, SlidersHorizontal, Pencil,
 } from 'lucide-react';
 import { BrandMark, EASE_OUT, AnimatedMoney } from './ui/motion';
 import { initials } from '../lib/admin-helpers';
@@ -21,19 +21,17 @@ import { formatMoney } from '../lib/format';
 import { Button } from './ui/button';
 import { PrintButton } from './PrintButton';
 import { CloseTableModal } from './CloseTableModal';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from './ui/dialog';
+import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
+import { ItemModifiers } from './ItemModifiers';
+import { useOrderCart, type CartLine } from '../hooks/useOrderCart';
+import { defaultOptionIds, hasOptions, lineKey, needsChoice, selectionModifiers } from '../lib/modifiers';
 import { cn } from '../lib/utils';
+import { submitOrder } from '../lib/order-queue';
+import { TableOrderSheet } from './TableOrderSheet';
+import { useChangeNotifications } from '../hooks/useChangeNotifications';
 
 type Step = 'tables' | 'type' | 'takeaway-name' | 'guests' | 'menu';
 type OrderType = 'dine-in' | 'takeaway';
-
-interface CartItem {
-  menuItem: MenuItem;
-  quantity: number;
-  notes: string;
-}
 
 export function WaiterMobileView() {
   const { user, logout, can } = useAuth();
@@ -45,16 +43,21 @@ export function WaiterMobileView() {
   const [orderType, setOrderType] = useState<OrderType>('dine-in');
   const [customerName, setCustomerName] = useState('');
   const [guestCount, setGuestCount] = useState(1);
-  const [cart, setCart] = useState<Map<number, CartItem>>(new Map());
+  const cart = useOrderCart();
   const [submitting, setSubmitting] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [lastOrderId, setLastOrderId] = useState<number | null>(null);
-  const [notesModal, setNotesModal] = useState<{ item: MenuItem; notes: string } | null>(null);
+  // Selector de opciones/nota: plato nuevo (line undefined) o una línea ya cargada para editar
+  const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine } | null>(null);
+  // Ver lo que ya pidió la mesa (rehacer / cambiar platos, tarea 5.8)
+  const [tableOrderOpen, setTableOrderOpen] = useState(false);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
   // Flujo para llevar SIN mesa — true cuando el mesero toca "Para llevar" en la lista
   const [standaloneTakeaway, setStandaloneTakeaway] = useState(false);
 
   useTick(30_000);
+  // Aviso cuando caja aprueba o rechaza un cambio que pidió este mozo
+  useChangeNotifications();
 
   const { orders: previousOrders } = useTableOrders(
     selectedTable && selectedTable.status !== 'AVAILABLE' ? selectedTable.id : null
@@ -85,17 +88,8 @@ export function WaiterMobileView() {
     [menu, effectiveCategory]
   );
 
-  const cartTotal = useMemo(() => {
-    let t = 0;
-    for (const ci of cart.values()) t += Number(ci.menuItem.price) * ci.quantity;
-    return t;
-  }, [cart]);
-
-  const cartCount = useMemo(() => {
-    let c = 0;
-    for (const ci of cart.values()) c += ci.quantity;
-    return c;
-  }, [cart]);
+  const cartTotal = cart.total;
+  const cartCount = cart.count;
 
   function selectTable(t: Table) {
     if (t.status === 'RESERVED') {
@@ -107,7 +101,7 @@ export function WaiterMobileView() {
       return;
     }
     setSelectedTable(t);
-    setCart(new Map());
+    cart.clear();
     setOrderType('dine-in');
     setCustomerName('');
     setStep('type');
@@ -130,49 +124,40 @@ export function WaiterMobileView() {
   function backToTables() {
     setStep('tables');
     setSelectedTable(null);
-    setCart(new Map());
+    cart.clear();
     setCustomerName('');
     setOrderType('dine-in');
     setStandaloneTakeaway(false);
   }
 
-  function adjustQty(item: MenuItem, delta: number) {
-    setCart(prev => {
-      const next = new Map(prev);
-      const current = next.get(item.id);
-      const newQty = (current?.quantity ?? 0) + delta;
-      if (newQty <= 0) next.delete(item.id);
-      else next.set(item.id, { menuItem: item, quantity: newQty, notes: current?.notes ?? '' });
-      return next;
-    });
+  /** "+" en un plato: si tiene algo obligatorio sin elegir, abre el selector; si no, suma uno. */
+  function quickAdd(item: MenuItem) {
+    if (needsChoice(item)) setCustomizing({ item });
+    else cart.add(item);
   }
 
-  function saveNotes(item: MenuItem, notes: string) {
-    setCart(prev => {
-      const next = new Map(prev);
-      const current = next.get(item.id);
-      if (current) next.set(item.id, { ...current, notes });
-      return next;
-    });
-    setNotesModal(null);
+  function confirmCustomize(choice: DishChoice) {
+    if (!customizing) return;
+    if (customizing.line) cart.replace(customizing.line.key, customizing.item, choice);
+    else cart.add(customizing.item, choice);
+    setCustomizing(null);
   }
 
   async function sendOrder() {
-    if (cart.size === 0) return;
+    if (cart.count === 0) return;
     setSubmitting(true);
     try {
       if (standaloneTakeaway) {
         // Pedido para llevar SIN mesa — va a TakeawayOrder
-        const { order } = await takeawayApi.create({
+        const res = await submitOrder('takeaway', {
           customerName: customerName.trim(),
-          items: Array.from(cart.values()).map(ci => ({
-            menuItemId: ci.menuItem.id,
-            quantity:   ci.quantity,
-            notes:      ci.notes || undefined,
-          })),
-        });
-        setLastOrderId(order.id);
-        toast.success(`Pedido para llevar creado — ${customerName}`, { duration: 4000 });
+          items: cart.toRequestItems(),
+        }, { label: `Para llevar · ${customerName.trim()}` });
+        if (res.status === 'queued') toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
+        else {
+          setLastOrderId(res.order.id);
+          toast.success(`Pedido para llevar creado — ${customerName}`, { duration: 4000 });
+        }
         backToTables();
         return;
       }
@@ -180,17 +165,18 @@ export function WaiterMobileView() {
       if (!selectedTable) return;
 
       // Pedido normal (con mesa, puede ser dine-in o para llevar)
-      const { order } = await ordersApi.create({
+      const res = await submitOrder('table', {
         tableId: selectedTable.id,
         guestCount: orderType === 'dine-in' && selectedTable.status === 'AVAILABLE' ? guestCount : undefined,
         notes: orderType === 'takeaway' ? `PARA LLEVAR: ${customerName.trim()}` : undefined,
-        items: Array.from(cart.values()).map(ci => ({
-          menuItemId: ci.menuItem.id,
-          quantity:   ci.quantity,
-          notes:      ci.notes || undefined,
-        })),
-      });
-      setLastOrderId(order.id);
+        items: cart.toRequestItems(),
+      }, { label: `Mesa ${selectedTable.number} · ${cart.count} ${cart.count === 1 ? 'ítem' : 'ítems'}` });
+      if (res.status === 'queued') {
+        toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
+        backToTables();
+        return;
+      }
+      setLastOrderId(res.order.id);
       toast.success(
         orderType === 'takeaway'
           ? `Pedido para llevar (${customerName}) enviado`
@@ -291,7 +277,7 @@ export function WaiterMobileView() {
                 setStandaloneTakeaway(true);
                 setOrderType('takeaway');
                 setSelectedTable(null);
-                setCart(new Map());
+                cart.clear();
                 setCustomerName('');
                 setStep('takeaway-name');
               }}
@@ -402,10 +388,11 @@ export function WaiterMobileView() {
             activeCategory={effectiveCategory}
             onCategoryChange={setActiveCategory}
             cart={cart}
-            onAdjust={adjustQty}
-            onAddNote={(item) => setNotesModal({ item, notes: cart.get(item.id)?.notes ?? '' })}
+            onQuickAdd={quickAdd}
+            onCustomize={(item, line) => setCustomizing({ item, line })}
             loading={loadingMenu}
-            previousItemsCount={previousOrders.flatMap(o => o.items).length}
+            previousItemsCount={previousOrders.flatMap(o => o.items).filter(i => i.status !== 'VOIDED').length}
+            onShowTableOrder={() => setTableOrderOpen(true)}
             orderType={orderType}
             customerName={customerName}
           />
@@ -451,42 +438,22 @@ export function WaiterMobileView() {
         </div>
       )}
 
-      {/* Modal de notas por ítem */}
-      <Dialog open={notesModal !== null} onOpenChange={(v) => !v && setNotesModal(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-brand-400" />
-              Aclaración: {notesModal?.item.name}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              Escribí los gustos o cambios (sin arroz, término medio, etc.)
-            </p>
-            <textarea
-              autoFocus rows={3}
-              className="w-full resize-none rounded-2xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm transition-all focus:border-brand-400/60 focus:outline-none focus:ring-4 focus:ring-brand-500/15"
-              placeholder="Ej: Sin arroz, a punto, extra salsa..."
-              value={notesModal?.notes ?? ''}
-              onChange={e => setNotesModal(prev => prev ? { ...prev, notes: e.target.value } : null)}
-            />
-            {notesModal?.notes.trim() && (
-              <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Vista previa del ticket:</p>
-                <p className="text-sm font-medium">1x {notesModal.item.name}</p>
-                {notesModal.notes.trim().split('\n').map((line, i) => (
-                  <p key={i} className="text-xs text-muted-foreground pl-3">• {line}</p>
-                ))}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNotesModal(null)}>Cancelar</Button>
-            <Button onClick={() => notesModal && saveNotes(notesModal.item, notesModal.notes)}>Guardar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Personalizar plato: opciones (ingredientes, término, agregados) + nota */}
+      <DishOptionsDialog
+        item={customizing?.item ?? null}
+        initial={customizing?.line && {
+          optionIds: customizing.line.optionIds, notes: customizing.line.notes, quantity: customizing.line.quantity,
+        }}
+        confirmLabel={customizing?.line ? 'Guardar' : 'Agregar'}
+        onClose={() => setCustomizing(null)}
+        onConfirm={confirmCustomize}
+      />
+
+      {/* Lo que ya pidió la mesa: rehacer o cambiar platos */}
+      {selectedTable && (
+        <TableOrderSheet open={tableOrderOpen} onClose={() => setTableOrderOpen(false)}
+          orders={previousOrders} tableId={selectedTable.id} tableNumber={selectedTable.number} />
+      )}
 
       {/* Modal cobrar y cerrar (mesero — sin impresión) */}
       {selectedTable && (
@@ -496,7 +463,7 @@ export function WaiterMobileView() {
           onClose={() => setCloseModalOpen(false)}
           onSuccess={() => { setCloseModalOpen(false); backToTables(); }}
           orders={previousOrders}
-          total={previousOrders.flatMap(o => o.items).reduce(
+          total={previousOrders.flatMap(o => o.items).filter(i => i.status !== 'VOIDED').reduce(
             (s, i) => s + Number(i.price) * i.quantity, 0
           )}
         />
@@ -632,17 +599,18 @@ function GuestStep({ table, guestCount, onChange, onConfirm }: {
 
 function MenuStep({
   menu, categories, activeCategory, onCategoryChange,
-  cart, onAdjust, onAddNote, loading, previousItemsCount, orderType, customerName,
+  cart, onQuickAdd, onCustomize, loading, previousItemsCount, onShowTableOrder, orderType, customerName,
 }: {
   menu: MenuItem[];
   categories: string[];
   activeCategory: string;
   onCategoryChange: (c: string) => void;
-  cart: Map<number, CartItem>;
-  onAdjust: (item: MenuItem, delta: number) => void;
-  onAddNote: (item: MenuItem) => void;
+  cart: ReturnType<typeof useOrderCart>;
+  onQuickAdd: (item: MenuItem) => void;
+  onCustomize: (item: MenuItem, line?: CartLine) => void;
   loading: boolean;
   previousItemsCount: number;
+  onShowTableOrder: () => void;
   orderType: OrderType;
   customerName: string;
 }) {
@@ -662,10 +630,12 @@ function MenuStep({
       )}
 
       {previousItemsCount > 0 && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-300">
-          <ShoppingBag className="h-3.5 w-3.5" />
-          Esta mesa ya tiene {previousItemsCount} ítems pedidos. Lo que sumés será un pedido nuevo.
-        </div>
+        <button onClick={onShowTableOrder}
+          className="mb-3 flex w-full items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/5 px-3 py-2.5 text-left text-xs text-sky-300">
+          <ShoppingBag className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">Esta mesa ya tiene {previousItemsCount} ítems pedidos. Lo que sumés será un pedido nuevo.</span>
+          <span className="shrink-0 font-semibold underline underline-offset-2">Ver / cambiar</span>
+        </button>
       )}
 
       {/* Tabs de categorías */}
@@ -699,18 +669,23 @@ function MenuStep({
           <p className="py-8 text-center text-sm text-muted-foreground">No hay items en {activeCategory}</p>
         ) : (
           menu.map((item, idx) => {
-            const inCart = cart.get(item.id);
-            const qty = inCart?.quantity ?? 0;
-            const hasNotes = !!inCart?.notes?.trim();
+            const itemLines = cart.linesOf(item.id);
+            // Línea "rápida": el plato tal cual viene (con sus opciones por defecto y sin nota)
+            const quickKey = lineKey(item.id, defaultOptionIds(item), '');
+            const quickLine = itemLines.find(l => l.key === quickKey);
+            const qty = quickLine?.quantity ?? 0;
+            const variants = itemLines.filter(l => l.key !== quickKey);
+            const total = itemLines.reduce((s, l) => s + l.quantity, 0);
+            const customizable = hasOptions(item);
             return (
               <motion.div key={item.id}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: Math.min(idx, 12) * 0.03, duration: 0.4, ease: EASE_OUT }}
                 className={cn(
                   'relative overflow-hidden rounded-2xl border transition-colors duration-300',
-                  qty > 0 ? 'border-brand-400/40 bg-gradient-to-r from-brand-500/15 to-brand-500/[0.03]' : 'border-white/[0.07] bg-white/[0.025]'
+                  total > 0 ? 'border-brand-400/40 bg-gradient-to-r from-brand-500/15 to-brand-500/[0.03]' : 'border-white/[0.07] bg-white/[0.025]'
                 )}>
-                {qty > 0 && <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-300 to-brand-600" />}
+                {total > 0 && <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-300 to-brand-600" />}
                 <div className="flex items-center gap-3 p-3.5">
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-[15px] font-semibold">{item.name}</p>
@@ -725,65 +700,85 @@ function MenuStep({
                     )}
                   </div>
 
-                  {qty > 0 && (
-                    <button onClick={() => onAddNote(item)}
-                      className={cn(
-                        'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors',
-                        hasNotes
-                          ? 'border-amber-500/50 bg-amber-500/10 text-amber-400'
-                          : 'border-border bg-white/[0.04] text-muted-foreground hover:text-foreground'
-                      )}
-                      title={hasNotes ? 'Editar aclaración' : 'Agregar aclaración'}>
-                      <MessageSquare className="h-4 w-4" />
-                    </button>
-                  )}
+                  {/* Personalizar: siempre visible (opciones del plato y/o nota para cocina) */}
+                  <button onClick={() => onCustomize(item)}
+                    className={cn(
+                      'flex h-11 shrink-0 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-medium transition-colors',
+                      customizable
+                        ? 'border-brand-400/40 bg-brand-500/10 text-brand-300'
+                        : 'border-border bg-white/[0.04] text-muted-foreground hover:text-foreground'
+                    )}
+                    aria-label={customizable ? `Personalizar ${item.name}` : `Agregar ${item.name} con nota`}>
+                    {customizable ? <SlidersHorizontal className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
+                    <span className="hidden min-[380px]:inline">{customizable ? 'Opciones' : 'Nota'}</span>
+                  </button>
 
                   {qty === 0 ? (
-                    <motion.button whileTap={{ scale: 0.85 }} onClick={() => onAdjust(item, 1)} aria-label={`Agregar ${item.name}`}
+                    <motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuickAdd(item)} aria-label={`Agregar ${item.name}`}
                       className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-b from-brand-400 to-brand-600 text-white shadow-glow-sm">
                       <Plus className="h-5 w-5" />
                     </motion.button>
                   ) : (
-                    <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-black/25 p-1">
-                      <motion.button whileTap={{ scale: 0.85 }} onClick={() => onAdjust(item, -1)} aria-label="Quitar uno"
-                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.06]">
-                        {qty === 1 ? <X className="h-4 w-4 text-rose-400" /> : <Minus className="h-4 w-4" />}
-                      </motion.button>
-                      <span className="relative flex h-9 w-8 items-center justify-center overflow-hidden">
-                        <AnimatePresence mode="popLayout" initial={false}>
-                          <motion.span key={qty}
-                            initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -14, opacity: 0 }}
-                            transition={{ type: 'spring', stiffness: 600, damping: 32 }}
-                            className="font-display text-base font-bold tabular-nums">
-                            {qty}
-                          </motion.span>
-                        </AnimatePresence>
-                      </span>
-                      <motion.button whileTap={{ scale: 0.85 }} onClick={() => onAdjust(item, 1)} aria-label="Sumar uno"
-                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-b from-brand-400 to-brand-600 text-white">
-                        <Plus className="h-4 w-4" />
-                      </motion.button>
-                    </div>
+                    <QtyStepper qty={qty} onMinus={() => cart.adjust(quickKey, -1)} onPlus={() => cart.adjust(quickKey, 1)} />
                   )}
                 </div>
 
+                {/* Lo que va a cocina con la línea rápida (ej. el término por defecto) */}
+                {quickLine && quickLine.optionIds.length > 0 && (
+                  <div className="-mt-2 px-3.5 pb-2.5">
+                    <ItemModifiers modifiers={selectionModifiers(item, quickLine.optionIds)} />
+                  </div>
+                )}
+
+                {/* Variantes personalizadas: cada una con sus opciones, su nota y su cantidad */}
                 <AnimatePresence initial={false}>
-                  {hasNotes && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden border-t border-amber-300/15">
-                      <div className="px-4 pb-2.5 pt-2">
-                        {inCart!.notes.trim().split('\n').map((line, i) => (
-                          <p key={i} className="text-xs text-amber-200/85">• {line}</p>
-                        ))}
+                  {variants.map(line => (
+                    <motion.div key={line.key}
+                      initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden border-t border-white/[0.06]">
+                      <div className="flex items-center gap-2 px-3.5 py-2.5">
+                        <button onClick={() => onCustomize(item, line)} className="min-w-0 flex-1 text-left" aria-label="Editar opciones">
+                          <ItemModifiers modifiers={selectionModifiers(item, line.optionIds)} notes={line.notes} />
+                          <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                            <Pencil className="h-3 w-3" /> {formatMoney(line.unitPrice)} c/u · tocá para editar
+                          </span>
+                        </button>
+                        <QtyStepper qty={line.quantity} onMinus={() => cart.adjust(line.key, -1)} onPlus={() => cart.adjust(line.key, 1)} small />
                       </div>
                     </motion.div>
-                  )}
+                  ))}
                 </AnimatePresence>
               </motion.div>
             );
           })
         )}
       </div>
+    </div>
+  );
+}
+
+function QtyStepper({ qty, onMinus, onPlus, small }: { qty: number; onMinus: () => void; onPlus: () => void; small?: boolean }) {
+  const size = small ? 'h-8 w-8' : 'h-9 w-9';
+  return (
+    <div className="flex shrink-0 items-center gap-1 rounded-2xl border border-white/10 bg-black/25 p-1">
+      <motion.button whileTap={{ scale: 0.85 }} onClick={onMinus} aria-label="Quitar uno"
+        className={cn('flex items-center justify-center rounded-xl bg-white/[0.06]', size)}>
+        {qty === 1 ? <X className="h-4 w-4 text-rose-400" /> : <Minus className="h-4 w-4" />}
+      </motion.button>
+      <span className="relative flex h-9 w-7 items-center justify-center overflow-hidden">
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span key={qty}
+            initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -14, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 600, damping: 32 }}
+            className="font-display text-base font-bold tabular-nums">
+            {qty}
+          </motion.span>
+        </AnimatePresence>
+      </span>
+      <motion.button whileTap={{ scale: 0.85 }} onClick={onPlus} aria-label="Sumar uno"
+        className={cn('flex items-center justify-center rounded-xl bg-gradient-to-b from-brand-400 to-brand-600 text-white', size)}>
+        <Plus className="h-4 w-4" />
+      </motion.button>
     </div>
   );
 }

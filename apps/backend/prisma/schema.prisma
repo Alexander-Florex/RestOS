@@ -37,6 +37,13 @@ model Restaurant {
   staffMembers   StaffMember[]
   reservations   Reservation[]
   takeawayOrders TakeawayOrder[]
+  menuOptionGroups MenuItemOptionGroup[]
+  auditLogs        AuditLog[]
+  itemChanges      OrderItemChange[]
+  priceHistory     PriceHistory[]
+  storageAreas     StorageArea[]
+  stockMovements   StockMovement[]
+  stockCounts      StockCount[]
 
   @@map("restaurants")
 }
@@ -61,6 +68,10 @@ model User {
   updatedAt    DateTime   @updatedAt
 
   ordersCreated    Order[]         @relation("OrderCreatedBy")
+  ordersCancelled  Order[]         @relation("OrderCancelledBy")
+  auditLogs        AuditLog[]
+  itemChangesRequested OrderItemChange[] @relation("ChangeRequestedBy")
+  itemChangesResolved  OrderItemChange[] @relation("ChangeResolvedBy")
   salesCreated     Sale[]          @relation("SaleRegisteredBy")
   takeawaysCreated TakeawayOrder[] @relation("TakeawayCreatedBy")
 
@@ -168,11 +179,62 @@ model MenuItem {
   saleItems    SaleItem[]
   takeawayItems TakeawayItem[]
   recipes      Recipe[]
+  optionGroups MenuItemOptionGroup[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   @@index([restaurantId])
   @@map("menu_items")
+}
+
+// ── Personalización de platos (tarea 5.7) ──
+// Opciones que carga el Administrador por plato. Al tomar el pedido se guarda
+// una copia de lo elegido en OrderItem/TakeawayItem/SaleItem.modifiers, así
+// editar la carta después no cambia pedidos ni ventas ya hechos.
+
+/// REMOVE: ingredientes que se pueden sacar ("SIN croutones")
+/// SINGLE: elegir uno ("Término: a punto"); si es obligatorio, no se puede pedir sin elegir
+/// MULTI:  agregados opcionales, con recargo ("+ Extra queso")
+enum MenuOptionGroupType {
+  REMOVE
+  SINGLE
+  MULTI
+}
+
+model MenuItemOptionGroup {
+  id           Int                 @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItemId   Int
+  menuItem     MenuItem            @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  name         String
+  type         MenuOptionGroupType
+  required     Boolean             @default(false)
+  sortOrder    Int                 @default(0)
+  options      MenuItemOption[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([restaurantId])
+  @@index([menuItemId])
+  @@map("menu_item_option_groups")
+}
+
+model MenuItemOption {
+  id         Int                 @id @default(autoincrement())
+  groupId    Int
+  group      MenuItemOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name       String
+  /// Recargo por unidad (solo agregados y elecciones; en "sacar" es 0)
+  priceDelta Decimal             @default(0) @db.Decimal(10, 2)
+  /// Viene elegida de entrada (ej. el término más pedido)
+  isDefault  Boolean             @default(false)
+  sortOrder  Int                 @default(0)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@index([groupId])
+  @@map("menu_item_options")
 }
 
 enum StockStatus {
@@ -192,6 +254,9 @@ model MenuCategory {
   name         String
   color        String     @default("#10b981")
   order        Int        @default(0)
+  /// Margen objetivo de la categoría (tarea 2.6), sobre el precio sin IVA, 0–0,95.
+  /// Es el que se propone a las recetas nuevas de sus platos.
+  targetMargin Float?
   createdAt    DateTime   @default(now())
   // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
   updatedAt    DateTime   @default(now()) @updatedAt
@@ -216,9 +281,34 @@ model Order {
   createdBy    User?     @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt    DateTime  @default(now())
 
+  // Historial (tarea 1.3): los pedidos no se borran al cobrar ni al anular.
+  // Solo los OPEN cuentan para la cuenta de la mesa.
+  status        OrderStatus @default(OPEN)
+  saleId        Int?
+  sale          Sale?       @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  /// Cuándo se cobró o se anuló
+  closedAt      DateTime?
+  cancelReason  String?     @db.Text
+  cancelledById Int?
+  cancelledBy   User?       @relation("OrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  /// Id que genera el dispositivo (tarea 1.5): si el pedido se reintenta tras
+  /// un corte, el servidor devuelve el ya creado en vez de duplicarlo
+  clientRequestId String?   @db.VarChar(64)
+  itemChanges   OrderItemChange[]
+
+  @@unique([restaurantId, clientRequestId])
   @@index([restaurantId])
   @@index([tableId])
+  @@index([tableId, status])
+  @@index([saleId])
   @@map("orders")
+}
+
+/// OPEN: en la cuenta de la mesa · PAID: cobrado (saleId) · CANCELLED: anulado con motivo
+enum OrderStatus {
+  OPEN
+  PAID
+  CANCELLED
 }
 
 model OrderItem {
@@ -229,11 +319,84 @@ model OrderItem {
   menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
   itemName   String
   quantity   Int
-  price      Decimal   @db.Decimal(10, 2)
+  price      Decimal   @db.Decimal(10, 2) // precio unitario final: plato + recargos
   notes      String?
+  /// Copia de lo elegido al pedir (ver lib/modifiers.ts)
+  modifiers  Json?
+  /// ACTIVE: se cobra · VOIDED: anulado por un cambio de plato (no se cobra) — tarea 5.8
+  status     OrderItemStatus @default(ACTIVE)
+  voidedAt   DateTime?
+  voidReason String?         @db.Text
+  changes    OrderItemChange[]
 
   @@index([orderId])
   @@map("order_items")
+}
+
+enum OrderItemStatus {
+  ACTIVE
+  VOIDED
+}
+
+// ── Cambios de platos (tarea 5.8) ──
+// REMAKE: rehacer (se cobra una sola vez). REPLACE: cambiar por otro plato
+// (el original no se cobra). Si el plato ya estaba hecho, es una pérdida (merma).
+// El mozo puede pedir un cambio (PENDING); lo aprueba Caja o Administrador.
+enum ItemChangeType {
+  REMAKE
+  REPLACE
+}
+
+enum ItemChangeStatus {
+  PENDING
+  APPLIED
+  REJECTED
+}
+
+/// De quién fue el error (lo resuelven en el salón)
+enum ItemChangeFault {
+  KITCHEN
+  WAITER
+  CUSTOMER
+  OTHER
+}
+
+model OrderItemChange {
+  id                    Int              @id @default(autoincrement())
+  restaurantId          Int
+  restaurant            Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orderId               Int
+  order                 Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItemId           Int
+  orderItem             OrderItem        @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  type                  ItemChangeType
+  status                ItemChangeStatus @default(PENDING)
+  /// Unidades afectadas (ej. 1 de "2x César")
+  quantity              Int
+  reason                String           @db.Text
+  fault                 ItemChangeFault?
+  /// Ya estaba hecho: lo que se tira es pérdida
+  wasPrepared           Boolean          @default(false)
+  /// Copia del ítem original al pedir el cambio (nombre, precio, opciones)
+  itemSnapshot          Json
+  replacementMenuItemId Int?
+  replacementOptionIds  Json?
+  replacementNotes      String?          @db.Text
+  /// Ítems resultantes al aplicar (el nuevo y la parte anulada)
+  newOrderItemId        Int?
+  voidedOrderItemId     Int?
+  requestedById         Int?
+  requestedBy           User?            @relation("ChangeRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  resolvedById          Int?
+  resolvedBy            User?            @relation("ChangeResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  rejectReason          String?          @db.Text
+  createdAt             DateTime         @default(now())
+  resolvedAt            DateTime?
+
+  @@index([restaurantId, status])
+  @@index([restaurantId, createdAt])
+  @@index([orderId])
+  @@map("order_item_changes")
 }
 
 // ──────────────────────────────────────────────
@@ -260,6 +423,8 @@ model Sale {
   registeredById Int?
   registeredBy   User?         @relation("SaleRegisteredBy", fields: [registeredById], references: [id], onDelete: SetNull)
   items          SaleItem[]
+  /// Pedidos de mesa que se cobraron en esta venta (tarea 1.3)
+  orders         Order[]
   closedAt       DateTime
   createdAt      DateTime      @default(now())
 
@@ -280,6 +445,8 @@ model SaleItem {
   quantity   Int
   price      Decimal   @db.Decimal(10, 2)
   subtotal   Decimal   @db.Decimal(10, 2)
+  /// Copia de lo elegido al pedir (ver lib/modifiers.ts)
+  modifiers  Json?
 
   @@index([saleId])
   @@index([menuItemId])
@@ -310,6 +477,26 @@ model InventoryItem {
   unit         String
   minStock     Float             @default(0)
   costPerUnit  Decimal           @default(0) @db.Decimal(10, 4)
+  /// Equivalencia entre familias (tarea 2.1): "1 <unit> = equivalenceQty <equivalenceUnit>",
+  /// ej. huevo: 1 un = 60 g. Permite usar el insumo en recetas con otra familia de unidad.
+  equivalenceQty  Float?
+  equivalenceUnit String?
+  /// Presentación de compra (tarea 2.2), ej. bolsa de 25 kg a $25.000. Si está,
+  /// costPerUnit se calcula: purchasePrice / (purchaseQty pasado a `unit`)
+  purchaseQty   Float?
+  purchaseUnit  String?
+  purchasePrice Decimal?          @db.Decimal(12, 2)
+  /// Merma por defecto al usarlo en recetas (tarea 2.4), 0–0,95. Ej. 0,2 = 20 % se pierde al limpiar
+  wastePct      Float             @default(0)
+  priceHistory  PriceHistory[]
+  /// Sector donde se guarda (tarea 3.1) y orden dentro del sector para el conteo
+  storageAreaId Int?
+  storageArea   StorageArea?      @relation(fields: [storageAreaId], references: [id], onDelete: SetNull)
+  countOrder    Int               @default(0)
+  /// El stock es la suma de movimientos (tarea 3.2); `quantity` es el saldo,
+  /// actualizado en la misma transacción que cada movimiento.
+  movements     StockMovement[]
+  countLines    StockCountLine[]
   supplier     String?
   lastRestocked DateTime?
   recipeIngredients RecipeIngredient[]
@@ -317,6 +504,7 @@ model InventoryItem {
   updatedAt    DateTime          @updatedAt
 
   @@index([restaurantId])
+  @@index([storageAreaId])
   @@map("inventory_items")
 }
 
@@ -325,6 +513,121 @@ enum InventoryCategory {
   BEVERAGE
   SUPPLIES
   EQUIPMENT
+}
+
+// ──────────────────────────────────────────────
+// STOCK REAL (Fase 3)
+// ──────────────────────────────────────────────
+
+/// Sector de guardado (tarea 3.1): carnes, cámara, depósito... Ordena el conteo.
+model StorageArea {
+  id           Int             @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String          @db.VarChar(100)
+  sortOrder    Int             @default(0)
+  items        InventoryItem[]
+  counts       StockCount[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([restaurantId, name])
+  @@map("storage_areas")
+}
+
+enum StockMovementType {
+  PURCHASE    // compra / reposición
+  SALE        // descuento por venta (tarea 3.4)
+  PRODUCTION  // elaboración (tarea 3.5)
+  CONSUMPTION // uso registrado a mano (botón "Consumir")
+  WASTE       // merma con motivo (tarea 3.7)
+  ADJUSTMENT  // corrección a mano, con motivo (incluye el saldo inicial)
+  COUNT       // diferencia de una toma de inventario
+}
+
+/// Movimiento de stock (tarea 3.2). Cantidad con signo, en la unidad del insumo.
+model StockMovement {
+  id              Int               @id @default(autoincrement())
+  restaurantId    Int
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  inventoryItemId Int
+  inventoryItem   InventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  type            StockMovementType
+  quantity        Float
+  /// Saldo del insumo después de este movimiento
+  balanceAfter    Float
+  /// Costo por unidad al momento del movimiento
+  unitCost        Decimal?          @db.Decimal(10, 4)
+  reason          String?           @db.VarChar(500)
+  /// Origen legible, ej. "Conteo #12"
+  reference       String?           @db.VarChar(100)
+  stockCountId    Int?
+  userId          Int?
+  userName        String?
+  createdAt       DateTime          @default(now())
+
+  @@index([inventoryItemId, createdAt])
+  @@index([restaurantId, createdAt])
+  @@index([stockCountId])
+  @@map("stock_movements")
+}
+
+enum StockCountStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+/// Toma de inventario (tarea 3.3): por sector o de todo el stock.
+model StockCount {
+  id            Int              @id @default(autoincrement())
+  restaurantId  Int
+  restaurant    Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  storageAreaId Int?
+  storageArea   StorageArea?     @relation(fields: [storageAreaId], references: [id], onDelete: SetNull)
+  /// Copia del nombre del sector ("Todo el stock" si no tiene)
+  areaName      String           @db.VarChar(100)
+  status        StockCountStatus @default(OPEN)
+  /// Mientras está abierto: "area:<id>" o "all"; al cerrar o cancelar, NULL.
+  /// Único: no puede haber dos conteos abiertos del mismo sector.
+  openKey       String?          @db.VarChar(30)
+  notes         String?          @db.VarChar(1000)
+  startedById   Int?
+  startedByName String?
+  closedById    Int?
+  closedByName  String?
+  startedAt     DateTime         @default(now())
+  closedAt      DateTime?
+  lines         StockCountLine[]
+
+  @@unique([restaurantId, openKey])
+  @@index([restaurantId, startedAt])
+  @@map("stock_counts")
+}
+
+model StockCountLine {
+  id              Int            @id @default(autoincrement())
+  stockCountId    Int
+  stockCount      StockCount     @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  inventoryItemId Int?
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  /// Copias: el historial se lee igual aunque el insumo cambie o se borre
+  itemName        String
+  unit            String
+  position        Int
+  /// null = todavía no se contó (al cerrar se saltea, no se pone en 0)
+  countedQty      Float?
+  countedAt       DateTime?
+  countedByName   String?
+  /// Al cerrar: lo que decía el sistema y la diferencia (contado − sistema)
+  expectedQty     Float?
+  difference      Float?
+  unitCost        Decimal?       @db.Decimal(10, 4)
+  reason          String?        @db.VarChar(300)
+
+  @@unique([stockCountId, inventoryItemId])
+  @@index([stockCountId, position])
+  @@map("stock_count_lines")
 }
 
 // ──────────────────────────────────────────────
@@ -343,7 +646,13 @@ model Recipe {
   profitPct    Float      @default(0.5) // % de ganancia
   vatPct       Float      @default(0.21)
   notes        String?    @db.Text
-  ingredients  RecipeIngredient[]
+  /// Rendimiento en unidades (tarea 2.3), ej. 500 cc de chimichurri. Se usa cuando
+  /// la receta es componente de otra: costo por unidad de rendimiento = costo total / yieldQty
+  yieldQty     Float?
+  yieldUnit    String?
+  ingredients  RecipeIngredient[] @relation("RecipeLines")
+  /// Recetas que usan esta como sub-receta
+  usedIn       RecipeIngredient[] @relation("SubRecipeUses")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -352,17 +661,25 @@ model Recipe {
   @@map("recipes")
 }
 
+/// Línea de receta: un insumo O una sub-receta (exactamente uno; CHECK en la base).
 model RecipeIngredient {
-  id              Int           @id @default(autoincrement())
+  id              Int            @id @default(autoincrement())
   recipeId        Int
-  recipe          Recipe        @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  inventoryItemId Int
-  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  recipe          Recipe         @relation("RecipeLines", fields: [recipeId], references: [id], onDelete: Cascade)
+  inventoryItemId Int?
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  /// Sub-receta (tarea 2.3); se costea por unidad de rendimiento o por porción
+  subRecipeId     Int?
+  subRecipe       Recipe?        @relation("SubRecipeUses", fields: [subRecipeId], references: [id], onDelete: Restrict)
+  /// Cantidad neta (la que va al plato)
   quantity        Float
   unit            String
+  /// Merma de esta línea (tarea 2.4), 0–0,95. null = la del insumo
+  wastePct        Float?
 
   @@index([recipeId])
   @@index([inventoryItemId])
+  @@index([subRecipeId])
   @@map("recipe_ingredients")
 }
 
@@ -447,9 +764,12 @@ model TakeawayOrder {
   paidAt        DateTime?
   items         TakeawayItem[]
   sale          Sale?
+  /// Id que genera el dispositivo (ver Order.clientRequestId)
+  clientRequestId String?      @db.VarChar(64)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
+  @@unique([restaurantId, clientRequestId])
   @@index([restaurantId])
   @@index([status])
   @@index([createdAt])
@@ -464,8 +784,10 @@ model TakeawayItem {
   menuItem   MenuItem?     @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
   itemName   String
   quantity   Int
-  price      Decimal       @db.Decimal(10, 2)
+  price      Decimal       @db.Decimal(10, 2) // precio unitario final: plato + recargos
   notes      String?
+  /// Copia de lo elegido al pedir (ver lib/modifiers.ts)
+  modifiers  Json?
 
   @@index([orderId])
   @@map("takeaway_items")
@@ -476,4 +798,61 @@ enum TakeawayStatus {
   READY
   PAID
   CANCELLED
+}
+
+// ── Auditoría (tarea 1.2) ──
+// Quién hizo qué, sobre qué, antes/después y por qué. Se escribe en la misma
+// transacción que la operación (ver src/lib/audit.ts). Solo se agrega: no hay
+// endpoints para editar ni borrar registros.
+model AuditLog {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  userId       Int?
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// Nombre del usuario en ese momento (queda aunque después se borre la cuenta)
+  userName     String?
+  /// Ej.: sale.create, order.cancel, menu.price (lista en src/lib/audit.ts)
+  action       String
+  entity       String
+  entityId     Int?
+  before       Json?
+  after        Json?
+  reason       String?    @db.Text
+  createdAt    DateTime   @default(now())
+
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, action])
+  @@index([restaurantId, entity, entityId])
+  @@map("audit_logs")
+}
+
+// ── Historial de precios de insumos (tarea 2.5) ──
+// Un registro por cada cambio de costPerUnit, con su origen.
+enum PriceSource {
+  MANUAL
+  PURCHASE
+  IMPORT
+}
+
+model PriceHistory {
+  id              Int           @id @default(autoincrement())
+  restaurantId    Int
+  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  inventoryItemId Int
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  costPerUnit     Decimal       @db.Decimal(10, 4)
+  previousCost    Decimal?      @db.Decimal(10, 4)
+  unit            String
+  purchaseQty     Float?
+  purchaseUnit    String?
+  purchasePrice   Decimal?      @db.Decimal(12, 2)
+  source          PriceSource   @default(MANUAL)
+  userId          Int?
+  userName        String?
+  createdAt       DateTime      @default(now())
+
+  @@index([inventoryItemId, createdAt])
+  @@index([restaurantId, createdAt])
+  @@map("price_history")
 }

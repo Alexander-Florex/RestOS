@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { menuCategoriesApi, type MenuCategory } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
+import { useResync } from './useConnection';
 
 interface UseMenuCategoriesResult {
   categories: MenuCategory[];
@@ -28,6 +29,9 @@ export function useMenuCategories(): UseMenuCategoriesResult {
       setLoading(false);
     }
   }, []);
+
+  // Volvió la conexión después de un corte: recargar (se perdieron avisos en vivo)
+  useResync(refresh);
 
   useEffect(() => { refresh(); }, [refresh]);
 

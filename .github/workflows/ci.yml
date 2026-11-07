@@ -1,0 +1,71 @@
+# ──────────────────────────────────────────────
+# CI — en cada push a main o a ramas fase-*, y en cada PR:
+# instalar, compilar (tsc backend + frontend), lint, tests unitarios y
+# tests de integración contra un MySQL real (base *_test).
+# ──────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: [main, 'fase-*/**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: restos_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+
+    env:
+      # Solo para CI: base descartable dentro del job, nunca datos reales
+      DATABASE_URL: mysql://root:test@127.0.0.1:3306/restos_test
+      TEST_DATABASE_URL: mysql://root:test@127.0.0.1:3306/restos_test
+      JWT_SECRET: ci-secreto-de-prueba-de-al-menos-32-caracteres
+      NODE_ENV: test
+      # A propósito en UTC: los días de reportes tienen que salir en hora de
+      # Buenos Aires aunque el servidor esté en otra zona (tarea 0.4)
+      TZ: UTC
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Generar cliente de Prisma
+        working-directory: apps/backend
+        run: npx prisma generate
+
+      - name: Compilar (backend + frontend)
+        run: npm run build
+
+      - name: Lint frontend
+        run: npm run lint -w @restos/frontend
+
+      - name: Tests unitarios
+        run: npm test -w @restos/backend
+
+      - name: Tests de integración (MySQL)
+        run: npm run test:db -w @restos/backend

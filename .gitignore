@@ -40,3 +40,11 @@ apps/backend/uploads/
 # Compilados sueltos de scripts de Prisma (se corren con tsx)
 apps/backend/prisma/*.js
 apps/backend/prisma/*.js.map
+
+# Material del cliente (planillas reales, audios): nunca al repo
+apps/report-mejoras/
+
+# Respaldos (tarea 6.3): aunque estén cifrados, nunca al repo
+apps/backend/respaldos/
+*.sql.gz.enc
+*.tar.gz.enc

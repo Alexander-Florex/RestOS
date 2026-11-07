@@ -53,7 +53,7 @@ function isHttpError(err: unknown, status: number) {
   return err instanceof HttpError && err.statusCode === status;
 }
 
-test('cobra la mesa: crea la venta, borra los pedidos y libera la mesa', async () => {
+test('cobra la mesa: crea la venta, cierra los pedidos (PAID) y libera la mesa', async () => {
   const { restaurantId, tableId } = await openTable({ price: '8000.00', quantity: 2 });
 
   const sale = await salesService.create(restaurantId, { tableId, paymentMethod: 'CASH', amount: 16000 });
@@ -63,7 +63,8 @@ test('cobra la mesa: crea la venta, borra los pedidos y libera la mesa', async (
   const items = await prisma.saleItem.findMany({ where: { saleId: sale.id } });
   assert.equal(items.length, 1);
   assert.equal(items[0].quantity, 2);
-  assert.equal(await prisma.order.count({ where: { tableId } }), 0);
+  assert.equal(await prisma.order.count({ where: { tableId, status: 'OPEN' } }), 0);
+  assert.equal(await prisma.order.count({ where: { tableId, status: 'PAID', saleId: sale.id } }), 1);
   const table = await prisma.table.findUniqueOrThrow({ where: { id: tableId } });
   assert.equal(table.status, TableStatus.AVAILABLE);
   assert.equal(table.guestCount, null);
@@ -107,7 +108,7 @@ test('pedido y cobro simultáneos: nunca queda un pedido huérfano en una mesa l
     assert.ok(loser.status === 'rejected' && isHttpError(loser.reason, 400), `iteración ${i}: la operación perdedora debe dar 400`);
 
     const table = await prisma.table.findUniqueOrThrow({ where: { id: tableId } });
-    const pendingOrders = await prisma.order.count({ where: { tableId } });
+    const pendingOrders = await prisma.order.count({ where: { tableId, status: 'OPEN' } });
     if (table.status === TableStatus.AVAILABLE) {
       assert.equal(pendingOrders, 0, `iteración ${i}: mesa libre con pedidos huérfanos`);
     } else {

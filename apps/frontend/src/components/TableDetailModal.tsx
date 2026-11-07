@@ -5,13 +5,13 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   Users, Clock, Loader2, Receipt, Lock, CalendarCheck,
-  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard, Printer, ListPlus,
+  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard, Printer, ListPlus, RotateCcw, Replace,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
-import { tablesApi, ApiError, type Table, printingApi } from '../lib/api';
+import { tablesApi, ApiError, type Table, type Order, type OrderItem, printingApi } from '../lib/api';
 import {
   TABLE_STATUS_LABEL, TABLE_STATUS_STYLE, elapsedSince,
 } from '../lib/table-helpers';
@@ -23,6 +23,10 @@ import { CloseTableModal } from './CloseTableModal';
 import { PrintButton } from './PrintButton';
 import { AddOrderDialog } from './AddOrderDialog';
 import { cn } from '../lib/utils';
+import { ItemModifiers } from './ItemModifiers';
+import { CancelOrderDialog } from './CancelOrderDialog';
+import { ItemChangeDialog, type ChangeMode } from './ItemChangeDialog';
+import { ChangeRequestCard, usePendingChanges } from './ChangeRequests';
 
 interface TableDetailModalProps {
   table: Table | null;
@@ -36,6 +40,10 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
   const canCharge = can('sales.charge');
   // Cargar pedidos e imprimir comandas: mismo permiso que en el backend
   const canOrder = can('orders.create');
+  const canCancel = can('orders.delete');
+  const [cancelling, setCancelling] = useState<Order | null>(null);
+  // Rehacer o cambiar un plato (tarea 5.8)
+  const [changing, setChanging] = useState<{ item: OrderItem; mode: ChangeMode } | null>(null);
 
   const [openingMode, setOpeningMode] = useState(false);
   const [guestCount, setGuestCount] = useState(1);
@@ -48,6 +56,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
     ? table.id
     : null;
   const { orders, total, loading: loadingOrders } = useTableOrders(tableId);
+  const { changes: pendingChanges } = usePendingChanges(tableId);
 
   useTick(30_000);
 
@@ -211,9 +220,15 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                 <>
                   {/* Cada pedido individualmente con su botón de imprimir */}
                   <div className="max-h-72 space-y-3 overflow-y-auto">
+                    {/* Anular con motivo (diálogo anidado: no cierra el detalle de la mesa) */}
+                    <CancelOrderDialog order={cancelling} onClose={() => setCancelling(null)} />
+                    <ItemChangeDialog item={changing?.item ?? null} mode={changing?.mode ?? 'replace'}
+                      tableNumber={table.number} onClose={() => setChanging(null)} />
+                    {/* Pedidos de cambio del mozo esperando a caja */}
+                    {pendingChanges.map(c => <ChangeRequestCard key={c.id} change={c} showTable={false} />)}
                     {orders.map((order, idx) => {
                       const isLatest = idx === orders.length - 1;
-                      const orderSubtotal = order.items.reduce(
+                      const orderSubtotal = order.items.filter(i => i.status !== 'VOIDED').reduce(
                         (s, i) => s + Number(i.price) * i.quantity, 0
                       );
                       const isTakeaway = order.notes?.startsWith('PARA LLEVAR:');
@@ -242,6 +257,17 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                                 </span>
                               )}
                             </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                            {canCancel && (
+                              <button
+                                onClick={() => setCancelling(order)}
+                                className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-rose-500/40 hover:text-rose-400"
+                                title={`Anular pedido #${order.id} (pide motivo)`}
+                              >
+                                <XCircle className="h-3 w-3" />
+                                Anular
+                              </button>
+                            )}
                             {/* Botón reimprimir comanda — quien puede tomar pedidos */}
                             {canOrder && (
                               <button
@@ -257,16 +283,39 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                                 Reimprimir
                               </button>
                             )}
+                            </div>
                           </div>
 
                           {/* Items del pedido */}
                           <div className="space-y-1">
-                            {order.items.map(item => (
-                              <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
+                            {order.items.map(item => item.status === 'VOIDED' ? (
+                              // Plato cambiado: no se cobra (tarea 5.8)
+                              <div key={item.id} className="flex items-start justify-between gap-2 text-sm text-muted-foreground">
+                                <div className="flex-1 min-w-0">
+                                  <span className="line-through">{item.itemName}</span>
+                                  <p className="text-xs text-rose-300/80">{item.voidReason ?? 'Cambiado'} · no se cobra</p>
+                                </div>
+                                <span className="shrink-0 tabular-nums line-through">x{item.quantity}</span>
+                                <span className="w-20 shrink-0 text-right tabular-nums line-through">
+                                  {formatMoney(Number(item.price) * item.quantity)}
+                                </span>
+                              </div>
+                            ) : (
+                              <div key={item.id} className="group flex items-start justify-between gap-2 text-sm">
                                 <div className="flex-1 min-w-0">
                                   <span>{item.itemName}</span>
-                                  {item.notes && (
-                                    <p className="text-xs italic text-muted-foreground">• {item.notes}</p>
+                                  <ItemModifiers className="mt-0.5" modifiers={item.modifiers} notes={item.notes} />
+                                  {canOrder && (
+                                    <div className="mt-1 flex gap-1.5">
+                                      <button onClick={() => setChanging({ item, mode: 'remake' })}
+                                        className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:border-amber-400/40 hover:text-amber-300">
+                                        <RotateCcw className="h-3 w-3" /> Rehacer
+                                      </button>
+                                      <button onClick={() => setChanging({ item, mode: 'replace' })}
+                                        className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:border-brand-400/40 hover:text-brand-300">
+                                        <Replace className="h-3 w-3" /> Cambiar
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                                 <span className="shrink-0 tabular-nums text-muted-foreground">x{item.quantity}</span>

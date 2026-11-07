@@ -1,11 +1,13 @@
 // ──────────────────────────────────────────────
 // takeaway.service.ts — multi-tenant
 // ──────────────────────────────────────────────
-import { TakeawayStatus, PaymentMethod, SaleChannel, type Prisma } from '@prisma/client';
+import { TakeawayStatus, PaymentMethod, SaleChannel, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { toCents, fromCents, formatCents } from '../../lib/money.js';
+import { optionGroupsInclude, resolveItemOptions } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { audit } from '../../lib/audit.js';
 
 export type TakeawayWithItems = Awaited<ReturnType<typeof findOne>>;
 
@@ -29,13 +31,18 @@ async function transition(
   from: TakeawayStatus[],
   data: Prisma.TakeawayOrderUpdateManyMutationInput,
   conflictMessage: string,
+  /** Corre en la misma transacción que el cambio de estado (ej. auditoría). */
+  onChanged?: (tx: Prisma.TransactionClient, before: Awaited<ReturnType<typeof findOne>>) => Promise<void>,
 ) {
-  await findOne(id, restaurantId);
-  const { count } = await prisma.takeawayOrder.updateMany({
-    where: { id, restaurantId, status: { in: from } },
-    data,
+  const before = await findOne(id, restaurantId);
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.takeawayOrder.updateMany({
+      where: { id, restaurantId, status: { in: from } },
+      data,
+    });
+    if (count !== 1) throw HttpError.conflict(conflictMessage);
+    if (onChanged) await onChanged(tx, before);
   });
-  if (count !== 1) throw HttpError.conflict(conflictMessage);
   const order = await findOne(id, restaurantId);
   emit(restaurantId, SocketEvents.TAKEAWAY_UPDATED, order);
   return order;
@@ -46,7 +53,10 @@ export interface CreateTakeawayInput {
   customerPhone?: string | null;
   notes?: string | null;
   createdById?: number;
-  items: Array<{ menuItemId: number; quantity: number; notes?: string | null }>;
+  /** Id del dispositivo: reintentar con el mismo id devuelve el pedido ya creado (tarea 1.5). */
+  clientRequestId?: string;
+  /** optionIds: opciones elegidas (ver lib/modifiers.ts); el precio lo calcula el servidor. */
+  items: Array<{ menuItemId: number; quantity: number; notes?: string | null; optionIds?: number[] }>;
 }
 
 export const takeawayService = {
@@ -63,9 +73,19 @@ export const takeawayService = {
   },
 
   async create(restaurantId: number, input: CreateTakeawayInput) {
+    const findExisting = () => input.clientRequestId
+      ? prisma.takeawayOrder.findFirst({
+          where: { restaurantId, clientRequestId: input.clientRequestId },
+          include: { items: { include: { menuItem: true } } },
+        })
+      : Promise.resolve(null);
+    const already = await findExisting();
+    if (already) return already;
+
     const menuIds = input.items.map(i => i.menuItemId);
     const menuItems = await prisma.menuItem.findMany({
       where: { id: { in: menuIds }, restaurantId, enabled: true },
+      include: optionGroupsInclude,
     });
     const menuMap = new Map(menuItems.map(m => [m.id, m]));
 
@@ -76,35 +96,45 @@ export const takeawayService = {
       if (item.quantity <= 0) throw HttpError.badRequest(`Cantidad inválida para "${mi.name}"`);
     }
 
-    const totalCents = input.items.reduce((acc, item) => {
-      const mi = menuMap.get(item.menuItemId)!;
-      return acc + toCents(mi.price) * item.quantity;
-    }, 0);
+    // Precio de cada línea: plato + recargos de las opciones elegidas
+    const resolved = input.items.map(item => resolveItemOptions(menuMap.get(item.menuItemId)!, item.optionIds));
+    const totalCents = input.items.reduce((acc, item, i) => acc + resolved[i].unitPriceCents * item.quantity, 0);
     const total = fromCents(totalCents);
 
-    const order = await prisma.takeawayOrder.create({
-      data: {
-        restaurantId,
-        customerName: input.customerName,
-        customerPhone: input.customerPhone ?? null,
-        notes: input.notes ?? null,
-        createdById: input.createdById ?? null,
-        total,
-        items: {
-          create: input.items.map(item => {
-            const mi = menuMap.get(item.menuItemId)!;
-            return {
-              menuItemId: item.menuItemId,
-              itemName: mi.name,
-              quantity: item.quantity,
-              price: mi.price,
-              notes: item.notes ?? null,
-            };
-          }),
+    let order;
+    try {
+      order = await prisma.takeawayOrder.create({
+        data: {
+          restaurantId,
+          clientRequestId: input.clientRequestId ?? null,
+          customerName: input.customerName,
+          customerPhone: input.customerPhone ?? null,
+          notes: input.notes ?? null,
+          createdById: input.createdById ?? null,
+          total,
+          items: {
+            create: input.items.map((item, i) => {
+              const mi = menuMap.get(item.menuItemId)!;
+              const { modifiers, unitPriceCents } = resolved[i];
+              return {
+                menuItemId: item.menuItemId,
+                itemName: mi.name,
+                quantity: item.quantity,
+                price: fromCents(unitPriceCents),
+                notes: item.notes ?? null,
+                modifiers: modifiers.length ? (modifiers as unknown as Prisma.InputJsonValue) : undefined,
+              };
+            }),
+          },
         },
-      },
-      include: { items: { include: { menuItem: true } } },
-    });
+        include: { items: { include: { menuItem: true } } },
+      });
+    } catch (err) {
+      // Dos envíos simultáneos del mismo pedido: devolver el que ganó
+      const dup = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' ? await findExisting() : null;
+      if (dup) return dup;
+      throw err;
+    }
 
     emit(restaurantId, SocketEvents.TAKEAWAY_CREATED, order);
     return order;
@@ -163,7 +193,7 @@ export const takeawayService = {
         await tx.takeawayOrder.update({ where: { id }, data: { notes: saleNotes } });
       }
 
-      return tx.sale.create({
+      const sale = await tx.sale.create({
         data: {
           restaurantId,
           channel: SaleChannel.TAKEAWAY,
@@ -184,10 +214,20 @@ export const takeawayService = {
               quantity: i.quantity,
               price: i.price,
               subtotal: fromCents(toCents(i.price) * i.quantity),
+              modifiers: i.modifiers ?? undefined,
             })),
           },
         },
       });
+      await audit(tx, {
+        restaurantId, action: 'takeaway.pay', entity: 'Sale', entityId: sale.id,
+        userId: opts.registeredById ?? undefined,
+        after: {
+          takeawayOrderId: order.id, customerName: order.customerName, paymentMethod,
+          total: sale.total, amount: sale.amount, notes: saleNotes,
+        },
+      });
+      return sale;
     });
 
     const order = await findOne(id, restaurantId);
@@ -198,7 +238,12 @@ export const takeawayService = {
 
   async cancel(restaurantId: number, id: number) {
     return transition(restaurantId, id, [TakeawayStatus.OPEN, TakeawayStatus.READY], { status: TakeawayStatus.CANCELLED },
-      'No se puede cancelar un pedido ya cobrado o cancelado');
+      'No se puede cancelar un pedido ya cobrado o cancelado',
+      (tx, before) => audit(tx, {
+        restaurantId, action: 'takeaway.cancel', entity: 'TakeawayOrder', entityId: id,
+        before: { status: before.status, customerName: before.customerName, total: before.total },
+        after: { status: TakeawayStatus.CANCELLED },
+      }));
   },
 
   /**

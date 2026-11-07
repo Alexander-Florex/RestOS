@@ -12,10 +12,13 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "test": "tsx --test prisma/seed-guard.test.ts test/permissions.test.ts test/time.test.ts test/socket-events.test.ts test/login-limiter.test.ts test/logger.test.ts",
-    "test:db": "tsx --test --test-concurrency=1 test/sales.db.test.ts test/roles.db.test.ts test/operations.db.test.ts test/security.db.test.ts test/migrations.db.test.ts",
+    "test": "tsx --test prisma/seed-guard.test.ts test/permissions.test.ts test/time.test.ts test/socket-events.test.ts test/login-limiter.test.ts test/logger.test.ts test/units.test.ts test/planillas.test.ts test/backup.test.ts",
+    "test:db": "tsx --test --test-concurrency=1 test/sales.db.test.ts test/roles.db.test.ts test/operations.db.test.ts test/security.db.test.ts test/modifiers.db.test.ts test/history.db.test.ts test/audit.db.test.ts test/offline.db.test.ts test/changes.db.test.ts test/recipes.db.test.ts test/costing.db.test.ts test/stock.db.test.ts test/planillas.db.test.ts test/backup.db.test.ts test/frontend.db.test.ts test/migrations.db.test.ts",
     "db:studio": "prisma studio",
-    "db:setup": "tsx prisma/setup.ts"
+    "db:setup": "tsx prisma/setup.ts",
+    "import:planillas": "tsx scripts/import-planillas.ts",
+    "respaldo": "node dist/scripts/backup.js",
+    "restaurar": "node dist/scripts/restore.js"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -25,6 +28,7 @@
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "express": "^4.21.1",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",

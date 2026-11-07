@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { StockStatus } from '@prisma/client';
+import { MenuOptionGroupType, StockStatus } from '@prisma/client';
 import { menuService } from './menu.service.js';
 import { HttpError } from '../../lib/http-error.js';
 
@@ -29,6 +29,22 @@ const listQuery = z.object({
 });
 
 const stockBody = z.object({ stock: stockEnum });
+
+// Opciones del plato (tarea 5.7): la configuración completa, en orden
+const optionsBody = z.object({
+  groups: z.array(z.object({
+    id: z.number().int().positive().optional(),
+    name: z.string().trim().min(1, 'El grupo necesita un nombre').max(60),
+    type: z.nativeEnum(MenuOptionGroupType),
+    required: z.boolean().default(false),
+    options: z.array(z.object({
+      id: z.number().int().positive().optional(),
+      name: z.string().trim().min(1, 'La opción necesita un nombre').max(60),
+      priceDelta: z.coerce.number().min(0, 'El recargo no puede ser negativo').max(10_000_000).default(0),
+      isDefault: z.boolean().default(false),
+    })).max(30),
+  })).max(20),
+});
 
 export const menuController = {
   async list(req: Request, res: Response) {
@@ -73,6 +89,14 @@ export const menuController = {
     const { id } = idParam.parse(req.params);
     await menuService.remove(req.user.restaurantId, id);
     res.status(204).send();
+  },
+
+  async saveOptions(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParam.parse(req.params);
+    const { groups } = optionsBody.parse(req.body);
+    const item = await menuService.saveOptions(req.user.restaurantId, id, groups);
+    res.json({ item });
   },
 
   async toggleEnabled(req: Request, res: Response) {

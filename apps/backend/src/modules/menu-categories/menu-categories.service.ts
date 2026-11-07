@@ -20,6 +20,8 @@ export interface CreateMenuCategoryData {
   name: string;
   color?: string;
   order?: number;
+  /** Margen objetivo (0–0,95) sobre el precio sin IVA; null = sin objetivo */
+  targetMargin?: number | null;
 }
 
 export interface UpdateMenuCategoryData extends Partial<CreateMenuCategoryData> {}
@@ -48,6 +50,7 @@ export const menuCategoriesService = {
         name: data.name,
         color: data.color ?? '#10b981',
         order: data.order ?? 0,
+        targetMargin: data.targetMargin ?? null,
       },
     });
     emitCreated(restaurantId, category);
@@ -68,6 +71,7 @@ export const menuCategoriesService = {
         ...(data.name !== undefined ? { name: data.name } : {}),
         ...(data.color !== undefined ? { color: data.color } : {}),
         ...(data.order !== undefined ? { order: data.order } : {}),
+        ...(data.targetMargin !== undefined ? { targetMargin: data.targetMargin } : {}),
       },
     });
 

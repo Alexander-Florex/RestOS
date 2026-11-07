@@ -245,8 +245,50 @@ export interface MenuItem {
   stock: StockStatus;
   enabled: boolean;
   imageUrl: string | null;
+  /** Opciones para personalizar el plato al pedir (las carga el Administrador). */
+  optionGroups?: MenuOptionGroup[];
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Personalización de platos (tarea 5.7) ──
+/** REMOVE: ingredientes para sacar · SINGLE: elegir uno (ej. término) · MULTI: agregados con recargo */
+export type MenuOptionGroupType = 'REMOVE' | 'SINGLE' | 'MULTI';
+
+export interface MenuItemOption {
+  id: number;
+  name: string;
+  priceDelta: string; // Decimal como string
+  isDefault: boolean;
+  sortOrder: number;
+}
+
+export interface MenuOptionGroup {
+  id: number;
+  name: string;
+  type: MenuOptionGroupType;
+  required: boolean;
+  sortOrder: number;
+  options: MenuItemOption[];
+}
+
+/** Copia de lo elegido que queda guardada en el pedido y en la venta. */
+export interface ItemModifier {
+  groupId: number;
+  group: string;
+  kind: MenuOptionGroupType;
+  optionId: number;
+  option: string;
+  priceDelta: string;
+}
+
+/** Configuración que guarda el Administrador (ids presentes = se conservan). */
+export interface SaveOptionGroupBody {
+  id?: number;
+  name: string;
+  type: MenuOptionGroupType;
+  required: boolean;
+  options: Array<{ id?: number; name: string; priceDelta: number; isDefault: boolean }>;
 }
 
 export interface CreateMenuItemBody {
@@ -281,6 +323,10 @@ export const menuApi = {
 
   setStock: (id: number, stock: StockStatus) =>
     request<{ item: MenuItem }>(`/menu/${id}/stock`, { method: 'PATCH', body: { stock } }),
+
+  /** Reemplaza las opciones del plato (solo Administrador / permiso menu.manage). */
+  saveOptions: (id: number, groups: SaveOptionGroupBody[]) =>
+    request<{ item: MenuItem }>(`/menu/${id}/options`, { method: 'PUT', body: { groups } }),
 };
 
 // ──────────────────────────────────────────────
@@ -291,6 +337,8 @@ export interface MenuCategory {
   name: string;
   color: string;
   order: number;
+  /** Margen objetivo sobre el precio sin IVA (0–0,95) */
+  targetMargin: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -299,6 +347,7 @@ export interface CreateMenuCategoryBody {
   name: string;
   color?: string;
   order?: number;
+  targetMargin?: number | null;
 }
 
 export const menuCategoriesApi = {
@@ -323,9 +372,16 @@ export interface OrderItem {
   menuItemId: number | null;
   itemName: string;
   quantity: number;
+  /** Precio unitario final (plato + recargos) */
   price: string;
   notes: string | null;
+  modifiers?: ItemModifier[] | null;
+  /** ACTIVE: se cobra · VOIDED: anulado por un cambio de plato (no se cobra) */
+  status?: 'ACTIVE' | 'VOIDED';
+  voidReason?: string | null;
 }
+
+export type OrderStatus = 'OPEN' | 'PAID' | 'CANCELLED';
 
 export interface Order {
   id: number;
@@ -333,6 +389,11 @@ export interface Order {
   notes: string | null;
   createdById: number | null;
   createdAt: string;
+  /** OPEN: en la cuenta · PAID: cobrado · CANCELLED: anulado */
+  status?: OrderStatus;
+  saleId?: number | null;
+  closedAt?: string | null;
+  cancelReason?: string | null;
   items: OrderItem[];
 }
 
@@ -340,7 +401,10 @@ export interface CreateOrderBody {
   tableId: number;
   guestCount?: number;
   notes?: string | null;
-  items: Array<{ menuItemId: number; quantity: number; notes?: string }>;
+  /** optionIds: opciones elegidas (en grupos "sacar", las que se sacan). El precio lo calcula el servidor. */
+  items: Array<{ menuItemId: number; quantity: number; notes?: string; optionIds?: number[] }>;
+  /** Id del dispositivo para no duplicar pedidos reintentados (lo pone order-queue.ts) */
+  clientRequestId?: string;
 }
 
 export const ordersApi = {
@@ -350,8 +414,31 @@ export const ordersApi = {
   create: (data: CreateOrderBody) =>
     request<{ order: Order }>('/orders', { method: 'POST', body: data }),
 
-  remove: (id: number) =>
-    request<void>(`/orders/${id}`, { method: 'DELETE' }),
+  // ── Cambios de platos (tarea 5.8) ──
+  /** Rehacer: se cobra una sola vez; lo tirado queda como pérdida. */
+  remakeItem: (itemId: number, body: { quantity: number; reason: string; fault?: ItemChangeFault | null }) =>
+    request<{ change: ItemChange }>(`/orders/items/${itemId}/remake`, { method: 'POST', body }),
+  /** Cambiar por otro plato. Con permiso de autorizar se aplica; si no, queda pendiente para caja. */
+  replaceItem: (itemId: number, body: {
+    quantity: number; reason: string; fault?: ItemChangeFault | null; wasPrepared: boolean;
+    replacement: { menuItemId: number; optionIds?: number[]; notes?: string | null };
+  }) => request<{ change: ItemChange }>(`/orders/items/${itemId}/replace`, { method: 'POST', body }),
+  listChanges: (filters: { status?: ItemChangeStatus; from?: Date; to?: Date; tableId?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (filters.status) params.set('status', filters.status);
+    if (filters.from) params.set('from', dayParam(filters.from));
+    if (filters.to) params.set('to', dayParam(filters.to));
+    if (filters.tableId) params.set('tableId', String(filters.tableId));
+    const qs = params.toString();
+    return request<{ changes: ItemChange[] }>(`/orders/changes${qs ? `?${qs}` : ''}`);
+  },
+  approveChange: (id: number) => request<{ change: ItemChange }>(`/orders/changes/${id}/approve`, { method: 'POST' }),
+  rejectChange: (id: number, reason?: string) =>
+    request<{ change: ItemChange }>(`/orders/changes/${id}/reject`, { method: 'POST', body: { reason: reason || null } }),
+
+  /** Anula un pedido abierto con motivo (no se borra: queda en el historial). */
+  cancel: (id: number, reason: string) =>
+    request<{ order: Order }>(`/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
 };
 
 // ──────────────────────────────────────────────
@@ -436,6 +523,18 @@ export interface InventoryItem {
   unit: string;
   minStock: number;
   costPerUnit: string; // Prisma Decimal viene como string
+  /** "1 <unit> = equivalenceQty <equivalenceUnit>" (otra familia de unidad), ej. 1 un = 60 g */
+  equivalenceQty: number | null;
+  equivalenceUnit: string | null;
+  /** Presentación de compra (ej. 25 kg a $25.000): si está, el costo se calcula */
+  purchaseQty: number | null;
+  purchaseUnit: string | null;
+  purchasePrice: string | null;
+  /** Merma por defecto en recetas (0–0,95) */
+  wastePct: number;
+  /** Sector de guardado (tarea 3.1) y orden dentro del sector para el conteo */
+  storageAreaId: number | null;
+  countOrder: number;
   supplier: string | null;
   lastRestocked: string | null;
   createdAt: string;
@@ -450,6 +549,47 @@ export interface CreateInventoryBody {
   minStock?: number;
   costPerUnit?: number;
   supplier?: string | null;
+  equivalenceQty?: number | null;
+  equivalenceUnit?: string | null;
+  purchaseQty?: number | null;
+  purchaseUnit?: string | null;
+  purchasePrice?: number | null;
+  wastePct?: number;
+  storageAreaId?: number | null;
+  countOrder?: number;
+}
+
+/** La cantidad no se edita: va por reponer, consumir, ajustar o un conteo. */
+export type UpdateInventoryBody = Partial<Omit<CreateInventoryBody, 'quantity'>>;
+
+export type StockMovementType = 'PURCHASE' | 'SALE' | 'PRODUCTION' | 'CONSUMPTION' | 'WASTE' | 'ADJUSTMENT' | 'COUNT';
+
+export interface StockMovement {
+  id: number;
+  inventoryItemId: number;
+  type: StockMovementType;
+  /** Con signo, en la unidad del insumo */
+  quantity: number;
+  balanceAfter: number;
+  unitCost: string | null;
+  reason: string | null;
+  reference: string | null;
+  stockCountId: number | null;
+  userName: string | null;
+  createdAt: string;
+}
+
+export interface PriceHistoryEntry {
+  id: number;
+  costPerUnit: string;
+  previousCost: string | null;
+  unit: string;
+  purchaseQty: number | null;
+  purchaseUnit: string | null;
+  purchasePrice: string | null;
+  source: 'MANUAL' | 'PURCHASE' | 'IMPORT';
+  userName: string | null;
+  createdAt: string;
 }
 
 export const inventoryApi = {
@@ -464,17 +604,135 @@ export const inventoryApi = {
   create: (data: CreateInventoryBody) =>
     request<{ item: InventoryItem }>('/inventory', { method: 'POST', body: data }),
 
-  update: (id: number, data: Partial<CreateInventoryBody>) =>
+  update: (id: number, data: UpdateInventoryBody) =>
     request<{ item: InventoryItem }>(`/inventory/${id}`, { method: 'PATCH', body: data }),
 
   remove: (id: number) =>
     request<void>(`/inventory/${id}`, { method: 'DELETE' }),
 
+  priceHistory: (id: number) => request<{ history: PriceHistoryEntry[] }>(`/inventory/${id}/price-history`),
+
+  /** En la unidad del insumo ({amount}) o en presentaciones, con precio nuevo opcional. */
+  restockWith: (id: number, body: { amount?: number; presentations?: number; purchasePrice?: number }) =>
+    request<{ item: InventoryItem }>(`/inventory/${id}/restock`, { method: 'POST', body }),
+
   restock: (id: number, amount: number) =>
     request<{ item: InventoryItem }>(`/inventory/${id}/restock`, { method: 'POST', body: { amount } }),
 
-  consume: (id: number, amount: number) =>
-    request<{ item: InventoryItem }>(`/inventory/${id}/consume`, { method: 'POST', body: { amount } }),
+  consume: (id: number, amount: number, reason?: string) =>
+    request<{ item: InventoryItem }>(`/inventory/${id}/consume`, { method: 'POST', body: { amount, reason } }),
+
+  /** Fija la cantidad real con un motivo (queda como movimiento de ajuste). */
+  adjust: (id: number, quantity: number, reason: string) =>
+    request<{ item: InventoryItem }>(`/inventory/${id}/adjust`, { method: 'POST', body: { quantity, reason } }),
+
+  movements: (id: number) =>
+    request<{ movements: StockMovement[] }>(`/inventory/${id}/movements`),
+};
+
+// ──────────────────────────────────────────────
+// Sectores de guardado (tarea 3.1)
+// ──────────────────────────────────────────────
+export interface StorageArea {
+  id: number;
+  name: string;
+  sortOrder: number;
+  itemCount: number;
+}
+
+export const storageAreasApi = {
+  list: () => request<{ areas: StorageArea[] }>('/storage-areas'),
+  create: (data: { name: string; sortOrder?: number }) =>
+    request<{ area: StorageArea }>('/storage-areas', { method: 'POST', body: data }),
+  update: (id: number, data: { name?: string; sortOrder?: number }) =>
+    request<{ area: StorageArea }>(`/storage-areas/${id}`, { method: 'PATCH', body: data }),
+  remove: (id: number) => request<void>(`/storage-areas/${id}`, { method: 'DELETE' }),
+};
+
+// ──────────────────────────────────────────────
+// Toma de inventario (tarea 3.3)
+// ──────────────────────────────────────────────
+export type StockCountStatus = 'OPEN' | 'CLOSED' | 'CANCELLED';
+
+export interface StockCountSummaryRow {
+  id: number;
+  storageAreaId: number | null;
+  areaName: string;
+  status: StockCountStatus;
+  notes: string | null;
+  startedByName: string | null;
+  closedByName: string | null;
+  startedAt: string;
+  closedAt: string | null;
+  totalLines: number;
+  countedLines: number;
+  differences: number;
+  differenceValue: number;
+}
+
+export interface StockCountLine {
+  id: number;
+  inventoryItemId: number | null;
+  itemName: string;
+  unit: string;
+  position: number;
+  /** null = sin contar */
+  countedQty: number | null;
+  countedAt: string | null;
+  countedByName: string | null;
+  /** Solo en conteos cerrados (mientras está abierto se cuenta a ciegas) */
+  expectedQty: number | null;
+  difference: number | null;
+  unitCost: string | null;
+  reason: string | null;
+  /** Sector actual del insumo (para agrupar el conteo de todo el stock) */
+  areaName: string | null;
+}
+
+export interface StockCount {
+  id: number;
+  storageAreaId: number | null;
+  areaName: string;
+  status: StockCountStatus;
+  notes: string | null;
+  startedByName: string | null;
+  closedByName: string | null;
+  startedAt: string;
+  closedAt: string | null;
+  lines: StockCountLine[];
+}
+
+export interface StockCountPreview {
+  totalLines: number;
+  countedLines: number;
+  uncounted: number;
+  differenceValue: number;
+  differences: {
+    lineId: number;
+    itemName: string;
+    unit: string;
+    countedQty: number;
+    expectedQty: number;
+    difference: number;
+    value: number;
+    reason: string | null;
+  }[];
+}
+
+export const stockCountsApi = {
+  list: () => request<{ counts: StockCountSummaryRow[] }>('/stock-counts'),
+  get: (id: number) => request<{ count: StockCount }>(`/stock-counts/${id}`),
+  /** storageAreaId null = todo el stock */
+  create: (storageAreaId: number | null, notes?: string) =>
+    request<{ count: StockCount }>('/stock-counts', { method: 'POST', body: { storageAreaId, notes } }),
+  setLine: (id: number, lineId: number, data: { countedQty?: number | null; reason?: string | null }) =>
+    request<{ line: StockCountLine }>(`/stock-counts/${id}/lines/${lineId}`, { method: 'PUT', body: data }),
+  summary: (id: number) => request<{ summary: StockCountPreview }>(`/stock-counts/${id}/summary`),
+  close: (id: number, notes?: string) =>
+    request<{ count: StockCount; summary: { differences: number; differenceValue: number; countedLines: number } }>(
+      `/stock-counts/${id}/close`, { method: 'POST', body: { notes } }),
+  cancel: (id: number, reason?: string) =>
+    request<{ count: StockCount }>(`/stock-counts/${id}/cancel`, { method: 'POST', body: { reason } }),
 };
 
 // ──────────────────────────────────────────────
@@ -483,18 +741,90 @@ export const inventoryApi = {
 export interface RecipeIngredient {
   id: number;
   recipeId: number;
-  inventoryItemId: number;
+  /** Un insumo o una sub-receta (uno de los dos) */
+  inventoryItemId: number | null;
+  subRecipeId: number | null;
   quantity: number;
   unit: string;
-  inventoryItem: InventoryItem;
+  /** Merma de la línea; null = la del insumo */
+  wastePct: number | null;
+  inventoryItem: InventoryItem | null;
+  subRecipe: { id: number; name: string } | null;
+}
+
+export interface RecipeCostLine {
+  ingredientId: number;
+  kind: 'item' | 'subrecipe';
+  inventoryItemId: number | null;
+  subRecipeId: number | null;
+  name: string;
+  quantity: number;
+  unit: string;
+  wastePct: number;
+  /** Cantidad bruta (con merma) */
+  grossQty: number;
+  /** Cantidad en la unidad del insumo (null si no se pudo convertir) */
+  convertedQty: number | null;
+  itemUnit: string;
+  cost: number | null;
+  error: string | null;
 }
 
 export interface RecipeCost {
+  /** Suma de las líneas que se pudieron calcular */
   costTotal: number;
+  lines: RecipeCostLine[];
+  /** Líneas con unidad inconvertible: el costo está incompleto */
+  warnings: string[];
+  complete: boolean;
   costPerServing: number;
-  suggestedPrice: number;
+  /** Costo por unidad de rendimiento (si la receta rinde en unidades) */
+  costPerYieldUnit: number | null;
+  /** Margen objetivo (sobre el precio sin IVA) */
+  margin: number;
+  /** Costo de mercadería objetivo = 1 − margen */
+  foodCostPct: number;
+  /** Precio sugerido sin IVA = costo / (1 − margen) */
+  suggestedPriceNet: number | null;
+  /** Precio sugerido con IVA */
+  suggestedPrice: number | null;
+  /** Precio de la carta (con IVA) */
   menuItemPrice: number | null;
+  /** Margen real con el precio de la carta */
+  actualMargin: number | null;
+  actualFoodCostPct: number | null;
+  belowTarget: boolean;
   priceDiff: number | null;
+}
+
+export interface MenuItemCost {
+  menuItemId: number;
+  recipeId: number;
+  recipeName: string;
+  costPerServing: number;
+  complete: boolean;
+  margin: number;
+  actualMargin: number | null;
+  actualFoodCostPct: number | null;
+  belowTarget: boolean;
+  suggestedPrice: number | null;
+}
+
+export interface CostAlert {
+  inventoryItemId: number;
+  itemName: string;
+  unit: string;
+  previousCost: number;
+  currentCost: number;
+  changePct: number;
+  changedAt: string;
+  dishes: Array<{
+    menuItemId: number; menuItemName: string; recipeId: number; recipeName: string;
+    menuItemPrice: number | null; costBefore: number; costNow: number;
+    previousMargin: number | null; currentMargin: number | null; targetMargin: number;
+    belowTarget: boolean; suggestedPrice: number | null;
+  }>;
+  otherRecipes: string[];
 }
 
 export interface Recipe {
@@ -503,6 +833,9 @@ export interface Recipe {
   menuItem: MenuItem | null;
   name: string;
   yield: number;
+  /** Rendimiento en unidades (ej. 500 cc), para usarla como sub-receta */
+  yieldQty: number | null;
+  yieldUnit: string | null;
   profitPct: number;
   vatPct: number;
   notes: string | null;
@@ -513,15 +846,20 @@ export interface Recipe {
 }
 
 export interface RecipeIngredientBody {
-  inventoryItemId: number;
+  inventoryItemId?: number | null;
+  subRecipeId?: number | null;
   quantity: number;
+  /** Unidad, o "porcion" para una sub-receta usada por porciones */
   unit: string;
+  wastePct?: number | null;
 }
 
 export interface CreateRecipeBody {
   name: string;
   menuItemId?: number | null;
   yield?: number;
+  yieldQty?: number | null;
+  yieldUnit?: string | null;
   profitPct?: number;
   vatPct?: number;
   notes?: string | null;
@@ -541,6 +879,12 @@ export const recipesApi = {
 
   remove: (id: number) =>
     request<void>(`/recipes/${id}`, { method: 'DELETE' }),
+
+  /** Costo y margen de cada plato de la carta con receta (tarea 2.7) */
+  menuCosts: () => request<{ items: MenuItemCost[] }>('/recipes/menu-costs'),
+
+  /** Insumos que subieron y platos afectados (tarea 2.8) */
+  costAlerts: (days = 30) => request<{ alerts: CostAlert[] }>(`/recipes/cost-alerts?days=${days}`),
 };
 
 // ──────────────────────────────────────────────
@@ -900,6 +1244,7 @@ export interface TakeawayItem {
   quantity:   number;
   price:      number | string;
   notes:      string | null;
+  modifiers?: ItemModifier[] | null;
 }
 
 export interface TakeawayOrder {
@@ -921,7 +1266,9 @@ export interface CreateTakeawayBody {
   customerName:  string;
   customerPhone?: string | null;
   notes?:         string | null;
-  items: Array<{ menuItemId: number; quantity: number; notes?: string | null }>;
+  items: Array<{ menuItemId: number; quantity: number; notes?: string | null; optionIds?: number[] }>;
+  /** Id del dispositivo para no duplicar pedidos reintentados (lo pone order-queue.ts) */
+  clientRequestId?: string;
 }
 
 export const takeawayApi = {
@@ -951,3 +1298,103 @@ export const takeawayApi = {
   remove: (id: number) =>
     request<void>(`/takeaway/${id}`, { method: 'DELETE' }),
 };
+
+// ──────────────────────────────────────────────
+// Auditoría (tarea 1.2) — solo lectura, permiso audit.view
+// ──────────────────────────────────────────────
+export type AuditAction =
+  | 'sale.create' | 'takeaway.pay' | 'takeaway.cancel' | 'order.cancel'
+  | 'order.item.remake' | 'order.item.replace' | 'order.item.reject'
+  | 'menu.price' | 'menu.options' | 'menu.delete'
+  | 'inventory.restock' | 'inventory.consume' | 'inventory.update' | 'inventory.delete'
+  | 'inventory.adjust' | 'inventory.count.close' | 'inventory.count.cancel'
+  | 'user.create' | 'user.update' | 'user.toggle' | 'user.delete'
+  | 'role.create' | 'role.update' | 'role.delete';
+
+export interface AuditEntry {
+  id: number;
+  userId: number | null;
+  /** Nombre en el momento de la acción (queda aunque se borre la cuenta) */
+  userName: string | null;
+  action: AuditAction | string;
+  entity: string;
+  entityId: number | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface AuditPage {
+  total: number;
+  page: number;
+  pageSize: number;
+  entries: AuditEntry[];
+}
+
+// ──────────────────────────────────────────────
+// Estado del respaldo nocturno (tarea 6.3) — permiso system.backup
+// ──────────────────────────────────────────────
+export type BackupHealth = 'ok' | 'solo-local' | 'atrasado' | 'falla' | 'nunca' | 'sin-configurar';
+
+export interface BackupStatus {
+  health: BackupHealth;
+  destinations: ('copia' | 'sftp')[];
+  lastCompleteDay: string | null;
+  lastLocalAt: string | null;
+  lastError: string | null;
+  pending: number;
+}
+
+export const systemApi = {
+  backup: () => request<{ backup: BackupStatus }>('/system/backup'),
+};
+
+export const auditApi = {
+  /** Sin fechas: últimos 7 días. `action`: acciones o prefijos separados por coma. */
+  list: (filters: { from?: Date; to?: Date; action?: string; userId?: number; page?: number; pageSize?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (filters.from) params.set('from', dayParam(filters.from));
+    if (filters.to) params.set('to', dayParam(filters.to));
+    if (filters.action) params.set('action', filters.action);
+    if (filters.userId) params.set('userId', String(filters.userId));
+    if (filters.page) params.set('page', String(filters.page));
+    if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+    const qs = params.toString();
+    return request<AuditPage>(`/audit${qs ? `?${qs}` : ''}`);
+  },
+  actors: () => request<{ actors: Array<{ userId: number | null; userName: string }> }>('/audit/actors'),
+};
+
+// ──────────────────────────────────────────────
+// Cambios de platos (tarea 5.8)
+// ──────────────────────────────────────────────
+export type ItemChangeType = 'REMAKE' | 'REPLACE';
+export type ItemChangeStatus = 'PENDING' | 'APPLIED' | 'REJECTED';
+/** De quién fue el error */
+export type ItemChangeFault = 'KITCHEN' | 'WAITER' | 'CUSTOMER' | 'OTHER';
+
+export interface ItemChange {
+  id: number;
+  orderId: number;
+  orderItemId: number;
+  type: ItemChangeType;
+  status: ItemChangeStatus;
+  quantity: number;
+  reason: string;
+  fault: ItemChangeFault | null;
+  /** Ya estaba hecho: es pérdida */
+  wasPrepared: boolean;
+  itemSnapshot: { itemName: string; price: string; modifiers: ItemModifier[] | null; notes: string | null };
+  replacementMenuItemId: number | null;
+  /** Nombre del plato de reemplazo */
+  replacementName: string | null;
+  replacementNotes: string | null;
+  newOrderItemId: number | null;
+  rejectReason: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+  order: { id: number; tableId: number; status: OrderStatus; table: { number: number } };
+  requestedBy: { id: number; name: string } | null;
+  resolvedBy: { id: number; name: string } | null;
+}

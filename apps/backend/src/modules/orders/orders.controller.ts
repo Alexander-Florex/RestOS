@@ -10,6 +10,7 @@ const orderItemSchema = z.object({
   menuItemId: z.number().int().positive(),
   quantity: z.number().int().positive(),
   notes: z.string().trim().max(500).optional(),
+  optionIds: z.array(z.number().int().positive()).max(50).optional(),
 });
 
 const createSchema = z.object({
@@ -17,17 +18,26 @@ const createSchema = z.object({
   guestCount: z.number().int().positive().optional(),
   notes: z.string().trim().max(500).optional(),
   items: z.array(orderItemSchema).min(1, 'Agregá al menos un item'),
+  clientRequestId: z.string().regex(/^[A-Za-z0-9-]{8,64}$/).optional(),
 });
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const tableIdParam = z.object({ tableId: z.coerce.number().int().positive() });
-const listQuery = z.object({ tableId: z.coerce.number().int().positive().optional() });
+const listQuery = z.object({
+  tableId: z.coerce.number().int().positive().optional(),
+  // Por defecto solo los abiertos; ALL incluye cobrados y anulados (historial)
+  status: z.enum(['OPEN', 'PAID', 'CANCELLED', 'ALL']).optional(),
+});
+
+const cancelSchema = z.object({
+  reason: z.string().trim().min(3, 'Indicá el motivo de la anulación').max(500),
+});
 
 export const ordersController = {
   async list(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
-    const { tableId } = listQuery.parse(req.query);
-    const orders = await ordersService.list(req.user.restaurantId, { tableId });
+    const { tableId, status } = listQuery.parse(req.query);
+    const orders = await ordersService.list(req.user.restaurantId, { tableId, status });
     res.json({ orders });
   },
 
@@ -56,10 +66,12 @@ export const ordersController = {
     res.status(201).json({ order });
   },
 
-  async remove(req: Request, res: Response) {
+  /** Anula un pedido abierto (no se borra: queda en el historial con el motivo). */
+  async cancel(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    await ordersService.remove(req.user.restaurantId, id);
-    res.status(204).send();
+    const { reason } = cancelSchema.parse(req.body);
+    const order = await ordersService.cancel(req.user.restaurantId, id, { reason, cancelledById: req.user.userId });
+    res.json({ order });
   },
 };
