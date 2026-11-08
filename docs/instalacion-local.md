@@ -18,9 +18,9 @@ Tiempo estimado: 1 a 2 horas. Hacelo fuera del horario de servicio.
 > - Deja la tarea **"RestOS"**, que arranca con Windows sin iniciar sesión y se reinicia si se cae (`deploy\windows\iniciar-restos.ps1`, sin NSSM).
 > - Deja el respaldo nocturno programado.
 > - Pasa la red a Privada y abre el puerto del `.env` (también para ZeroTier).
-> - Si Apache servía las pantallas viejas, las cambia por una página que redirige al sistema nuevo.
+> - Si Apache servía las pantallas viejas y le pasaba `/api` al sistema, copia las nuevas en el mismo lugar. Los mozos siguen entrando a la misma dirección (por ejemplo `http://10.147.17.83/` por ZeroTier). Si Apache no pasaba `/api`, las cambia por una página que redirige al puerto del sistema.
 >
-> El puerto sigue siendo el del `.env` (3000 en esa PC). Para las próximas actualizaciones, la misma línea. Antes de actualizar, para ver cómo está la PC: `irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/main/deploy/windows/diagnostico.ps1 | iex`.
+> El puerto del sistema sigue siendo el del `.env` (3000 en esa PC). Para las próximas actualizaciones, la misma línea. Antes de actualizar, para ver cómo está la PC: `irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/main/deploy/windows/diagnostico.ps1 | iex`.
 
 ---
 

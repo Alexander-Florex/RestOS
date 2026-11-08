@@ -13,7 +13,7 @@
 #   5. Completa el .env (TZ, respaldo, MYSQL_BIN_DIR)
 #   6. Aplica las migraciones de la base
 #   7. Registra la tarea "RestOS" (arranca con Windows y se reinicia si se cae) y verifica
-#   8. Red privada + firewall, redirección de Apache, respaldo nocturno
+#   8. Red privada + firewall, pantallas nuevas en Apache (misma dirección), respaldo nocturno
 # Si algo falla en 4, 6 o 7, VUELVE ATRÁS solo: restaura la base, el código y
 # el .env, y arranca la versión anterior.
 # Se puede volver a correr para las próximas actualizaciones.
@@ -188,6 +188,21 @@ $puerto = LeerEnv 'PORT'
 if (-not $puerto) { $puerto = '3000'; PonerEnv 'PORT' 'PORT=3000' }
 Ok "Puerto del sistema: $puerto"
 
+# ¿Los mozos entran por Apache (puerto 80) y Apache le pasa /api al sistema? Se mira
+# ahora, con la versión anterior andando. Si es así, las pantallas nuevas se copian al
+# mismo lugar de Apache y la dirección de los celulares no cambia.
+$pantallasApache = @()
+$apacheProxy = $false
+if (-not $SinRedireccionApache -and (Test-Path 'C:\xampp\htdocs')) {
+  $pantallasApache = @(Get-ChildItem 'C:\xampp\htdocs' -Filter index.html -Recurse -Depth 2 -ErrorAction SilentlyContinue |
+    Where-Object { (Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue) -match 'RestOS' })
+  try { $apacheProxy = ((Invoke-WebRequest 'http://localhost/api/health' -UseBasicParsing -TimeoutSec 5).Content -match '"status"\s*:\s*"ok"') } catch { }
+  if ($pantallasApache.Count -gt 0) {
+    if ($apacheProxy) { Ok "Las pantallas las sirve Apache y le pasa /api al sistema: la dirección de los mozos no va a cambiar" }
+    else { Aviso "Hay pantallas de RestOS en Apache, pero Apache no responde /api: se van a redirigir al puerto $puerto" }
+  }
+}
+
 # ══════════════════════════════════════════════
 # 2. Detener la versión anterior
 # ══════════════════════════════════════════════
@@ -355,10 +370,29 @@ if ($zt.Count -gt 0) {
 }
 Ok "Puerto $puerto abierto para la red del local$(if ($zt.Count) { ' y ZeroTier' })"
 
-if (-not $SinRedireccionApache -and (Test-Path 'C:\xampp\htdocs')) {
+if ($pantallasApache.Count -gt 0 -and $apacheProxy) {
+  # Misma dirección de siempre: se reemplazan las pantallas viejas de Apache por las nuevas
+  Titulo 'Pantallas nuevas en Apache (misma dirección para los mozos)'
+  $dist = Join-Path $Proyecto 'apps\frontend\dist'
+  $n = 0
+  foreach ($f in $pantallasApache) {
+    $n++
+    $dir = $f.DirectoryName
+    $copiaDir = Join-Path $respaldos "pantallas-apache-antes-$fecha-$n"
+    New-Item -ItemType Directory -Force $copiaDir | Out-Null
+    Copy-Item $f.FullName $copiaDir
+    if (Test-Path (Join-Path $dir 'assets')) { Copy-Item (Join-Path $dir 'assets') $copiaDir -Recurse -Force }
+    Copy-Item (Join-Path $dist '*') $dir -Recurse -Force
+    Ok "$dir actualizado (las pantallas anteriores quedaron en $copiaDir)"
+  }
+  $okApi = $false; $okSocket = $false
+  try { $okApi = ((Invoke-WebRequest 'http://localhost/api/health' -UseBasicParsing -TimeoutSec 5).Content -match '"status"\s*:\s*"ok"') } catch { }
+  try { $okSocket = ((Invoke-WebRequest 'http://localhost/socket.io/?EIO=4&transport=polling' -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200) } catch { }
+  if ($okApi) { Ok 'Por Apache: el sistema nuevo responde' } else { Aviso "Por Apache, /api no responde. Probá entrar con el puerto: http://IP:$puerto" }
+  if ($okSocket) { Ok 'Por Apache: las actualizaciones en vivo funcionan' } else { Aviso "Por Apache, las actualizaciones en vivo (socket) no pasan: las pantallas se actualizan al recargar. Con http://IP:$puerto funcionan." }
+} elseif ($pantallasApache.Count -gt 0) {
   Titulo 'Pantallas viejas en Apache'
-  $viejos = @(Get-ChildItem 'C:\xampp\htdocs' -Filter index.html -Recurse -Depth 2 -ErrorAction SilentlyContinue |
-    Where-Object { (Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue) -match 'RestOS' -and (Get-Content $_.FullName -Raw) -notmatch 'restos-redireccion' })
+  $viejos = @($pantallasApache | Where-Object { (Get-Content $_.FullName -Raw) -notmatch 'restos-redireccion' })
   foreach ($f in $viejos) {
     Copy-Item $f.FullName "$($f.FullName).antes-$fecha"
     $html = "<!doctype html><html lang=`"es`"><head><meta charset=`"utf-8`"><meta name=`"restos-redireccion`" content=`"1`"><title>RestOS</title>" +
@@ -368,7 +402,6 @@ if (-not $SinRedireccionApache -and (Test-Path 'C:\xampp\htdocs')) {
     [IO.File]::WriteAllText($f.FullName, $html, (New-Object Text.UTF8Encoding $false))
     Ok "$($f.FullName) ahora redirige al sistema nuevo (copia del anterior al lado)"
   }
-  if ($viejos.Count -eq 0) { Write-Host '  No hay pantallas de RestOS en Apache: nada que cambiar.' }
 }
 
 Titulo 'Respaldo nocturno'
@@ -397,8 +430,10 @@ Write-Host '══════════════════════�
 Write-Host ' ✅ RestOS actualizado' -ForegroundColor Green
 Write-Host '════════════════════════════════════════════════' -ForegroundColor Green
 Write-Host 'Desde los celulares y la caja entrá a:' -ForegroundColor Cyan
+$sufijo = if ($pantallasApache.Count -gt 0 -and $apacheProxy) { '/' } else { ":$puerto" }
 Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
-  ForEach-Object { Write-Host "   http://$($_.IPAddress):$puerto   ($($_.InterfaceAlias))" -ForegroundColor Cyan }
+  ForEach-Object { Write-Host "   http://$($_.IPAddress)$sufijo   ($($_.InterfaceAlias))" -ForegroundColor Cyan }
+if ($sufijo -eq '/') { Write-Host "   (la misma dirección de siempre; si algo no anda, se puede entrar directo con :$puerto)" }
 Write-Host ''
 Write-Host "Respaldo de antes de actualizar: $volcado"
 Write-Host "Registro de esta actualización: $transcript"
