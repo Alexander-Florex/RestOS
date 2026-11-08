@@ -3,7 +3,12 @@
 # con XAMPP (MariaDB) y deja el arranque automático y el respaldo nocturno.
 #
 # Correr en PowerShell COMO ADMINISTRADOR, fuera del horario del local:
-#   irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/main/deploy/windows/actualizar-desde-xampp.ps1 -OutFile $env:TEMP\actualizar-restos.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\actualizar-restos.ps1
+#   irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/produccion/deploy/windows/actualizar-desde-xampp.ps1 -OutFile $env:TEMP\actualizar-restos.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\actualizar-restos.ps1
+#
+# El local corre la rama "produccion" (no main): solo llega lo que se pasa a esa rama.
+# Además deja la tarea "RestOS - Actualización", que todas las noches a las 4 corre este
+# script con -Automatico: si hay cambios en produccion y los tests de GitHub pasaron,
+# actualiza sin preguntar nada; si no, no toca nada. Resultado en C:\RestOS\actualizacion-automatica.log.
 #
 # Orden:
 #   1. Controles (no toca nada)
@@ -23,22 +28,29 @@
 # ──────────────────────────────────────────────
 param(
   [string]$Proyecto,
-  [string]$Rama = 'main',
+  [string]$Rama = 'produccion',
   [string]$MysqlBin = 'C:\xampp\mysql\bin',
   [string]$ServicioMySql = 'mysql',
   [string]$TareaVieja = 'RestOS-Watcher',
   [string]$Tarea = 'RestOS',
   [string]$Carpeta = 'C:\RestOS',
   [switch]$SinRedireccionApache,
-  [switch]$SinPuerto80
+  [switch]$SinPuerto80,
+  [switch]$Automatico,
+  [string]$Hora = '04:00'
 )
 $ErrorActionPreference = 'Continue'
 $fecha = Get-Date -Format 'yyyy-MM-dd_HHmm'
+$registroAuto = Join-Path $Carpeta 'actualizacion-automatica.log'
+function AnotarAuto($msg) {
+  if (-not $Automatico) { return }
+  try { Add-Content -Path $registroAuto -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm') $msg" -Encoding utf8 } catch { }
+}
 
 function Titulo($msg) { Write-Host ''; Write-Host "▶ $msg" -ForegroundColor Cyan }
 function Ok($msg) { Write-Host "  ✅ $msg" -ForegroundColor Green }
 function Aviso($msg) { Write-Host "  ⚠️  $msg" -ForegroundColor Yellow }
-function Falla($msg) { Write-Host ''; Write-Host "❌ $msg" -ForegroundColor Red; try { Stop-Transcript | Out-Null } catch { }; exit 1 }
+function Falla($msg) { Write-Host ''; Write-Host "❌ $msg" -ForegroundColor Red; AnotarAuto "NO SE ACTUALIZÓ: $msg"; try { Stop-Transcript | Out-Null } catch { }; exit 1 }
 # Corre un programa mostrando su salida con sangría; devuelve el código de salida
 function Correr([string]$exe, [string[]]$argumentos) {
   & $exe @argumentos 2>&1 | ForEach-Object { Write-Host "     $_" }
@@ -92,7 +104,20 @@ function DetenerRestos {
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Seconds 3
 }
-function PuertoOcupado { return [bool](Get-NetTCPConnection -LocalPort $puerto -State Listen -ErrorAction SilentlyContinue) }
+# Puerto en uso = algo acepta conexiones (no depende de Get-NetTCPConnection, que en
+# algunas PCs no lista nada aunque el puerto esté tomado)
+function PuertoEnUso([int]$p) {
+  $c = New-Object Net.Sockets.TcpClient
+  try { $a = $c.BeginConnect('127.0.0.1', $p, $null, $null); return [bool]($a.AsyncWaitHandle.WaitOne(1500) -and $c.Connected) }
+  catch { return $false } finally { $c.Close() }
+}
+function DuenoPuerto([int]$p) {
+  $l = netstat -ano -p TCP 2>$null | Select-String "^\s*TCP\s+\S+:$p\s+\S+\s+\S+\s+(\d+)\s*$" | Select-Object -First 1
+  if (-not $l) { return 'programa desconocido' }
+  $id = [int]$l.Matches[0].Groups[1].Value
+  return "$((Get-Process -Id $id -ErrorAction SilentlyContinue).ProcessName), proceso $id"
+}
+function PuertoOcupado { return (PuertoEnUso ([int]$puerto)) }
 function Responde {
   for ($i = 0; $i -lt 45; $i++) {
     Start-Sleep -Seconds 2
@@ -133,11 +158,15 @@ function VolverAtras([string]$motivo) {
     Copy-Item $envCopia $envFile -Force
     if ($frontEnvCopia) { Copy-Item $frontEnvCopia $frontEnv -Force }
   }
-  if (Get-ScheduledTask -TaskName $TareaVieja -ErrorAction SilentlyContinue) {
-    Enable-ScheduledTask -TaskName $TareaVieja | Out-Null
-    Start-ScheduledTask -TaskName $TareaVieja
-    Write-Host "   Se reactivó la tarea $TareaVieja."
+  # Vuelve a arrancar lo que estaba andando antes: la tarea "RestOS" (actualizaciones
+  # siguientes) o la de la versión vieja (la primera vez)
+  $reactivar = if ($tareaNuevaAndaba) { $Tarea } else { $TareaVieja }
+  if (Get-ScheduledTask -TaskName $reactivar -ErrorAction SilentlyContinue) {
+    Enable-ScheduledTask -TaskName $reactivar | Out-Null
+    Start-ScheduledTask -TaskName $reactivar
+    Write-Host "   Se reactivó la tarea $reactivar."
   }
+  AnotarAuto "FALLÓ y volvió a la versión anterior ($($antes.Substring(0, 7))): $motivo. Detalle: $transcript"
   Write-Host ''
   Write-Host 'Quedó la versión anterior. Si en 1 minuto no anda, reiniciá la PC.' -ForegroundColor Yellow
   Write-Host "Mandale al desarrollador el registro: $transcript" -ForegroundColor Yellow
@@ -184,6 +213,30 @@ $origen = RepoTexto @('remote', 'get-url', 'origin')
 if ($origen -notmatch 'RestOS') { Falla "La carpeta no es el repositorio de RestOS (origin: $origen)." }
 $antes = (RepoTexto @('rev-parse', 'HEAD')).Trim()
 Ok "Versión actual: $(RepoTexto @('log', '-1', '--format=%h %cd %s', '--date=short'))"
+$tareaNuevaAndaba = [bool](Get-ScheduledTask -TaskName $Tarea -ErrorAction SilentlyContinue | Where-Object { $_.State -ne 'Disabled' })
+
+if ($Automatico) {
+  # Antes de detener nada: ¿hay algo nuevo en la rama y pasó los tests de GitHub?
+  if ((Repo @('fetch', 'origin', $Rama)) -ne 0) { Falla "No se pudo consultar GitHub (¿hay internet?)." }
+  $nuevo = "$(RepoTexto @('rev-parse', "origin/$Rama"))".Trim()
+  if ($nuevo -eq $antes) {
+    AnotarAuto "Sin cambios en $Rama ($($antes.Substring(0, 7)))."
+    try { Stop-Transcript | Out-Null } catch { }
+    Remove-Item $transcript -ErrorAction SilentlyContinue
+    exit 0
+  }
+  $repoGh = if ($origen -match 'github\.com[:/]([^/]+/[^/]+?)(\.git)?$') { $Matches[1] } else { 'Alexander-Florex/RestOS' }
+  $ci = $null
+  try {
+    $runs = (Invoke-RestMethod "https://api.github.com/repos/$repoGh/commits/$nuevo/check-runs" -Headers @{ 'User-Agent' = 'RestOS-actualizador' } -TimeoutSec 20).check_runs
+    $ci = @($runs | Where-Object { $_.name -eq 'build-and-test' }) | Select-Object -First 1
+  } catch { }
+  if (-not $ci -or $ci.conclusion -ne 'success') {
+    $estado = if ($ci) { "$($ci.status)/$($ci.conclusion)" } else { 'sin resultado' }
+    Falla "Los tests de GitHub de $($nuevo.Substring(0, 7)) no pasaron ($estado): no se actualiza esta noche."
+  }
+  Ok "Hay una versión nueva ($($nuevo.Substring(0, 7))) y pasó los tests"
+}
 
 $url = LeerEnv 'DATABASE_URL'
 if ($url -notmatch '^mysql://([^:@]+)(?::([^@]*))?@([^:/]+)(?::(\d+))?/([^?]+)') { Falla 'No entiendo el DATABASE_URL del .env.' }
@@ -219,16 +272,17 @@ $apacheConf = 'C:\xampp\apache\conf\httpd.conf'
 $apacheConfCopia = $null
 $apacheSvc = Get-Service -Name 'Apache*' -ErrorAction SilentlyContinue | Select-Object -First 1
 $puertoApache = $null
+$listen80 = '^(\s*Listen\s+(?:[\d\.]+:|\[[^\]]*\]:)?)80\s*$'
 if (-not $SinPuerto80 -and $puerto -ne '80' -and -not $apacheProxy) {
-  $en80 = Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-  $dueno80 = if ($en80) { (Get-Process -Id $en80.OwningProcess -ErrorAction SilentlyContinue).ProcessName } else { $null }
-  if (-not $en80) {
+  $apacheEn80 = $apacheSvc -and $apacheSvc.Status -eq 'Running' -and (Test-Path $apacheConf) -and (Select-String -Path $apacheConf -Pattern $listen80 -Quiet)
+  if ($apacheEn80) {
+    # Apache tiene el 80: pasa a otro puerto libre
+    $puertoApache = @(8080, 8081, 8888) | Where-Object { -not (PuertoEnUso $_) } | Select-Object -First 1
+    if ($puertoApache) { $pasarA80 = $true } else { Aviso 'No hay un puerto libre para mover Apache: el sistema sigue en su puerto.' }
+  } elseif (-not (PuertoEnUso 80)) {
     $pasarA80 = $true
-  } elseif ($dueno80 -eq 'httpd' -and $apacheSvc -and (Test-Path $apacheConf) -and (Select-String -Path $apacheConf -Pattern '^\s*Listen\s+80\s*$' -Quiet)) {
-    $puertoApache = @(8080, 8081, 8888) | Where-Object { -not (Get-NetTCPConnection -LocalPort $_ -State Listen -ErrorAction SilentlyContinue) } | Select-Object -First 1
-    if ($puertoApache) { $pasarA80 = $true }
   } else {
-    Aviso "El puerto 80 lo usa '$dueno80': el sistema sigue en el $puerto (http://IP:$puerto)."
+    Aviso "El puerto 80 lo usa otro programa ($(DuenoPuerto 80)): el sistema sigue en el $puerto (http://IP:$puerto)."
   }
   if ($pasarA80) { Ok "El sistema va a pasar al puerto 80: los mozos entran a http://IP/ sin puerto$(if ($puertoApache) { " (Apache pasa al $puertoApache)" })" }
 }
@@ -244,8 +298,7 @@ if (Get-ScheduledTask -TaskName $TareaVieja -ErrorAction SilentlyContinue) {
 }
 if (PuertoOcupado) { DetenerRestos }
 if (PuertoOcupado) {
-  $dueno = (Get-NetTCPConnection -LocalPort $puerto -State Listen | Select-Object -First 1).OwningProcess
-  Falla "El puerto $puerto sigue ocupado por el proceso $dueno ($((Get-Process -Id $dueno).ProcessName)). Cerralo y volvé a correr el script."
+  Falla "El puerto $puerto sigue ocupado ($(DuenoPuerto $puerto)). Cerralo y volvé a correr el script."
 }
 $etapa = 'detenido'
 Ok 'Versión anterior detenida'
@@ -329,11 +382,13 @@ if (-not (LeerEnv 'MYSQL_BIN_DIR')) { PonerEnv 'MYSQL_BIN_DIR' "MYSQL_BIN_DIR='$
 if (-not (LeerEnv 'BACKUP_DIR')) { PonerEnv 'BACKUP_DIR' "BACKUP_DIR='$respaldos'" }
 if (-not (LeerEnv 'BACKUP_LABEL')) { PonerEnv 'BACKUP_LABEL' "BACKUP_LABEL=`"RestOS $env:COMPUTERNAME`"" }
 $claveNueva = $null
-if (-not (LeerEnv 'BACKUP_PASSPHRASE')) {
+if (-not (LeerEnv 'BACKUP_PASSPHRASE') -and $Automatico) {
+  Aviso 'Falta la contraseña de los respaldos: corré el actualizador a mano una vez para generarla y anotarla.'
+} elseif (-not (LeerEnv 'BACKUP_PASSPHRASE')) {
   $claveNueva = (& node -e "process.stdout.write(require('crypto').randomBytes(24).toString('base64'))")
   PonerEnv 'BACKUP_PASSPHRASE' "BACKUP_PASSPHRASE=`"$claveNueva`""
 }
-if (-not (LeerEnv 'BACKUP_COPY_DIR') -and $env:OneDrive -and (Test-Path $env:OneDrive)) {
+if (-not $Automatico -and -not (LeerEnv 'BACKUP_COPY_DIR') -and $env:OneDrive -and (Test-Path $env:OneDrive)) {
   $copia = Join-Path $env:OneDrive 'Respaldos RestOS'
   $resp = Read-Host "  ¿Guardar también una copia de cada respaldo en OneDrive ($copia)? [S/n]"
   if ($resp -notmatch '^[nN]') {
@@ -348,14 +403,14 @@ if ($pasarA80) {
     $apacheConfCopia = Join-Path $respaldos "httpd.conf-antes-de-actualizar-$fecha"
     Copy-Item $apacheConf $apacheConfCopia
     Stop-Service $apacheSvc.Name -Force -ErrorAction SilentlyContinue
-    $conf = (Get-Content $apacheConf) -replace '^\s*Listen\s+80\s*$', "Listen $puertoApache" -replace '^(\s*ServerName\s+[^:\s]+):80\s*$', "`$1:$puertoApache"
+    $conf = (Get-Content $apacheConf) -replace $listen80, "`${1}$puertoApache" -replace '^(\s*ServerName\s+[^:\s]+):80\s*$', "`$1:$puertoApache"
     [IO.File]::WriteAllLines($apacheConf, [string[]]$conf, (New-Object Text.UTF8Encoding $false))
     try { Start-Service $apacheSvc.Name -ErrorAction Stop; Ok "Apache ahora en el puerto $puertoApache (phpMyAdmin: http://localhost:$puertoApache/phpmyadmin)" }
     catch { Aviso "Apache no arrancó en el puerto $puertoApache (el sistema no lo necesita): $_" }
     Start-Sleep -Seconds 2
   }
-  if (Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue) {
-    Aviso 'El puerto 80 sigue ocupado: el sistema sigue en su puerto de siempre.'
+  if (PuertoEnUso 80) {
+    Aviso "El puerto 80 sigue ocupado ($(DuenoPuerto 80)): el sistema sigue en su puerto de siempre."
     if ($apacheConfCopia) { Copy-Item $apacheConfCopia $apacheConf -Force; Restart-Service $apacheSvc.Name -Force -ErrorAction SilentlyContinue; $apacheConfCopia = $null }
     $pasarA80 = $false
   } else {
@@ -478,6 +533,20 @@ if ($claveNueva) {
   Ok 'Contraseña de los respaldos generada (no se guarda en este registro)'
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Proyecto 'deploy\windows\programar-respaldo.ps1') -Proyecto $Proyecto
+
+Titulo "Actualización automática (todas las noches a las $Hora, rama $Rama)"
+$argsAuto = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $Proyecto 'deploy\windows\actualizar-desde-xampp.ps1')`" -Automatico" +
+  " -Proyecto `"$Proyecto`" -Rama `"$Rama`" -MysqlBin `"$MysqlBin`" -ServicioMySql `"$ServicioMySql`" -Carpeta `"$Carpeta`" -Hora `"$Hora`"" +
+  $(if ($SinPuerto80) { ' -SinPuerto80' }) + $(if ($SinRedireccionApache) { ' -SinRedireccionApache' })
+try {
+  Register-ScheduledTask -TaskName 'RestOS - Actualización' -Force -ErrorAction Stop `
+    -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argsAuto -WorkingDirectory $Carpeta) `
+    -Trigger (New-ScheduledTaskTrigger -Daily -At $Hora) `
+    -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew) `
+    -Principal (New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest) `
+    -Description "Si hay cambios en la rama $Rama y pasaron los tests, actualiza RestOS (con respaldo y vuelta atrás). Registro: $registroAuto" | Out-Null
+  Ok "Tarea 'RestOS - Actualización' programada (resultado de cada noche en $registroAuto)"
+} catch { Aviso "No se pudo programar la actualización automática: $_" }
 Write-Host '  Probando un respaldo ahora...'
 Push-Location $backend
 $r = Correr 'node' @('dist\scripts\backup.js', '--ahora')
@@ -534,5 +603,6 @@ if ($apacheConfCopia) { Write-Host "phpMyAdmin ahora está en http://localhost:$
 Write-Host ''
 Write-Host "Respaldo de antes de actualizar: $volcado"
 Write-Host "Registro de esta actualización: $transcript"
-Write-Host 'Para la próxima actualización, corré la misma línea.'
+Write-Host "Se actualiza solo todas las noches a las $Hora con lo que haya en la rama $Rama. Para hacerlo ya, corré la misma línea."
+AnotarAuto "ACTUALIZADO de $($antes.Substring(0, 7)) a $(RepoTexto @('log', '-1', '--format=%h %s')). Detalle: $transcript"
 try { Stop-Transcript | Out-Null } catch { }

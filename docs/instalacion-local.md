@@ -11,7 +11,7 @@ Tiempo estimado: 1 a 2 horas. Hacelo fuera del horario de servicio.
 > **¿La PC ya tiene una versión anterior de RestOS con XAMPP?** No sigas esta guía: corré, en PowerShell **como administrador** y fuera de horario:
 >
 > ```powershell
-> irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/main/deploy/windows/actualizar-desde-xampp.ps1 -OutFile $env:TEMP\actualizar-restos.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\actualizar-restos.ps1
+> irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/produccion/deploy/windows/actualizar-desde-xampp.ps1 -OutFile $env:TEMP\actualizar-restos.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\actualizar-restos.ps1
 > ```
 >
 > Detiene la versión anterior y desactiva su tarea `RestOS-Watcher`. Respalda la base en `C:\RestOS\respaldos`, baja el código, compila y aplica las migraciones. Si algo falla, vuelve atrás solo. Si sale bien:
@@ -20,8 +20,9 @@ Tiempo estimado: 1 a 2 horas. Hacelo fuera del horario de servicio.
 > - Pasa la red a Privada y abre el puerto del `.env` (también para ZeroTier).
 > - Si Apache servía las pantallas viejas y le pasaba `/api` al sistema, copia las nuevas en el mismo lugar. Los mozos siguen entrando a la misma dirección (por ejemplo `http://10.147.17.83/` por ZeroTier). Si Apache no pasaba `/api`, el sistema pasa al puerto 80 (la dirección sin puerto vuelve a andar), Apache y phpMyAdmin pasan al 8080, y el puerto anterior redirige al nuevo (`REDIRECT_PORTS`).
 > - Al final mide la velocidad: cuánto tarda el servidor y si cada celular de ZeroTier llega directo (`DIRECT`) o pasando por los servidores de ZeroTier (`RELAY`, lento).
+> - Programa la tarea **"RestOS - Actualización"**: todas las noches a las 4 se fija si hay cambios en la rama `produccion` y, si los tests de GitHub pasaron, actualiza sola (con respaldo y vuelta atrás). Resultado de cada noche en `C:\RestOS\actualizacion-automatica.log`.
 >
-> Para no tocar el puerto: `-SinPuerto80`. Para las próximas actualizaciones, la misma línea. Antes de actualizar, para ver cómo está la PC: `irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/main/deploy/windows/diagnostico.ps1 | iex`.
+> **El local corre la rama `produccion`, no `main`.** Para mandar cambios al local: unir `main` a `produccion` (PR de `main` a `produccion`); esa noche se aplican. Para aplicarlos ya, la misma línea de arriba. Para no tocar el puerto: `-SinPuerto80`. Antes de actualizar, para ver cómo está la PC: `irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/main/deploy/windows/diagnostico.ps1 | iex`.
 
 ---
 
