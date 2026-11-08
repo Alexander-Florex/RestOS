@@ -14,6 +14,9 @@
 #   6. Aplica las migraciones de la base
 #   7. Registra la tarea "RestOS" (arranca con Windows y se reinicia si se cae) y verifica
 #   8. Red privada + firewall, pantallas nuevas en Apache (misma dirección), respaldo nocturno
+#   9. Mide la velocidad (servidor y ZeroTier)
+# Si Apache ocupa el puerto 80 pero no le pasa /api al sistema, el sistema pasa al 80
+# (http://IP/ sin puerto) y Apache al 8080; el puerto anterior redirige al nuevo.
 # Si algo falla en 4, 6 o 7, VUELVE ATRÁS solo: restaura la base, el código y
 # el .env, y arranca la versión anterior.
 # Se puede volver a correr para las próximas actualizaciones.
@@ -26,7 +29,8 @@ param(
   [string]$TareaVieja = 'RestOS-Watcher',
   [string]$Tarea = 'RestOS',
   [string]$Carpeta = 'C:\RestOS',
-  [switch]$SinRedireccionApache
+  [switch]$SinRedireccionApache,
+  [switch]$SinPuerto80
 )
 $ErrorActionPreference = 'Continue'
 $fecha = Get-Date -Format 'yyyy-MM-dd_HHmm'
@@ -116,6 +120,11 @@ function VolverAtras([string]$motivo) {
     if ($r -match 'ERROR') { Write-Host "   ⚠️  La restauración de la base dio errores: $r" -ForegroundColor Yellow } else { Write-Host '   Base restaurada.' }
   }
   if ($etapa -in @('codigo', 'base')) {
+    if ($apacheConfCopia) {
+      Copy-Item $apacheConfCopia $apacheConf -Force
+      Start-Service $apacheSvc.Name -ErrorAction SilentlyContinue
+      Write-Host '   Apache volvió al puerto 80.'
+    }
     Write-Host "   Volviendo el código a $($antes.Substring(0, 7)) y recompilando (unos minutos)..."
     Repo @('checkout', '--force', $antes) | Out-Null
     Push-Location $Proyecto; Correr 'npm.cmd' @('ci') | Out-Null; Pop-Location
@@ -193,14 +202,35 @@ Ok "Puerto del sistema: $puerto"
 # mismo lugar de Apache y la dirección de los celulares no cambia.
 $pantallasApache = @()
 $apacheProxy = $false
-if (-not $SinRedireccionApache -and (Test-Path 'C:\xampp\htdocs')) {
+if ($puerto -ne '80' -and -not $SinRedireccionApache -and (Test-Path 'C:\xampp\htdocs')) {
   $pantallasApache = @(Get-ChildItem 'C:\xampp\htdocs' -Filter index.html -Recurse -Depth 2 -ErrorAction SilentlyContinue |
     Where-Object { (Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue) -match 'RestOS' })
   try { $apacheProxy = ((Invoke-WebRequest 'http://localhost/api/health' -UseBasicParsing -TimeoutSec 5).Content -match '"status"\s*:\s*"ok"') } catch { }
   if ($pantallasApache.Count -gt 0) {
     if ($apacheProxy) { Ok "Las pantallas las sirve Apache y le pasa /api al sistema: la dirección de los mozos no va a cambiar" }
-    else { Aviso "Hay pantallas de RestOS en Apache, pero Apache no responde /api: se van a redirigir al puerto $puerto" }
+    else { Aviso "Hay pantallas de RestOS en Apache, pero Apache no responde /api" }
   }
+}
+
+# Sin proxy de Apache, la dirección sin puerto (http://IP/) solo anda si el sistema
+# atiende el 80: se pasa el sistema al 80 y Apache (phpMyAdmin) a otro puerto.
+$pasarA80 = $false
+$apacheConf = 'C:\xampp\apache\conf\httpd.conf'
+$apacheConfCopia = $null
+$apacheSvc = Get-Service -Name 'Apache*' -ErrorAction SilentlyContinue | Select-Object -First 1
+$puertoApache = $null
+if (-not $SinPuerto80 -and $puerto -ne '80' -and -not $apacheProxy) {
+  $en80 = Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+  $dueno80 = if ($en80) { (Get-Process -Id $en80.OwningProcess -ErrorAction SilentlyContinue).ProcessName } else { $null }
+  if (-not $en80) {
+    $pasarA80 = $true
+  } elseif ($dueno80 -eq 'httpd' -and $apacheSvc -and (Test-Path $apacheConf) -and (Select-String -Path $apacheConf -Pattern '^\s*Listen\s+80\s*$' -Quiet)) {
+    $puertoApache = @(8080, 8081, 8888) | Where-Object { -not (Get-NetTCPConnection -LocalPort $_ -State Listen -ErrorAction SilentlyContinue) } | Select-Object -First 1
+    if ($puertoApache) { $pasarA80 = $true }
+  } else {
+    Aviso "El puerto 80 lo usa '$dueno80': el sistema sigue en el $puerto (http://IP:$puerto)."
+  }
+  if ($pasarA80) { Ok "El sistema va a pasar al puerto 80: los mozos entran a http://IP/ sin puerto$(if ($puertoApache) { " (Apache pasa al $puertoApache)" })" }
 }
 
 # ══════════════════════════════════════════════
@@ -312,6 +342,31 @@ if (-not (LeerEnv 'BACKUP_COPY_DIR') -and $env:OneDrive -and (Test-Path $env:One
     Ok "Copia de los respaldos en $copia"
   }
 }
+$puertoViejo = $null
+if ($pasarA80) {
+  if ($puertoApache) {
+    $apacheConfCopia = Join-Path $respaldos "httpd.conf-antes-de-actualizar-$fecha"
+    Copy-Item $apacheConf $apacheConfCopia
+    Stop-Service $apacheSvc.Name -Force -ErrorAction SilentlyContinue
+    $conf = (Get-Content $apacheConf) -replace '^\s*Listen\s+80\s*$', "Listen $puertoApache" -replace '^(\s*ServerName\s+[^:\s]+):80\s*$', "`$1:$puertoApache"
+    [IO.File]::WriteAllLines($apacheConf, [string[]]$conf, (New-Object Text.UTF8Encoding $false))
+    try { Start-Service $apacheSvc.Name -ErrorAction Stop; Ok "Apache ahora en el puerto $puertoApache (phpMyAdmin: http://localhost:$puertoApache/phpmyadmin)" }
+    catch { Aviso "Apache no arrancó en el puerto $puertoApache (el sistema no lo necesita): $_" }
+    Start-Sleep -Seconds 2
+  }
+  if (Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue) {
+    Aviso 'El puerto 80 sigue ocupado: el sistema sigue en su puerto de siempre.'
+    if ($apacheConfCopia) { Copy-Item $apacheConfCopia $apacheConf -Force; Restart-Service $apacheSvc.Name -Force -ErrorAction SilentlyContinue; $apacheConfCopia = $null }
+    $pasarA80 = $false
+  } else {
+    $puertoViejo = $puerto
+    $puerto = '80'
+    PonerEnv 'PORT' 'PORT=80'
+    PonerEnv 'REDIRECT_PORTS' "REDIRECT_PORTS=$puertoViejo"
+    Ok "Sistema en el puerto 80 (el $puertoViejo redirige al nuevo)"
+  }
+}
+if (-not $puertoViejo) { $puertoViejo = LeerEnv 'REDIRECT_PORTS' }
 Ok 'Configuración lista'
 
 # ══════════════════════════════════════════════
@@ -363,12 +418,13 @@ try {
   }
 } catch { Aviso "No se pudo pasar la red a Privada: $_. Hacelo a mano (Configuración → Red → propiedades)." }
 Get-NetFirewallRule -DisplayName 'RestOS*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-New-NetFirewallRule -DisplayName 'RestOS' -Direction Inbound -Protocol TCP -LocalPort $puerto -Profile Private -Action Allow | Out-Null
+$puertos = @(@($puerto) + @("$puertoViejo" -split ',') | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Unique)
+New-NetFirewallRule -DisplayName 'RestOS' -Direction Inbound -Protocol TCP -LocalPort $puertos -Profile Private -Action Allow | Out-Null
 $zt = @(Get-NetAdapter -Name 'ZeroTier*' -ErrorAction SilentlyContinue | ForEach-Object { [Management.Automation.WildcardPattern]::Escape($_.Name) })
 if ($zt.Count -gt 0) {
-  try { New-NetFirewallRule -DisplayName 'RestOS (ZeroTier)' -Direction Inbound -Protocol TCP -LocalPort $puerto -InterfaceAlias $zt -Action Allow -ErrorAction Stop | Out-Null } catch { Aviso "No se pudo abrir el puerto para ZeroTier: $_" }
+  try { New-NetFirewallRule -DisplayName 'RestOS (ZeroTier)' -Direction Inbound -Protocol TCP -LocalPort $puertos -InterfaceAlias $zt -Action Allow -ErrorAction Stop | Out-Null } catch { Aviso "No se pudo abrir el puerto para ZeroTier: $_" }
 }
-Ok "Puerto $puerto abierto para la red del local$(if ($zt.Count) { ' y ZeroTier' })"
+Ok "Puerto $($puertos -join ' y ') abierto para la red del local$(if ($zt.Count) { ' y ZeroTier' })"
 
 if ($pantallasApache.Count -gt 0 -and $apacheProxy) {
   # Misma dirección de siempre: se reemplazan las pantallas viejas de Apache por las nuevas
@@ -390,7 +446,7 @@ if ($pantallasApache.Count -gt 0 -and $apacheProxy) {
   try { $okSocket = ((Invoke-WebRequest 'http://localhost/socket.io/?EIO=4&transport=polling' -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200) } catch { }
   if ($okApi) { Ok 'Por Apache: el sistema nuevo responde' } else { Aviso "Por Apache, /api no responde. Probá entrar con el puerto: http://IP:$puerto" }
   if ($okSocket) { Ok 'Por Apache: las actualizaciones en vivo funcionan' } else { Aviso "Por Apache, las actualizaciones en vivo (socket) no pasan: las pantallas se actualizan al recargar. Con http://IP:$puerto funcionan." }
-} elseif ($pantallasApache.Count -gt 0) {
+} elseif ($pantallasApache.Count -gt 0 -and $puerto -ne '80') {
   Titulo 'Pantallas viejas en Apache'
   $viejos = @($pantallasApache | Where-Object { (Get-Content $_.FullName -Raw) -notmatch 'restos-redireccion' })
   foreach ($f in $viejos) {
@@ -429,15 +485,52 @@ Pop-Location
 if ($r -eq 0) { Ok 'Respaldo de prueba hecho' } else { Aviso "El respaldo de prueba falló (el sistema anda igual). Mandale al desarrollador: $transcript" }
 
 # ══════════════════════════════════════════════
+# 9. Velocidad: ¿la demora es del servidor o de la red?
+# ══════════════════════════════════════════════
+Titulo 'Velocidad'
+$tiempos = @()
+for ($i = 0; $i -lt 5; $i++) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  try { Invoke-WebRequest "http://localhost:$puerto/api/health" -UseBasicParsing -TimeoutSec 10 | Out-Null } catch { }
+  $tiempos += $sw.ElapsedMilliseconds
+}
+$medio = [math]::Round(($tiempos | Measure-Object -Average).Average)
+if ($medio -lt 150) { Ok "El servidor responde en $medio ms (rápido)" } else { Aviso "El servidor tarda $medio ms en responder (debería ser menos de 150): mandale este registro al desarrollador" }
+try {
+  $h = Invoke-WebRequest "http://localhost:$puerto/" -UseBasicParsing -TimeoutSec 10
+  $js = [regex]::Match($h.Content, 'src="(/assets/[^"]+\.js)"').Groups[1].Value
+  if ($js) {
+    $r = Invoke-WebRequest "http://localhost:$puerto$js" -UseBasicParsing -Headers @{ 'Accept-Encoding' = 'gzip' } -TimeoutSec 10
+    if ($r.Headers['Content-Encoding'] -eq 'gzip') { Ok 'Las pantallas viajan comprimidas' } else { Aviso 'Las pantallas viajan sin comprimir' }
+  }
+} catch { }
+$ztExe = @('C:\ProgramData\ZeroTier\One\zerotier-one_x64.exe', 'C:\ProgramData\ZeroTier\One\zerotier-one_x86.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($ztExe) {
+  # Celulares conectados por ZeroTier: DIRECT = va directo (rápido); RELAY = pasa por servidores de
+  # ZeroTier en otro país (cada toque tarda). Latencia en ms.
+  $pares = @(& $ztExe -q peers 2>$null | Where-Object { $_ -match '\sLEAF\s' })
+  if ($pares.Count -eq 0) { Write-Host '  ZeroTier: ahora no hay celulares conectados (corré esto con un celular abierto en el sistema para medirlo).' }
+  foreach ($l in $pares) {
+    # Columnas: <dirección> <versión> <rol> <latencia> <DIRECT|RELAY> ...
+    $c = -split $l
+    $lat = 0; $null = [int]::TryParse($c[3], [ref]$lat)
+    $msg = "ZeroTier $($c[0]): $($c[4]), $($c[3]) ms"
+    if ($c[4] -eq 'DIRECT' -and $lat -ge 0 -and $lat -lt 60) { Ok $msg } else { Aviso "$msg (lento: ese equipo no llega directo al servidor)" }
+  }
+}
+
+# ══════════════════════════════════════════════
 Write-Host ''
 Write-Host '════════════════════════════════════════════════' -ForegroundColor Green
 Write-Host ' ✅ RestOS actualizado' -ForegroundColor Green
 Write-Host '════════════════════════════════════════════════' -ForegroundColor Green
 Write-Host 'Desde los celulares y la caja entrá a:' -ForegroundColor Cyan
-$sufijo = if ($pantallasApache.Count -gt 0 -and $apacheProxy) { '/' } else { ":$puerto" }
+$sufijo = if ($puerto -eq '80' -or ($pantallasApache.Count -gt 0 -and $apacheProxy)) { '/' } else { ":$puerto" }
 Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
   ForEach-Object { Write-Host "   http://$($_.IPAddress)$sufijo   ($($_.InterfaceAlias))" -ForegroundColor Cyan }
-if ($sufijo -eq '/') { Write-Host "   (la misma dirección de siempre; si algo no anda, se puede entrar directo con :$puerto)" }
+if ($puerto -eq '80') { Write-Host "   (la misma dirección de siempre, sin puerto$(if ($puertoViejo) { "; la que tiene :$puertoViejo también lleva acá" }))" }
+elseif ($sufijo -eq '/') { Write-Host "   (la misma dirección de siempre; si algo no anda, se puede entrar directo con :$puerto)" }
+if ($apacheConfCopia) { Write-Host "phpMyAdmin ahora está en http://localhost:$puertoApache/phpmyadmin" }
 Write-Host ''
 Write-Host "Respaldo de antes de actualizar: $volcado"
 Write-Host "Registro de esta actualización: $transcript"

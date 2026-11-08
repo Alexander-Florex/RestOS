@@ -5,6 +5,7 @@
 import express, { type Express } from 'express';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
+import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -92,6 +93,9 @@ export function buildApp(): Express {
     strictTransportSecurity: false,
   }));
   app.use(cors({ origin: corsOrigins, credentials: true }));
+  // gzip: las pantallas (≈860 KB) y las respuestas grandes viajan varias veces más livianas.
+  // Importa sobre todo por ZeroTier, donde cada KB cuenta.
+  app.use(compression({ threshold: 1024 }));
   // 1 MB en general; solo registrar una venta acepta más (comprobante en base64)
   const smallJson = express.json({ limit: '1mb' });
   const saleJson = express.json({ limit: '20mb' });
