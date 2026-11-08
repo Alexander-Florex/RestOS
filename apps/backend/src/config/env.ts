@@ -22,6 +22,9 @@ const schema = z.object({
   // si existe el build. FRONTEND_DIST: carpeta del build (por defecto ../frontend/dist).
   SERVE_FRONTEND: z.enum(['true', 'false']).optional(),
   FRONTEND_DIST: z.string().optional(),
+  // Puertos viejos que solo redirigen al PORT actual (ej. "3000" al pasar el sistema al 80),
+  // para que no se queden afuera los celulares que guardaron la dirección anterior.
+  REDIRECT_PORTS: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

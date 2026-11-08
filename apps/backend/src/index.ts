@@ -45,6 +45,18 @@ async function bootstrap() {
     }
   });
 
+  // Puertos viejos: redirigen al actual con la misma ruta (si el puerto está ocupado, se avisa y sigue)
+  for (const p of (env.REDIRECT_PORTS ?? '').split(',').map(s => Number(s.trim())).filter(n => n > 0 && n !== env.PORT)) {
+    const redirect = createServer((req, res) => {
+      const host = (req.headers.host ?? 'localhost').replace(/:\d+$/, '');
+      const port = env.PORT === 80 ? '' : `:${env.PORT}`;
+      res.writeHead(301, { Location: `http://${host}${port}${req.url ?? '/'}` });
+      res.end();
+    });
+    redirect.on('error', (err) => logger.warn('redirect_port_failed', { port: p, error: err }));
+    redirect.listen(p, () => logger.info('redirect_port', { from: p, to: env.PORT }));
+  }
+
   // ── Graceful shutdown ──
   const shutdown = async (signal: string) => {
     logger.info('server_stopping', { signal });
