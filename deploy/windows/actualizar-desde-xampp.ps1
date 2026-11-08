@@ -364,9 +364,9 @@ try {
 } catch { Aviso "No se pudo pasar la red a Privada: $_. Hacelo a mano (Configuración → Red → propiedades)." }
 Get-NetFirewallRule -DisplayName 'RestOS*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName 'RestOS' -Direction Inbound -Protocol TCP -LocalPort $puerto -Profile Private -Action Allow | Out-Null
-$zt = @(Get-NetAdapter -Name 'ZeroTier*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+$zt = @(Get-NetAdapter -Name 'ZeroTier*' -ErrorAction SilentlyContinue | ForEach-Object { [Management.Automation.WildcardPattern]::Escape($_.Name) })
 if ($zt.Count -gt 0) {
-  New-NetFirewallRule -DisplayName 'RestOS (ZeroTier)' -Direction Inbound -Protocol TCP -LocalPort $puerto -InterfaceAlias $zt -Action Allow | Out-Null
+  try { New-NetFirewallRule -DisplayName 'RestOS (ZeroTier)' -Direction Inbound -Protocol TCP -LocalPort $puerto -InterfaceAlias $zt -Action Allow -ErrorAction Stop | Out-Null } catch { Aviso "No se pudo abrir el puerto para ZeroTier: $_" }
 }
 Ok "Puerto $puerto abierto para la red del local$(if ($zt.Count) { ' y ZeroTier' })"
 
@@ -406,6 +406,7 @@ if ($pantallasApache.Count -gt 0 -and $apacheProxy) {
 
 Titulo 'Respaldo nocturno'
 if ($claveNueva) {
+  try { Stop-Transcript | Out-Null } catch { }   # que la contraseña no quede escrita en el registro
   Write-Host ''
   Write-Host '  ╔════════════════════════════════════════════════════════════╗' -ForegroundColor Yellow
   Write-Host '  ║  CONTRASEÑA DE LOS RESPALDOS — ANOTALA EN PAPEL AHORA      ║' -ForegroundColor Yellow
@@ -416,6 +417,9 @@ if ($claveNueva) {
   Write-Host '  Sin ella NO se puede restaurar ningún respaldo. Guardala fuera de esta PC' -ForegroundColor Yellow
   Write-Host '  (papel en un sobre que guarde el dueño, y un gestor de contraseñas).' -ForegroundColor Yellow
   Read-Host '  Presioná Enter cuando la hayas anotado' | Out-Null
+  Clear-Host
+  Start-Transcript -Path $transcript -Append | Out-Null
+  Ok 'Contraseña de los respaldos generada (no se guarda en este registro)'
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Proyecto 'deploy\windows\programar-respaldo.ps1') -Proyecto $Proyecto
 Write-Host '  Probando un respaldo ahora...'
