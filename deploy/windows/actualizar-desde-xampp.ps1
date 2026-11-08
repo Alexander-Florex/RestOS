@@ -104,7 +104,20 @@ function DetenerRestos {
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Seconds 3
 }
-function PuertoOcupado { return [bool](Get-NetTCPConnection -LocalPort $puerto -State Listen -ErrorAction SilentlyContinue) }
+# Puerto en uso = algo acepta conexiones (no depende de Get-NetTCPConnection, que en
+# algunas PCs no lista nada aunque el puerto esté tomado)
+function PuertoEnUso([int]$p) {
+  $c = New-Object Net.Sockets.TcpClient
+  try { $a = $c.BeginConnect('127.0.0.1', $p, $null, $null); return [bool]($a.AsyncWaitHandle.WaitOne(1500) -and $c.Connected) }
+  catch { return $false } finally { $c.Close() }
+}
+function DuenoPuerto([int]$p) {
+  $l = netstat -ano -p TCP 2>$null | Select-String "^\s*TCP\s+\S+:$p\s+\S+\s+\S+\s+(\d+)\s*$" | Select-Object -First 1
+  if (-not $l) { return 'programa desconocido' }
+  $id = [int]$l.Matches[0].Groups[1].Value
+  return "$((Get-Process -Id $id -ErrorAction SilentlyContinue).ProcessName), proceso $id"
+}
+function PuertoOcupado { return (PuertoEnUso ([int]$puerto)) }
 function Responde {
   for ($i = 0; $i -lt 45; $i++) {
     Start-Sleep -Seconds 2
@@ -259,16 +272,17 @@ $apacheConf = 'C:\xampp\apache\conf\httpd.conf'
 $apacheConfCopia = $null
 $apacheSvc = Get-Service -Name 'Apache*' -ErrorAction SilentlyContinue | Select-Object -First 1
 $puertoApache = $null
+$listen80 = '^(\s*Listen\s+(?:[\d\.]+:|\[[^\]]*\]:)?)80\s*$'
 if (-not $SinPuerto80 -and $puerto -ne '80' -and -not $apacheProxy) {
-  $en80 = Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-  $dueno80 = if ($en80) { (Get-Process -Id $en80.OwningProcess -ErrorAction SilentlyContinue).ProcessName } else { $null }
-  if (-not $en80) {
+  $apacheEn80 = $apacheSvc -and $apacheSvc.Status -eq 'Running' -and (Test-Path $apacheConf) -and (Select-String -Path $apacheConf -Pattern $listen80 -Quiet)
+  if ($apacheEn80) {
+    # Apache tiene el 80: pasa a otro puerto libre
+    $puertoApache = @(8080, 8081, 8888) | Where-Object { -not (PuertoEnUso $_) } | Select-Object -First 1
+    if ($puertoApache) { $pasarA80 = $true } else { Aviso 'No hay un puerto libre para mover Apache: el sistema sigue en su puerto.' }
+  } elseif (-not (PuertoEnUso 80)) {
     $pasarA80 = $true
-  } elseif ($dueno80 -eq 'httpd' -and $apacheSvc -and (Test-Path $apacheConf) -and (Select-String -Path $apacheConf -Pattern '^\s*Listen\s+80\s*$' -Quiet)) {
-    $puertoApache = @(8080, 8081, 8888) | Where-Object { -not (Get-NetTCPConnection -LocalPort $_ -State Listen -ErrorAction SilentlyContinue) } | Select-Object -First 1
-    if ($puertoApache) { $pasarA80 = $true }
   } else {
-    Aviso "El puerto 80 lo usa '$dueno80': el sistema sigue en el $puerto (http://IP:$puerto)."
+    Aviso "El puerto 80 lo usa otro programa ($(DuenoPuerto 80)): el sistema sigue en el $puerto (http://IP:$puerto)."
   }
   if ($pasarA80) { Ok "El sistema va a pasar al puerto 80: los mozos entran a http://IP/ sin puerto$(if ($puertoApache) { " (Apache pasa al $puertoApache)" })" }
 }
@@ -284,8 +298,7 @@ if (Get-ScheduledTask -TaskName $TareaVieja -ErrorAction SilentlyContinue) {
 }
 if (PuertoOcupado) { DetenerRestos }
 if (PuertoOcupado) {
-  $dueno = (Get-NetTCPConnection -LocalPort $puerto -State Listen | Select-Object -First 1).OwningProcess
-  Falla "El puerto $puerto sigue ocupado por el proceso $dueno ($((Get-Process -Id $dueno).ProcessName)). Cerralo y volvé a correr el script."
+  Falla "El puerto $puerto sigue ocupado ($(DuenoPuerto $puerto)). Cerralo y volvé a correr el script."
 }
 $etapa = 'detenido'
 Ok 'Versión anterior detenida'
@@ -390,14 +403,14 @@ if ($pasarA80) {
     $apacheConfCopia = Join-Path $respaldos "httpd.conf-antes-de-actualizar-$fecha"
     Copy-Item $apacheConf $apacheConfCopia
     Stop-Service $apacheSvc.Name -Force -ErrorAction SilentlyContinue
-    $conf = (Get-Content $apacheConf) -replace '^\s*Listen\s+80\s*$', "Listen $puertoApache" -replace '^(\s*ServerName\s+[^:\s]+):80\s*$', "`$1:$puertoApache"
+    $conf = (Get-Content $apacheConf) -replace $listen80, "`${1}$puertoApache" -replace '^(\s*ServerName\s+[^:\s]+):80\s*$', "`$1:$puertoApache"
     [IO.File]::WriteAllLines($apacheConf, [string[]]$conf, (New-Object Text.UTF8Encoding $false))
     try { Start-Service $apacheSvc.Name -ErrorAction Stop; Ok "Apache ahora en el puerto $puertoApache (phpMyAdmin: http://localhost:$puertoApache/phpmyadmin)" }
     catch { Aviso "Apache no arrancó en el puerto $puertoApache (el sistema no lo necesita): $_" }
     Start-Sleep -Seconds 2
   }
-  if (Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue) {
-    Aviso 'El puerto 80 sigue ocupado: el sistema sigue en su puerto de siempre.'
+  if (PuertoEnUso 80) {
+    Aviso "El puerto 80 sigue ocupado ($(DuenoPuerto 80)): el sistema sigue en su puerto de siempre."
     if ($apacheConfCopia) { Copy-Item $apacheConfCopia $apacheConf -Force; Restart-Service $apacheSvc.Name -Force -ErrorAction SilentlyContinue; $apacheConfCopia = $null }
     $pasarA80 = $false
   } else {
