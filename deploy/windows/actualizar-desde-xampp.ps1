@@ -3,7 +3,12 @@
 # con XAMPP (MariaDB) y deja el arranque automático y el respaldo nocturno.
 #
 # Correr en PowerShell COMO ADMINISTRADOR, fuera del horario del local:
-#   irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/main/deploy/windows/actualizar-desde-xampp.ps1 -OutFile $env:TEMP\actualizar-restos.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\actualizar-restos.ps1
+#   irm https://raw.githubusercontent.com/Alexander-Florex/RestOS/produccion/deploy/windows/actualizar-desde-xampp.ps1 -OutFile $env:TEMP\actualizar-restos.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\actualizar-restos.ps1
+#
+# El local corre la rama "produccion" (no main): solo llega lo que se pasa a esa rama.
+# Además deja la tarea "RestOS - Actualización", que todas las noches a las 4 corre este
+# script con -Automatico: si hay cambios en produccion y los tests de GitHub pasaron,
+# actualiza sin preguntar nada; si no, no toca nada. Resultado en C:\RestOS\actualizacion-automatica.log.
 #
 # Orden:
 #   1. Controles (no toca nada)
@@ -23,22 +28,29 @@
 # ──────────────────────────────────────────────
 param(
   [string]$Proyecto,
-  [string]$Rama = 'main',
+  [string]$Rama = 'produccion',
   [string]$MysqlBin = 'C:\xampp\mysql\bin',
   [string]$ServicioMySql = 'mysql',
   [string]$TareaVieja = 'RestOS-Watcher',
   [string]$Tarea = 'RestOS',
   [string]$Carpeta = 'C:\RestOS',
   [switch]$SinRedireccionApache,
-  [switch]$SinPuerto80
+  [switch]$SinPuerto80,
+  [switch]$Automatico,
+  [string]$Hora = '04:00'
 )
 $ErrorActionPreference = 'Continue'
 $fecha = Get-Date -Format 'yyyy-MM-dd_HHmm'
+$registroAuto = Join-Path $Carpeta 'actualizacion-automatica.log'
+function AnotarAuto($msg) {
+  if (-not $Automatico) { return }
+  try { Add-Content -Path $registroAuto -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm') $msg" -Encoding utf8 } catch { }
+}
 
 function Titulo($msg) { Write-Host ''; Write-Host "▶ $msg" -ForegroundColor Cyan }
 function Ok($msg) { Write-Host "  ✅ $msg" -ForegroundColor Green }
 function Aviso($msg) { Write-Host "  ⚠️  $msg" -ForegroundColor Yellow }
-function Falla($msg) { Write-Host ''; Write-Host "❌ $msg" -ForegroundColor Red; try { Stop-Transcript | Out-Null } catch { }; exit 1 }
+function Falla($msg) { Write-Host ''; Write-Host "❌ $msg" -ForegroundColor Red; AnotarAuto "NO SE ACTUALIZÓ: $msg"; try { Stop-Transcript | Out-Null } catch { }; exit 1 }
 # Corre un programa mostrando su salida con sangría; devuelve el código de salida
 function Correr([string]$exe, [string[]]$argumentos) {
   & $exe @argumentos 2>&1 | ForEach-Object { Write-Host "     $_" }
@@ -133,11 +145,15 @@ function VolverAtras([string]$motivo) {
     Copy-Item $envCopia $envFile -Force
     if ($frontEnvCopia) { Copy-Item $frontEnvCopia $frontEnv -Force }
   }
-  if (Get-ScheduledTask -TaskName $TareaVieja -ErrorAction SilentlyContinue) {
-    Enable-ScheduledTask -TaskName $TareaVieja | Out-Null
-    Start-ScheduledTask -TaskName $TareaVieja
-    Write-Host "   Se reactivó la tarea $TareaVieja."
+  # Vuelve a arrancar lo que estaba andando antes: la tarea "RestOS" (actualizaciones
+  # siguientes) o la de la versión vieja (la primera vez)
+  $reactivar = if ($tareaNuevaAndaba) { $Tarea } else { $TareaVieja }
+  if (Get-ScheduledTask -TaskName $reactivar -ErrorAction SilentlyContinue) {
+    Enable-ScheduledTask -TaskName $reactivar | Out-Null
+    Start-ScheduledTask -TaskName $reactivar
+    Write-Host "   Se reactivó la tarea $reactivar."
   }
+  AnotarAuto "FALLÓ y volvió a la versión anterior ($($antes.Substring(0, 7))): $motivo. Detalle: $transcript"
   Write-Host ''
   Write-Host 'Quedó la versión anterior. Si en 1 minuto no anda, reiniciá la PC.' -ForegroundColor Yellow
   Write-Host "Mandale al desarrollador el registro: $transcript" -ForegroundColor Yellow
@@ -184,6 +200,30 @@ $origen = RepoTexto @('remote', 'get-url', 'origin')
 if ($origen -notmatch 'RestOS') { Falla "La carpeta no es el repositorio de RestOS (origin: $origen)." }
 $antes = (RepoTexto @('rev-parse', 'HEAD')).Trim()
 Ok "Versión actual: $(RepoTexto @('log', '-1', '--format=%h %cd %s', '--date=short'))"
+$tareaNuevaAndaba = [bool](Get-ScheduledTask -TaskName $Tarea -ErrorAction SilentlyContinue | Where-Object { $_.State -ne 'Disabled' })
+
+if ($Automatico) {
+  # Antes de detener nada: ¿hay algo nuevo en la rama y pasó los tests de GitHub?
+  if ((Repo @('fetch', 'origin', $Rama)) -ne 0) { Falla "No se pudo consultar GitHub (¿hay internet?)." }
+  $nuevo = "$(RepoTexto @('rev-parse', "origin/$Rama"))".Trim()
+  if ($nuevo -eq $antes) {
+    AnotarAuto "Sin cambios en $Rama ($($antes.Substring(0, 7)))."
+    try { Stop-Transcript | Out-Null } catch { }
+    Remove-Item $transcript -ErrorAction SilentlyContinue
+    exit 0
+  }
+  $repoGh = if ($origen -match 'github\.com[:/]([^/]+/[^/]+?)(\.git)?$') { $Matches[1] } else { 'Alexander-Florex/RestOS' }
+  $ci = $null
+  try {
+    $runs = (Invoke-RestMethod "https://api.github.com/repos/$repoGh/commits/$nuevo/check-runs" -Headers @{ 'User-Agent' = 'RestOS-actualizador' } -TimeoutSec 20).check_runs
+    $ci = @($runs | Where-Object { $_.name -eq 'build-and-test' }) | Select-Object -First 1
+  } catch { }
+  if (-not $ci -or $ci.conclusion -ne 'success') {
+    $estado = if ($ci) { "$($ci.status)/$($ci.conclusion)" } else { 'sin resultado' }
+    Falla "Los tests de GitHub de $($nuevo.Substring(0, 7)) no pasaron ($estado): no se actualiza esta noche."
+  }
+  Ok "Hay una versión nueva ($($nuevo.Substring(0, 7))) y pasó los tests"
+}
 
 $url = LeerEnv 'DATABASE_URL'
 if ($url -notmatch '^mysql://([^:@]+)(?::([^@]*))?@([^:/]+)(?::(\d+))?/([^?]+)') { Falla 'No entiendo el DATABASE_URL del .env.' }
@@ -329,11 +369,13 @@ if (-not (LeerEnv 'MYSQL_BIN_DIR')) { PonerEnv 'MYSQL_BIN_DIR' "MYSQL_BIN_DIR='$
 if (-not (LeerEnv 'BACKUP_DIR')) { PonerEnv 'BACKUP_DIR' "BACKUP_DIR='$respaldos'" }
 if (-not (LeerEnv 'BACKUP_LABEL')) { PonerEnv 'BACKUP_LABEL' "BACKUP_LABEL=`"RestOS $env:COMPUTERNAME`"" }
 $claveNueva = $null
-if (-not (LeerEnv 'BACKUP_PASSPHRASE')) {
+if (-not (LeerEnv 'BACKUP_PASSPHRASE') -and $Automatico) {
+  Aviso 'Falta la contraseña de los respaldos: corré el actualizador a mano una vez para generarla y anotarla.'
+} elseif (-not (LeerEnv 'BACKUP_PASSPHRASE')) {
   $claveNueva = (& node -e "process.stdout.write(require('crypto').randomBytes(24).toString('base64'))")
   PonerEnv 'BACKUP_PASSPHRASE' "BACKUP_PASSPHRASE=`"$claveNueva`""
 }
-if (-not (LeerEnv 'BACKUP_COPY_DIR') -and $env:OneDrive -and (Test-Path $env:OneDrive)) {
+if (-not $Automatico -and -not (LeerEnv 'BACKUP_COPY_DIR') -and $env:OneDrive -and (Test-Path $env:OneDrive)) {
   $copia = Join-Path $env:OneDrive 'Respaldos RestOS'
   $resp = Read-Host "  ¿Guardar también una copia de cada respaldo en OneDrive ($copia)? [S/n]"
   if ($resp -notmatch '^[nN]') {
@@ -478,6 +520,20 @@ if ($claveNueva) {
   Ok 'Contraseña de los respaldos generada (no se guarda en este registro)'
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Proyecto 'deploy\windows\programar-respaldo.ps1') -Proyecto $Proyecto
+
+Titulo "Actualización automática (todas las noches a las $Hora, rama $Rama)"
+$argsAuto = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $Proyecto 'deploy\windows\actualizar-desde-xampp.ps1')`" -Automatico" +
+  " -Proyecto `"$Proyecto`" -Rama `"$Rama`" -MysqlBin `"$MysqlBin`" -ServicioMySql `"$ServicioMySql`" -Carpeta `"$Carpeta`" -Hora `"$Hora`"" +
+  $(if ($SinPuerto80) { ' -SinPuerto80' }) + $(if ($SinRedireccionApache) { ' -SinRedireccionApache' })
+try {
+  Register-ScheduledTask -TaskName 'RestOS - Actualización' -Force -ErrorAction Stop `
+    -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argsAuto -WorkingDirectory $Carpeta) `
+    -Trigger (New-ScheduledTaskTrigger -Daily -At $Hora) `
+    -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew) `
+    -Principal (New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest) `
+    -Description "Si hay cambios en la rama $Rama y pasaron los tests, actualiza RestOS (con respaldo y vuelta atrás). Registro: $registroAuto" | Out-Null
+  Ok "Tarea 'RestOS - Actualización' programada (resultado de cada noche en $registroAuto)"
+} catch { Aviso "No se pudo programar la actualización automática: $_" }
 Write-Host '  Probando un respaldo ahora...'
 Push-Location $backend
 $r = Correr 'node' @('dist\scripts\backup.js', '--ahora')
@@ -534,5 +590,6 @@ if ($apacheConfCopia) { Write-Host "phpMyAdmin ahora está en http://localhost:$
 Write-Host ''
 Write-Host "Respaldo de antes de actualizar: $volcado"
 Write-Host "Registro de esta actualización: $transcript"
-Write-Host 'Para la próxima actualización, corré la misma línea.'
+Write-Host "Se actualiza solo todas las noches a las $Hora con lo que haya en la rama $Rama. Para hacerlo ya, corré la misma línea."
+AnotarAuto "ACTUALIZADO de $($antes.Substring(0, 7)) a $(RepoTexto @('log', '-1', '--format=%h %s')). Detalle: $transcript"
 try { Stop-Transcript | Out-Null } catch { }

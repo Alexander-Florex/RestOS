@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────
-# CI — en cada push a main o a ramas fase-*, y en cada PR:
+# CI — en cada push a main, produccion o ramas fase-*, y en cada PR:
 # instalar, compilar (tsc backend + frontend), lint, tests unitarios y
 # tests de integración contra un MySQL real (base *_test).
 # ──────────────────────────────────────────────
@@ -7,7 +7,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'fase-*/**']
+    branches: [main, produccion, 'fase-*/**']
   pull_request:
 
 concurrency:
