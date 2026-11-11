@@ -39,6 +39,10 @@ export const AUDIT_ACTIONS = [
   'role.create',
   'role.update',
   'role.delete',
+  'staff.shift.create',  // turno cargado a mano (entrada y salida)
+  'staff.shift.update',  // turno corregido
+  'staff.shift.delete',  // turno borrado
+  'staff.rate',          // cambio del valor por hora
 ] as const;
 
 export type AuditAction = typeof AUDIT_ACTIONS[number];

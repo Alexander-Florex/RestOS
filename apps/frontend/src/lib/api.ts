@@ -908,6 +908,8 @@ export interface StaffMember {
   phone: string | null;
   active: boolean;
   cuit: string | null;
+  /** Valor por hora (Decimal como texto); null = sin cargar */
+  hourlyRate: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -919,7 +921,68 @@ export interface CreateStaffBody {
   phone?: string | null;
   active?: boolean;
   cuit?: string | null;
+  hourlyRate?: number | null;
 }
+
+// ── Horarios del personal ──
+export interface StaffWeekShift {
+  id: number;
+  /** Día (hora del local) en que empezó el turno */
+  day: string;
+  clockIn: string;
+  clockOut: string | null;
+  minutes: number;
+  amount: number;
+  hourlyRate: number | null;
+  note: string | null;
+}
+export interface StaffWeekRow {
+  id: number;
+  name: string;
+  role: StaffRole;
+  active: boolean;
+  hourlyRate: number | null;
+  openShift: { id: number; clockIn: string } | null;
+  minutes: number;
+  amount: number;
+  missingRate: boolean;
+  shifts: StaffWeekShift[];
+}
+export interface StaffWeek {
+  weekStart: string;
+  weekEnd: string;
+  staff: StaffWeekRow[];
+  totals: { minutes: number; amount: number };
+}
+export interface ShiftBody {
+  /** Día de la entrada (YYYY-MM-DD) */
+  day: string;
+  /** HH:MM; una salida más temprano que la entrada es del día siguiente */
+  from: string;
+  to: string | null;
+  note?: string | null;
+  reason: string;
+}
+
+export const staffShiftsApi = {
+  week: (day?: string) => request<StaffWeek>(`/staff-shifts/week${day ? `?day=${day}` : ''}`),
+  clockIn: (staffId: number) => request<unknown>(`/staff-shifts/staff/${staffId}/clock-in`, { method: 'POST' }),
+  clockOut: (staffId: number) => request<unknown>(`/staff-shifts/staff/${staffId}/clock-out`, { method: 'POST' }),
+  create: (data: ShiftBody & { staffMemberId: number }) => request<unknown>('/staff-shifts', { method: 'POST', body: data }),
+  update: (id: number, data: ShiftBody) => request<unknown>(`/staff-shifts/${id}`, { method: 'PATCH', body: data }),
+  remove: (id: number, reason: string) => request<void>(`/staff-shifts/${id}`, { method: 'DELETE', body: { reason } }),
+  downloadCsv: async (day: string): Promise<void> => {
+    const { blob, filename } = await requestBlob(`/staff-shifts/week.csv?day=${day}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename ?? `horarios-${day}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  },
+};
 
 // ── ARCA ──
 export interface ArcaImpuesto {

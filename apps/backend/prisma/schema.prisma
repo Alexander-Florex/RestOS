@@ -37,6 +37,7 @@ model Restaurant {
   inventoryItems InventoryItem[]
   recipes        Recipe[]
   staffMembers   StaffMember[]
+  staffShifts    StaffShift[]
   reservations   Reservation[]
   takeawayOrders TakeawayOrder[]
   menuOptionGroups MenuItemOptionGroup[]
@@ -76,6 +77,7 @@ model User {
   itemChangesResolved  OrderItemChange[] @relation("ChangeResolvedBy")
   salesCreated     Sale[]          @relation("SaleRegisteredBy")
   takeawaysCreated TakeawayOrder[] @relation("TakeawayCreatedBy")
+  shiftsRecorded   StaffShift[]    @relation("ShiftRecordedBy")
 
   @@unique([restaurantId, username])
   @@unique([restaurantId, email])
@@ -709,12 +711,43 @@ model StaffMember {
   phone        String?
   active       Boolean    @default(true)
   cuit         String?
+  /// Lo que se le paga por hora trabajada (ARS). Vacío = todavía no se cargó.
+  hourlyRate   Decimal?   @db.Decimal(10, 2)
+  shifts       StaffShift[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   @@unique([restaurantId, email])
   @@index([restaurantId])
   @@map("staff_members")
+}
+
+/// Turno trabajado: el administrador marca entrada y salida (o lo carga/corrige a mano).
+/// Las horas de la semana (lunes a domingo, hora del local) × valor por hora = lo que se paga.
+/// Un turno que pasa la medianoche cuenta para el día en que empezó.
+model StaffShift {
+  id            Int         @id @default(autoincrement())
+  restaurantId  Int
+  restaurant    Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  staffMemberId Int
+  /// Borrar la ficha borraría sus turnos: el servicio no deja borrar a quien tiene turnos (se desactiva)
+  staffMember   StaffMember @relation(fields: [staffMemberId], references: [id], onDelete: Cascade)
+  clockIn       DateTime
+  /// Vacío mientras está trabajando
+  clockOut      DateTime?
+  /// Valor por hora al momento de la entrada: cambiar el valor no cambia semanas ya trabajadas
+  hourlyRate    Decimal?    @db.Decimal(10, 2)
+  note          String?     @db.VarChar(200)
+  /// = staffMemberId mientras el turno está abierto (null al cerrarlo): un solo turno abierto por persona
+  openKey       Int?        @unique
+  recordedById  Int?
+  recordedBy    User?       @relation("ShiftRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([restaurantId, clockIn])
+  @@index([staffMemberId, clockIn])
+  @@map("staff_shifts")
 }
 
 enum StaffRole {

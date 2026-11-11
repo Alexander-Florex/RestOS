@@ -16,6 +16,7 @@ const createSchema = z.object({
   phone:  z.string().trim().optional().nullable(),
   active: z.boolean().optional(),
   cuit:   z.string().trim().optional().nullable(),
+  hourlyRate: z.coerce.number().min(0, 'El valor por hora no puede ser negativo').max(10_000_000).optional().nullable(),
 });
 
 const updateSchema = createSchema.partial();

@@ -6,8 +6,10 @@ import { toast } from 'sonner';
 import {
   Plus, Edit, Trash2, Loader2, Search, Mail, Phone,
   ToggleLeft, ToggleRight, UserPlus, ExternalLink, RefreshCw,
-  ShieldCheck, ShieldX, HelpCircle, AlertTriangle,
+  ShieldCheck, ShieldX, HelpCircle, AlertTriangle, Clock,
 } from 'lucide-react';
+import { StaffHours } from './StaffHours';
+import { formatMoney } from '../lib/format';
 import { useStaff } from '../hooks/useStaff';
 import { staffApi, type StaffMember, type StaffRole, type ArcaPadronData, ApiError } from '../lib/api';
 import {
@@ -232,14 +234,40 @@ interface FormState {
   role: StaffRole;
   phone: string;
   cuit: string;
+  hourlyRate: string;
   active: boolean;
 }
 
 const EMPTY_FORM: FormState = {
-  name: '', email: '', role: 'WAITER', phone: '', cuit: '', active: true,
+  name: '', email: '', role: 'WAITER', phone: '', cuit: '', hourlyRate: '', active: true,
 };
 
+/** Pestañas: fichas del equipo (staff.manage) y horarios (staff.hours). */
 export function StaffPage() {
+  const { can } = useAuth();
+  const canMembers = can('staff.manage');
+  const canHours = can('staff.hours');
+  const [tab, setTab] = useState<'members' | 'hours'>(canMembers ? 'members' : 'hours');
+  const current = !canMembers ? 'hours' : !canHours ? 'members' : tab;
+  return (
+    <div>
+      {canMembers && canHours && (
+        <div role="tablist" className="mb-6 inline-flex rounded-2xl border border-border p-1 text-sm">
+          {([['members', 'Fichas'], ['hours', 'Horarios']] as const).map(([v, label]) => (
+            <button key={v} role="tab" aria-selected={current === v} onClick={() => setTab(v)}
+              className={cn('rounded-xl px-4 py-1.5 font-medium transition-colors',
+                current === v ? 'bg-brand-500/20 text-brand-200' : 'text-muted-foreground hover:text-foreground')}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {current === 'hours' ? <StaffHours /> : <StaffMembers />}
+    </div>
+  );
+}
+
+function StaffMembers() {
   const { user, can } = useAuth();
   const isAdmin = can('staff.manage');
   const confirm = useConfirm();
@@ -287,6 +315,7 @@ export function StaffPage() {
       role:   member.role,
       phone:  member.phone ?? '',
       cuit:   member.cuit ? formatCuit(member.cuit) : '',
+      hourlyRate: member.hourlyRate !== null ? String(Number(member.hourlyRate)) : '',
       active: member.active,
     });
     setEditing(member);
@@ -304,9 +333,15 @@ export function StaffPage() {
       toast.error('Nombre y email son obligatorios');
       return;
     }
+    const rate = form.hourlyRate.trim() === '' ? null : Number(form.hourlyRate.replace(',', '.'));
+    if (rate !== null && (!Number.isFinite(rate) || rate < 0)) {
+      toast.error('El valor por hora tiene que ser un número (por ejemplo 3500)');
+      return;
+    }
     setSubmitting(true);
     try {
       const data = {
+        hourlyRate: rate,
         name:   form.name.trim(),
         email:  form.email.trim(),
         role:   form.role,
@@ -453,6 +488,11 @@ export function StaffPage() {
                       <Phone className="h-3 w-3 shrink-0" /> {m.phone}
                     </p>
                   )}
+                  {m.hourlyRate !== null && (
+                    <p className="flex items-center gap-1.5">
+                      <Clock className="h-3 w-3 shrink-0" /> {formatMoney(Number(m.hourlyRate))} por hora
+                    </p>
+                  )}
                   {m.cuit && (
                     <p className="flex items-center gap-1.5 font-mono">
                       <span className="text-[10px] uppercase tracking-wider not-italic font-sans">CUIT</span>
@@ -523,6 +563,17 @@ export function StaffPage() {
                   disabled={submitting} placeholder="+54 11 5555-0101"
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="hourlyRate">Valor por hora ($)</Label>
+              <Input id="hourlyRate" type="text" inputMode="decimal" value={form.hourlyRate}
+                onChange={(e) => setForm(f => ({ ...f, hourlyRate: e.target.value }))}
+                disabled={submitting} placeholder="Ej.: 3500"
+              />
+              <p className="text-xs text-muted-foreground">
+                Lo acordado por hora. Las horas de la semana × este valor = lo que se le paga (pestaña Horarios).
+              </p>
             </div>
 
             <div className="space-y-2">
