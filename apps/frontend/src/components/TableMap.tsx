@@ -15,6 +15,9 @@ import { TABLE_STATUS_LABEL, TABLE_STATUS_STYLE } from '../lib/table-helpers';
 import type { Table, TableStatus } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
+import { toast } from 'sonner';
+import { tablesApi, ApiError } from '../lib/api';
+import { setTableLabelMode, useTableLabelMode } from '../lib/table-label';
 
 type FilterValue = 'ALL' | TableStatus;
 
@@ -26,9 +29,38 @@ const STATUS_FILTERS: { value: FilterValue; label: string }[] = [
   { value: 'RESERVED',       label: TABLE_STATUS_LABEL.RESERVED },
 ];
 
+/** Por nombre / por número: lo elige el administrador y vale para todas las pantallas. */
+function LabelModeToggle() {
+  const mode = useTableLabelMode();
+  const [saving, setSaving] = useState(false);
+  async function choose(next: 'NAME' | 'NUMBER') {
+    if (next === mode || saving) return;
+    const before = mode;
+    setTableLabelMode(next); // se ve al instante; si falla, se vuelve atrás
+    setSaving(true);
+    try { await tablesApi.setLabelMode(next); }
+    catch (err) {
+      setTableLabelMode(before);
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo cambiar cómo se muestran las mesas');
+    } finally { setSaving(false); }
+  }
+  return (
+    <div role="group" aria-label="Mostrar mesas por" className="flex rounded-xl border border-border p-0.5 text-xs">
+      {([['NAME', 'Por nombre'], ['NUMBER', 'Por número']] as const).map(([v, label]) => (
+        <button key={v} type="button" onClick={() => choose(v)} aria-pressed={mode === v}
+          className={cn('rounded-lg px-2.5 py-1.5 font-medium transition-colors',
+            mode === v ? 'bg-brand-500/20 text-brand-200' : 'text-muted-foreground hover:text-foreground')}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TableMap() {
   const { user, can } = useAuth();
   const isAdmin = can('tables.manage');
+  useTableLabelMode();
 
   const { tables, loading, error, refresh } = useTables();
   const { sections } = useSections();
@@ -115,6 +147,7 @@ export function TableMap() {
         }
         actions={
           <>
+            {isAdmin && <LabelModeToggle />}
             {isAdmin && (
               <Button variant={adminMode ? 'default' : 'outline'} size="sm" onClick={() => setAdminMode(v => !v)}>
                 <Settings2 className="h-4 w-4" />

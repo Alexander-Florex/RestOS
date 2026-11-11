@@ -27,6 +27,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { cn } from '../lib/utils';
+import { tableLabel } from '../lib/table-label';
 
 interface FormState {
   customerName: string;
@@ -318,7 +319,7 @@ export function ReservationsPage() {
                     {table && (
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
-                        Mesa N° {table.number}
+                        {tableLabel(table)}
                       </span>
                     )}
                     <span className="flex items-center gap-1">
@@ -339,7 +340,7 @@ export function ReservationsPage() {
                         variant="outline" size="sm"
                         onClick={() => runAction(
                           () => reservationsApi.markTableReserved(r.id),
-                          `Mesa ${table?.number} marcada como reservada`
+                          `${table ? tableLabel(table) : "Mesa"} marcada como reservada`
                         )}
                         title="Reservar la mesa ahora"
                       >
@@ -350,7 +351,7 @@ export function ReservationsPage() {
                         size="sm"
                         onClick={() => runAction(
                           () => reservationsApi.seat(r.id),
-                          `Comensales sentados en mesa ${table?.number}`
+                          `Comensales sentados en ${table ? tableLabel(table) : "la mesa"}`
                         )}
                       >
                         <UserCheck className="h-3.5 w-3.5" />
@@ -485,7 +486,7 @@ export function ReservationsPage() {
                 <option value="">Sin asignar mesa</option>
                 {tables.map(t => (
                   <option key={t.id} value={t.id}>
-                    Mesa N° {t.number} (cap. {t.capacity})
+                    {tableLabel(t)} (cap. {t.capacity})
                   </option>
                 ))}
               </Select>

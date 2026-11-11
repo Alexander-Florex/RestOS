@@ -20,6 +20,8 @@ model Restaurant {
   email     String?
   phone     String?
   address   String?
+  /// Mesas por nombre (si lo tienen) o por número, en todas las pantallas y tickets
+  tableLabelMode TableLabelMode @default(NAME)
   createdAt DateTime @default(now())
   // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
   updatedAt DateTime @default(now()) @updatedAt
@@ -135,6 +137,8 @@ model Table {
   restaurantId Int
   restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   number       Int
+  /// Nombre con el que el local llama a la mesa ("Ventana", "Patio 2"). Opcional y único por restaurante.
+  name         String?     @db.VarChar(40)
   status       TableStatus @default(AVAILABLE)
   capacity     Int         @default(4)
   enabled      Boolean     @default(true)
@@ -149,9 +153,16 @@ model Table {
   updatedAt    DateTime    @updatedAt
 
   @@unique([restaurantId, number])
+  @@unique([restaurantId, name])
   @@index([restaurantId])
   @@index([sectionId])
   @@map("tables")
+}
+
+/// Cómo se muestran las mesas en todas las pantallas
+enum TableLabelMode {
+  NAME
+  NUMBER
 }
 
 enum TableStatus {
@@ -412,6 +423,8 @@ model Sale {
   table          Table?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
   /// Número de mesa al cobrar. Vacío en ventas para llevar.
   tableNumber    Int?
+  /// Nombre de la mesa al cobrar (copia: si la renombran después, la venta conserva el de ese momento)
+  tableName      String?       @db.VarChar(120)
   /// Pedido para llevar que originó la venta. Único: un pedido no genera dos ventas.
   takeawayOrderId Int?          @unique
   takeawayOrder  TakeawayOrder? @relation(fields: [takeawayOrderId], references: [id], onDelete: SetNull)

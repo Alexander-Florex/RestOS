@@ -12,6 +12,7 @@ import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { ChangeRequestCard, FAULT_LABEL, usePendingChanges } from './ChangeRequests';
 import { ItemModifiers } from './ItemModifiers';
+import { tableLabel } from '../lib/table-label';
 
 const RANGES = [['Hoy', 1], ['7 días', 7], ['30 días', 30]] as const;
 
@@ -119,7 +120,7 @@ export function ChangesPage() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p>
-                    Mesa {c.order.table.number} · {c.quantity}x {c.itemSnapshot.itemName}
+                    {tableLabel(c.order.table)} · {c.quantity}x {c.itemSnapshot.itemName}
                     {c.type === 'REPLACE' && ` → ${c.replacementName ?? 'otro plato'}`}
                   </p>
                   <ItemModifiers modifiers={c.itemSnapshot.modifiers} />

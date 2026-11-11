@@ -16,6 +16,7 @@ import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { getSocket, SocketEvents } from '../lib/socket';
 import type { Order, Reservation, Table } from '../lib/api';
+import { tableLabel } from '../lib/table-label';
 import {
   playOrderSound, playBillSound, playReservationSound, browserNotifications,
 } from '../lib/notifications';
@@ -46,12 +47,12 @@ export function useNotifications() {
 
       // Solo notificar la TRANSICIÓN a BILL_REQUESTED (no si ya estaba así)
       if (table.status === 'BILL_REQUESTED' && prev !== 'BILL_REQUESTED') {
-        toast.warning(`Mesa ${table.number} pide la cuenta`, {
+        toast.warning(`${tableLabel(table)} pide la cuenta`, {
           description: 'Pasá por la mesa para cobrar',
           duration: 8000,
         });
         playBillSound();
-        browserNotifications.show(`Mesa ${table.number}`, {
+        browserNotifications.show(`${tableLabel(table)}`, {
           body: 'Pidió la cuenta',
           tag: `bill-${table.id}`,
           requireInteraction: true,

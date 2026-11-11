@@ -21,6 +21,7 @@ import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { cn } from '../lib/utils';
 import { ItemModifiers } from './ItemModifiers';
+import { tableLabel } from '../lib/table-label';
 
 interface CloseTableModalProps {
   table: Table;
@@ -106,7 +107,7 @@ export function CloseTableModal({
         notes: notes.trim() || undefined,
         imageBase64: imageBase64 || undefined,
       });
-      toast.success(`Mesa ${table.number} cobrada: ${formatMoney(numericAmount)}`);
+      toast.success(`${tableLabel(table)} cobrada: ${formatMoney(numericAmount)}`);
 
       // Ticket de caja: siempre, desde la venta guardada. Imprime el agente local,
       // no depende de que este dispositivo tenga una impresora elegida.
@@ -124,7 +125,7 @@ export function CloseTableModal({
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         // Otro dispositivo ya cobró esta mesa: cerramos el modal y refrescamos
-        toast.error(`La mesa ${table.number} ya fue cobrada desde otro dispositivo`);
+        toast.error(`${tableLabel(table)} ya fue cobrada desde otro dispositivo`);
         onSuccess();
         return;
       }
@@ -140,7 +141,7 @@ export function CloseTableModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-brand-400" />
-            Cobrar mesa N° {table.number}
+            Cobrar {tableLabel(table)}
           </DialogTitle>
           <DialogDescription>
             Revisá el desglose y confirmá el cobro. Al hacerlo, la mesa quedará libre.

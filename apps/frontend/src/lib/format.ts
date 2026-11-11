@@ -1,6 +1,7 @@
 // ──────────────────────────────────────────────
 // format.ts — Helpers de formato
 // ──────────────────────────────────────────────
+import { tableLabel } from './table-label';
 
 const currency = new Intl.NumberFormat('es-AR', {
   style: 'currency',
@@ -46,10 +47,11 @@ export function formatDateTimeLong(iso: string | null | undefined): string {
 export function saleOriginLabel(sale: {
   channel?: 'DINE_IN' | 'TAKEAWAY';
   tableNumber: number | null;
+  tableName?: string | null;
   customerName?: string | null;
 }): string {
   if (sale.channel === 'TAKEAWAY' || sale.tableNumber === null) {
     return sale.customerName ? `Para llevar · ${sale.customerName}` : 'Para llevar';
   }
-  return `Mesa ${sale.tableNumber}`;
+  return tableLabel({ number: sale.tableNumber, name: sale.tableName });
 }

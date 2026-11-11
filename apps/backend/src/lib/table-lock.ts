@@ -15,6 +15,7 @@ import type { Prisma, TableStatus } from '@prisma/client';
 export interface LockedTable {
   id: number;
   number: number;
+  name: string | null;
   status: TableStatus;
   capacity: number;
   enabled: boolean;
@@ -27,7 +28,7 @@ export async function lockTable(
   tableId: number,
 ): Promise<LockedTable | null> {
   const rows = await tx.$queryRaw<LockedTable[]>`
-    SELECT id, number, status, capacity, enabled
+    SELECT id, number, name, status, capacity, enabled
     FROM tables
     WHERE id = ${tableId} AND restaurantId = ${restaurantId}
     FOR UPDATE`;

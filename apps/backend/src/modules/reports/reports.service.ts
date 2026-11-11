@@ -39,6 +39,8 @@ export interface SalesReport {
   /** Solo ventas de salón (las de para llevar no tienen mesa). */
   byTable: Array<{
     tableNumber: number;
+    /** Nombre actual de la mesa (null si no tiene) */
+    tableName: string | null;
     count: number;
     total: number;
   }>;
@@ -57,6 +59,8 @@ export interface DailyTicket {
   channel: SaleChannel;
   /** null en ventas para llevar */
   tableNumber: number | null;
+  /** Nombre de la mesa al cobrar (con mesas unidas: "Ventana + Patio") */
+  tableName: string | null;
   /** Cliente del pedido para llevar (null en salón) */
   customerName: string | null;
   closedAt: string;
@@ -130,9 +134,10 @@ export const reportsService = {
       entry.count++;
       tableMap.set(s.tableNumber, entry);
     }
+    const names = new Map((await prisma.table.findMany({ where: { restaurantId }, select: { number: true, name: true } })).map(t => [t.number, t.name]));
     const byTable = Array.from(tableMap.entries())
       .sort(([a], [b]) => a - b)
-      .map(([tableNumber, data]) => ({ tableNumber, total: data.total, count: data.count }));
+      .map(([tableNumber, data]) => ({ tableNumber, tableName: names.get(tableNumber) ?? null, total: data.total, count: data.count }));
 
     return {
       range: { from: from.toISOString(), to: to.toISOString() },
@@ -160,6 +165,7 @@ export const reportsService = {
       id: s.id,
       channel: s.channel,
       tableNumber: s.tableNumber,
+      tableName: s.tableName,
       customerName: s.takeawayOrder?.customerName ?? null,
       closedAt: s.closedAt.toISOString(),
       total: Number(s.total),
@@ -221,7 +227,7 @@ export const reportsService = {
         s.id,
         formatLocalDateTime(s.closedAt),
         CHANNEL_LABEL[s.channel],
-        s.tableNumber ?? '',
+        s.tableNumber === null ? '' : s.tableName ? `${s.tableName} (N ${s.tableNumber})` : s.tableNumber,
         s.takeawayOrder?.customerName ?? '',
         s.paymentMethod,
         Number(s.total).toFixed(2),

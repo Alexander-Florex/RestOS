@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import type { ItemChange } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
 import { useAuth } from '../context/AuthContext';
+import { tableLabel } from '../lib/table-label';
 
 export function useChangeNotifications(onOpenRequests?: () => void) {
   const { user, can } = useAuth();
@@ -22,14 +23,14 @@ export function useChangeNotifications(onOpenRequests?: () => void) {
     const onResolved = (c: ItemChange) => {
       // Solo el que lo pidió, y solo si lo resolvió otra persona
       if (c.type !== 'REPLACE' || c.requestedBy?.id !== user.id || c.resolvedBy?.id === user.id) return;
-      const what = `Mesa ${c.order.table.number}: ${c.quantity}x ${c.itemSnapshot.itemName} → ${c.replacementName ?? 'otro plato'}`;
+      const what = `${tableLabel(c.order.table)}: ${c.quantity}x ${c.itemSnapshot.itemName} → ${c.replacementName ?? 'otro plato'}`;
       if (c.status === 'APPLIED') toast.success('Caja aprobó el cambio', { description: `${what}. Salió el ticket a cocina.`, duration: 8000 });
       if (c.status === 'REJECTED') toast.error('Caja rechazó el cambio', { description: `${what}${c.rejectReason ? ` · ${c.rejectReason}` : ''}`, duration: 10000 });
     };
 
     const onRequested = (c: ItemChange) => {
       if (!canApprove || c.requestedBy?.id === user.id) return;
-      toast.warning(`Mesa ${c.order.table.number} pide cambiar un plato`, {
+      toast.warning(`${tableLabel(c.order.table)} pide cambiar un plato`, {
         description: `${c.quantity}x ${c.itemSnapshot.itemName} → ${c.replacementName ?? 'otro plato'} · ${c.reason}`,
         duration: 15000,
         action: openRef.current ? { label: 'Ver', onClick: () => openRef.current?.() } : undefined,

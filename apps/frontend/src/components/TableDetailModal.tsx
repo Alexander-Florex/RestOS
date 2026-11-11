@@ -27,6 +27,7 @@ import { ItemModifiers } from './ItemModifiers';
 import { CancelOrderDialog } from './CancelOrderDialog';
 import { ItemChangeDialog, type ChangeMode } from './ItemChangeDialog';
 import { ChangeRequestCard, usePendingChanges } from './ChangeRequests';
+import { tableLabel } from '../lib/table-label';
 
 interface TableDetailModalProps {
   table: Table | null;
@@ -97,7 +98,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Abrir mesa N° {table.number}</DialogTitle>
+            <DialogTitle>Abrir {tableLabel(table)}</DialogTitle>
             <DialogDescription>¿Cuántos comensales son?</DialogDescription>
           </DialogHeader>
 
@@ -131,7 +132,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
             <Button
               onClick={() => runAction(
                 () => tablesApi.open(table.id, guestCount),
-                `Mesa ${table.number} abierta con ${guestCount} comensales`
+                `${tableLabel(table)} abierta con ${guestCount} comensales`
               )}
               disabled={submitting}
             >
@@ -165,7 +166,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                 {table.number}
               </div>
               <div>
-                <DialogTitle>Mesa N° {table.number}</DialogTitle>
+                <DialogTitle>{tableLabel(table)}</DialogTitle>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className={cn('h-1.5 w-1.5 rounded-full', style.dot)} />
                   <DialogDescription className={style.text}>
@@ -223,7 +224,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                     {/* Anular con motivo (diálogo anidado: no cierra el detalle de la mesa) */}
                     <CancelOrderDialog order={cancelling} onClose={() => setCancelling(null)} />
                     <ItemChangeDialog item={changing?.item ?? null} mode={changing?.mode ?? 'replace'}
-                      tableNumber={table.number} onClose={() => setChanging(null)} />
+                      tableLabel={tableLabel(table)} onClose={() => setChanging(null)} />
                     {/* Pedidos de cambio del mozo esperando a caja */}
                     {pendingChanges.map(c => <ChangeRequestCard key={c.id} change={c} showTable={false} />)}
                     {orders.map((order, idx) => {
@@ -374,7 +375,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                     disabled={submitting}
                     onClick={() => runAction(
                       () => tablesApi.reserve(table.id),
-                      `Mesa ${table.number} reservada`
+                      `${tableLabel(table)} reservada`
                     )}
                   >
                     <CalendarCheck className="h-4 w-4" />
@@ -390,7 +391,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                     disabled={submitting}
                     onClick={() => runAction(
                       () => tablesApi.requestBill(table.id),
-                      `Cuenta pedida en mesa ${table.number}`
+                      `Cuenta pedida en ${tableLabel(table)}`
                     )}
                   >
                     <Receipt className="h-4 w-4" />
@@ -423,7 +424,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                       disabled={submitting}
                       onClick={() => runAction(
                         () => tablesApi.close(table.id),
-                        `Mesa ${table.number} liberada`
+                        `${tableLabel(table)} liberada`
                       )}
                     >
                       <Lock className="h-4 w-4" />
@@ -462,7 +463,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                       disabled={submitting}
                       onClick={() => runAction(
                         () => tablesApi.close(table.id),
-                        `Mesa ${table.number} liberada`
+                        `${tableLabel(table)} liberada`
                       )}
                     >
                       <Lock className="h-4 w-4" />
@@ -483,7 +484,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                     disabled={submitting}
                     onClick={() => runAction(
                       () => tablesApi.cancelReservation(table.id),
-                      `Reserva de mesa ${table.number} cancelada`
+                      `Reserva de ${tableLabel(table)} cancelada`
                     )}
                   >
                     <XCircle className="h-4 w-4" />

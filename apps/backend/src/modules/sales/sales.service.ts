@@ -241,6 +241,7 @@ export const salesService = {
             tableId: input.tableId,
             channel: SaleChannel.DINE_IN,
             tableNumber: locked.number,
+            tableName: locked.name,
             paymentMethod: input.paymentMethod,
             amount: fromCents(amountCents),
             total: fromCents(totalCents),
@@ -283,7 +284,7 @@ export const salesService = {
           restaurantId, action: 'sale.create', entity: 'Sale', entityId: sale.id,
           userId: input.registeredById ?? undefined,
           after: {
-            tableNumber: locked.number, paymentMethod: input.paymentMethod,
+            tableNumber: locked.number, tableName: locked.name, paymentMethod: input.paymentMethod,
             total: sale.total, amount: sale.amount, orderIds: orders.map(o => o.id),
             notes: input.notes ?? null, receipt: !!imageUrl,
           },

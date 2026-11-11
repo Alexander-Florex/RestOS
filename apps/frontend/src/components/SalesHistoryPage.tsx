@@ -18,6 +18,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from './ui/dialog';
 import { cn } from '../lib/utils';
+import { tableLabel } from '../lib/table-label';
 
 const PAYMENT_ICON: Record<PaymentMethod, typeof Banknote> = {
   CASH: Banknote,
@@ -182,7 +183,7 @@ export function SalesHistoryPage() {
                       {formatDateTime(sale.closedAt)}
                     </td>
                     <td className="px-3 py-3 font-medium tabular-nums">
-                      {sale.tableNumber !== null ? `N° ${sale.tableNumber}` : 'Para llevar'}
+                      {sale.tableNumber !== null ? tableLabel({ number: sale.tableNumber, name: sale.tableName }) : 'Para llevar'}
                     </td>
                     <td className="px-3 py-3">
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] px-2 py-0.5 text-xs">

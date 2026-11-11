@@ -19,6 +19,7 @@ import { cn } from '../lib/utils';
 import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
 import { ItemModifiers } from './ItemModifiers';
 import { submitOrder } from '../lib/order-queue';
+import { tableLabel } from '../lib/table-label';
 
 interface AddOrderDialogProps {
   table: Table;
@@ -70,13 +71,13 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
     setSubmitting(true);
     try {
       const res = await submitOrder('table', { tableId: table.id, items: cart.toRequestItems() },
-        { label: `Mesa ${table.number} · ${cart.count} ${cart.count === 1 ? 'ítem' : 'ítems'}`, print: printTicket });
+        { label: `${tableLabel(table)} · ${cart.count} ${cart.count === 1 ? 'ítem' : 'ítems'}`, print: printTicket });
       if (res.status === 'queued') {
         toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
         onClose();
         return;
       }
-      toast.success(`Pedido enviado a mesa ${table.number}`);
+      toast.success(`Pedido enviado a ${tableLabel(table)}`);
       if (printTicket) {
         try {
           await printingApi.printOrder(res.order.id);
@@ -99,7 +100,7 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
     <Dialog open={open} onOpenChange={(v) => !v && !submitting && !customizing && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Agregar pedido · Mesa {table.number}</DialogTitle>
+          <DialogTitle>Agregar pedido · {tableLabel(table)}</DialogTitle>
           <DialogDescription>Elegí los platos. Se suma como un pedido nuevo de la mesa.</DialogDescription>
         </DialogHeader>
 

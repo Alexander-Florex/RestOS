@@ -189,6 +189,8 @@ export const sectionsApi = {
 export interface Table {
   id: number;
   number: number;
+  /** Nombre con el que el local llama a la mesa ("Ventana"); null si no tiene */
+  name: string | null;
   status: TableStatus;
   capacity: number;
   enabled: boolean;
@@ -200,13 +202,17 @@ export interface Table {
 }
 
 export const tablesApi = {
-  list:    () => request<{ tables: Table[] }>('/tables'),
+  list:    () => request<{ tables: Table[]; labelMode: 'NAME' | 'NUMBER' }>('/tables'),
+
+  /** Mesas por nombre o por número en todas las pantallas (Administrador) */
+  setLabelMode: (mode: 'NAME' | 'NUMBER') =>
+    request<{ labelMode: 'NAME' | 'NUMBER' }>('/tables/label-mode', { method: 'PUT', body: { mode } }),
   getById: (id: number) => request<{ table: Table }>(`/tables/${id}`),
 
-  create: (data: { number: number; capacity?: number; sectionId?: number | null }) =>
+  create: (data: { number: number; name?: string | null; capacity?: number; sectionId?: number | null }) =>
     request<{ table: Table }>('/tables', { method: 'POST', body: data }),
 
-  update: (id: number, data: { number?: number; capacity?: number; sectionId?: number | null; enabled?: boolean }) =>
+  update: (id: number, data: { number?: number; name?: string | null; capacity?: number; sectionId?: number | null; enabled?: boolean }) =>
     request<{ table: Table }>(`/tables/${id}`, { method: 'PATCH', body: data }),
 
   remove: (id: number) =>
@@ -454,6 +460,8 @@ export interface Sale {
   tableId: number | null;
   /** null en ventas para llevar */
   tableNumber: number | null;
+  /** Nombre de la mesa al cobrar (mesas unidas: "Ventana + Patio") */
+  tableName?: string | null;
   takeawayOrderId: number | null;
   paymentMethod: PaymentMethod;
   amount: string;
@@ -1135,7 +1143,7 @@ export interface SalesReport {
   byDay: Array<{ date: string; total: number; count: number }>;
   byChannel: Array<{ channel: SaleChannel; count: number; total: number }>;
   /** Solo salón */
-  byTable: Array<{ tableNumber: number; count: number; total: number }>;
+  byTable: Array<{ tableNumber: number; tableName: string | null; count: number; total: number }>;
 }
 
 export interface TopItem {
@@ -1151,6 +1159,7 @@ export interface DailyTicket {
   channel: SaleChannel;
   /** null en ventas para llevar */
   tableNumber: number | null;
+  tableName: string | null;
   /** Cliente del pedido para llevar */
   customerName: string | null;
   closedAt: string;
@@ -1394,7 +1403,7 @@ export interface ItemChange {
   rejectReason: string | null;
   createdAt: string;
   resolvedAt: string | null;
-  order: { id: number; tableId: number; status: OrderStatus; table: { number: number } };
+  order: { id: number; tableId: number; status: OrderStatus; table: { number: number; name: string | null } };
   requestedBy: { id: number; name: string } | null;
   resolvedBy: { id: number; name: string } | null;
 }

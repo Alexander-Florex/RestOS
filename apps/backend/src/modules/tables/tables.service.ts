@@ -1,11 +1,33 @@
 // ──────────────────────────────────────────────
 // tables.service.ts — Lógica de negocio de mesas
 // ──────────────────────────────────────────────
-import { TableStatus, type Prisma, type Table } from '@prisma/client';
+import { TableStatus, TableLabelMode, Prisma, type Table } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { lockTable, type LockedTable } from '../../lib/table-lock.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { normalizeTableName } from '../../shared/table-label.js';
+
+/** Cómo muestra las mesas el restaurante (por nombre o por número). */
+export async function getTableLabelMode(restaurantId: number, tx: Prisma.TransactionClient = prisma): Promise<TableLabelMode> {
+  const r = await tx.restaurant.findUnique({ where: { id: restaurantId }, select: { tableLabelMode: true } });
+  return r?.tableLabelMode ?? TableLabelMode.NAME;
+}
+
+/** Nombre libre: no puede repetirse en el restaurante (sin distinguir mayúsculas). */
+async function assertNameFree(restaurantId: number, name: string | null, exceptId?: number) {
+  if (!name) return;
+  const dup = await prisma.table.findFirst({ where: { restaurantId, name, ...(exceptId ? { id: { not: exceptId } } : {}) } });
+  if (dup) throw HttpError.conflict(`Ya hay una mesa llamada "${dup.name}" (N° ${dup.number})`);
+}
+
+/** El índice único de la base es la garantía final (dos altas simultáneas con el mismo nombre). */
+function duplicateName(err: unknown, name: string | null): never {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+    throw HttpError.conflict(name ? `Ya hay una mesa llamada "${name}"` : 'Ya existe una mesa con ese número');
+  }
+  throw err;
+}
 
 function emitTableChanged(restaurantId: number, table: Table) { ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CHANGED, table); }
 function emitTableCreated(restaurantId: number, table: Table) { ioRestaurant(restaurantId).emit(SocketEvents.TABLE_CREATED, table); }
@@ -47,9 +69,18 @@ export const tablesService = {
     return table;
   },
 
-  async create(restaurantId: number, data: { number: number; capacity?: number; sectionId?: number | null }): Promise<Table> {
+  /** Cambia cómo se muestran las mesas en todas las pantallas del restaurante. */
+  async setLabelMode(restaurantId: number, mode: TableLabelMode): Promise<TableLabelMode> {
+    await prisma.restaurant.update({ where: { id: restaurantId }, data: { tableLabelMode: mode } });
+    ioRestaurant(restaurantId).emit(SocketEvents.TABLES_SETTINGS_CHANGED, { labelMode: mode });
+    return mode;
+  },
+
+  async create(restaurantId: number, data: { number: number; name?: string | null; capacity?: number; sectionId?: number | null }): Promise<Table> {
     const exists = await prisma.table.findUnique({ where: { restaurantId_number: { restaurantId, number: data.number } } });
     if (exists) throw HttpError.conflict(`Ya existe la mesa N° ${data.number}`);
+    const name = normalizeTableName(data.name);
+    await assertNameFree(restaurantId, name);
 
     if (data.sectionId) {
       const section = await prisma.section.findFirst({ where: { id: data.sectionId, restaurantId } });
@@ -60,23 +91,27 @@ export const tablesService = {
       data: {
         restaurantId,
         number: data.number,
+        name,
         capacity: data.capacity ?? 4,
         sectionId: data.sectionId ?? null,
         status: TableStatus.AVAILABLE,
         enabled: true,
       },
-    });
+    }).catch((err) => duplicateName(err, name));
     emitTableCreated(restaurantId, table);
     return table;
   },
 
   async update(restaurantId: number, id: number, data: {
     number?: number;
+    name?: string | null;
     capacity?: number;
     sectionId?: number | null;
     enabled?: boolean;
   }): Promise<Table> {
     const current = await tablesService.getById(restaurantId, id);
+    const name = data.name !== undefined ? normalizeTableName(data.name) : undefined;
+    if (name !== undefined) await assertNameFree(restaurantId, name, id);
 
     if (data.number !== undefined && data.number !== current.number) {
       const dup = await prisma.table.findUnique({ where: { restaurantId_number: { restaurantId, number: data.number } } });
@@ -96,11 +131,12 @@ export const tablesService = {
       where: { id },
       data: {
         ...(data.number !== undefined    ? { number: data.number }       : {}),
+        ...(name !== undefined           ? { name }                      : {}),
         ...(data.capacity !== undefined  ? { capacity: data.capacity }   : {}),
         ...(data.sectionId !== undefined ? { sectionId: data.sectionId } : {}),
         ...(data.enabled !== undefined   ? { enabled: data.enabled }     : {}),
       },
-    });
+    }).catch((err) => duplicateName(err, name ?? null));
     emitTableChanged(restaurantId, table);
     return table;
   },

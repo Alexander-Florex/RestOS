@@ -19,7 +19,8 @@ router.get('/',     asyncHandler(tablesController.list));
 router.get('/:id',  asyncHandler(tablesController.getById));
 
 // ── CRUD estructural — solo ADMIN ──
-router.post('/',                requirePermission('tables.manage'), asyncHandler(tablesController.create));
+router.put('/label-mode',       requirePermission('tables.manage'), asyncHandler(tablesController.setLabelMode));
+router.post('/',              requirePermission('tables.manage'), asyncHandler(tablesController.create));
 router.patch('/:id',            requirePermission('tables.manage'), asyncHandler(tablesController.update));
 router.delete('/:id',           requirePermission('tables.manage'), asyncHandler(tablesController.remove));
 router.post('/:id/toggle',      requirePermission('tables.manage'), asyncHandler(tablesController.toggleEnabled));

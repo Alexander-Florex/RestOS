@@ -12,6 +12,7 @@ import { SaleChannel } from '@prisma/client';
 import { APP_TIME_ZONE } from '../../lib/time.js';
 import { itemNotesForPrint, modifierLines, modifiersKey } from '../../lib/modifiers.js';
 import { logger } from '../../lib/logger.js';
+import { tableLabel } from '../../shared/table-label.js';
 
 const ESC = 0x1b;
 const GS  = 0x1d;
@@ -89,6 +90,8 @@ function rowKitchen(name: string, qty: number): Buffer {
 export function buildKitchenTicket(data: {
   restaurantName: string;
   tableNumber: number;
+  /** "Ventana" o "Mesa 5"; sin esto se imprime el número */
+  tableLabel?: string;
   orderNumber: number;
   printedAt: Date;
   items: Array<{ name: string; quantity: number; notes?: string | null }>;
@@ -110,7 +113,7 @@ export function buildKitchenTicket(data: {
   push(CMD.ALIGN_LEFT);
   push(div('='));
   push(CMD.SIZE_TALL, CMD.BOLD_ON);
-  push(ln(`MESA  N${String(data.tableNumber).padStart(2, '0')}`, W2));
+  push(ln(data.tableLabel ? data.tableLabel.toUpperCase() : `MESA  N${String(data.tableNumber).padStart(2, '0')}`, W2));
   push(CMD.NORMAL_SIZE, CMD.BOLD_OFF);
   push(CMD.BOLD_ON);
   push(ln(`Hora: ${hora}`));
@@ -144,6 +147,7 @@ export function buildKitchenTicket(data: {
 export function buildCashTicket(data: {
   restaurantName: string;
   tableNumber: number;
+  tableLabel?: string;
   printedAt: Date;
   items: Array<{ name: string; quantity: number; price: number; notes?: string | null }>;
   total: number;
@@ -176,7 +180,7 @@ export function buildCashTicket(data: {
   push(CMD.ALIGN_LEFT);
   push(div('-'));
   push(CMD.BOLD_ON);
-  push(ln(`Mesa: N${String(data.tableNumber).padStart(2, '0')}`));
+  push(ln(data.tableLabel ? `Mesa: ${data.tableLabel}` : `Mesa: N${String(data.tableNumber).padStart(2, '0')}`));
   push(CMD.BOLD_OFF);
   push(ln(`Fecha: ${fecha}   ${hora}hs`));
   push(div('-'));
@@ -340,9 +344,14 @@ export const printingService = {
     if (!sale) throw HttpError.notFound('Venta no encontrada');
 
     const isTakeaway = sale.channel === SaleChannel.TAKEAWAY;
+    // La mesa como quedó en la venta (con mesas unidas: "Ventana + Patio")
+    const mode = (await prisma.restaurant.findUnique({ where: { id: opts.restaurantId }, select: { tableLabelMode: true } }))?.tableLabelMode;
     emitPrintRequest(opts.restaurantId, {
       type:          'cash',
       tableNumber:   sale.tableNumber ?? 0,
+      ...(sale.tableNumber !== null
+        ? { tableName: sale.tableName, tableLabel: tableLabel({ number: sale.tableNumber, name: sale.tableName }, mode) }
+        : {}),
       isTakeaway,
       customerName:  isTakeaway ? (sale.takeawayOrder?.customerName ?? null) : null,
       items:         sale.items.map(i => ({

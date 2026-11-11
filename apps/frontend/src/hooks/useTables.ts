@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { useCallback, useEffect, useState } from 'react';
 import { tablesApi, type Table } from '../lib/api';
+import { setTableLabelMode } from '../lib/table-label';
 import { getSocket, SocketEvents } from '../lib/socket';
 import { useResync } from './useConnection';
 
@@ -21,7 +22,8 @@ export function useTables(): UseTablesResult {
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const { tables } = await tablesApi.list();
+      const { tables, labelMode } = await tablesApi.list();
+      setTableLabelMode(labelMode);
       setTables(tables);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudieron cargar las mesas');
@@ -56,14 +58,19 @@ export function useTables(): UseTablesResult {
       setTables(prev => prev.filter(t => t.id !== payload.id));
     };
 
+    // El administrador cambió "por nombre / por número": se re-renderiza todo lo que usa tableLabel
+    const onSettings = (p: { labelMode: 'NAME' | 'NUMBER' }) => setTableLabelMode(p.labelMode);
+
     socket.on(SocketEvents.TABLE_CHANGED, onChanged);
     socket.on(SocketEvents.TABLE_CREATED, onCreated);
     socket.on(SocketEvents.TABLE_DELETED, onDeleted);
+    socket.on(SocketEvents.TABLES_SETTINGS_CHANGED, onSettings);
 
     return () => {
       socket.off(SocketEvents.TABLE_CHANGED, onChanged);
       socket.off(SocketEvents.TABLE_CREATED, onCreated);
       socket.off(SocketEvents.TABLE_DELETED, onDeleted);
+      socket.off(SocketEvents.TABLES_SETTINGS_CHANGED, onSettings);
     };
   }, []);
 

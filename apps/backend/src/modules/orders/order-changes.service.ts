@@ -38,7 +38,7 @@ export interface ReplaceInput extends ChangeBase {
 }
 
 const changeInclude = {
-  order: { select: { id: true, tableId: true, status: true, table: { select: { number: true } } } },
+  order: { select: { id: true, tableId: true, status: true, table: { select: { number: true, name: true } } } },
   requestedBy: { select: { id: true, name: true } },
   resolvedBy: { select: { id: true, name: true } },
 } satisfies Prisma.OrderItemChangeInclude;

@@ -13,6 +13,7 @@ import {
 } from '../lib/table-helpers';
 import { useTick } from '../hooks/useTables';
 import { cn } from '../lib/utils';
+import { showsName, tableBadge, useTableLabelMode } from '../lib/table-label';
 
 interface TableCardProps {
   table: Table;
@@ -22,6 +23,8 @@ interface TableCardProps {
 export const TableCard = forwardRef<HTMLButtonElement, TableCardProps>(function TableCard({ table, onClick }, ref) {
   // Tick cada 30s para refrescar el tiempo
   useTick(30_000);
+  useTableLabelMode();
+  const byName = showsName(table);
 
   const style = TABLE_STATUS_STYLE[table.status];
   const elapsed = elapsedSince(table.openedAt);
@@ -77,12 +80,20 @@ export const TableCard = forwardRef<HTMLButtonElement, TableCardProps>(function 
         </span>
       </div>
 
-      {/* Número */}
-      <div className="relative">
-        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Mesa</p>
-        <p className={cn('font-display text-5xl font-bold leading-none tabular-nums tracking-tight', busy ? style.text : 'text-foreground')}>
-          {String(table.number).padStart(2, '0')}
-        </p>
+      {/* Nombre o número (según lo elegido en el restaurante) */}
+      <div className="relative min-w-0">
+        {byName ? (
+          <p className={cn('font-display text-2xl font-bold leading-tight tracking-tight line-clamp-2 break-words', busy ? style.text : 'text-foreground')}>
+            {tableBadge(table)}
+          </p>
+        ) : (
+          <>
+            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Mesa</p>
+            <p className={cn('font-display text-5xl font-bold leading-none tabular-nums tracking-tight', busy ? style.text : 'text-foreground')}>
+              {tableBadge(table)}
+            </p>
+          </>
+        )}
       </div>
 
       {/* Footer: capacidad o comensales + tiempo */}

@@ -29,11 +29,13 @@ import { cn } from '../lib/utils';
 import { submitOrder } from '../lib/order-queue';
 import { TableOrderSheet } from './TableOrderSheet';
 import { useChangeNotifications } from '../hooks/useChangeNotifications';
+import { tableLabel, tableBadge, showsName, useTableLabelMode } from '../lib/table-label';
 
 type Step = 'tables' | 'type' | 'takeaway-name' | 'guests' | 'menu';
 type OrderType = 'dine-in' | 'takeaway';
 
 export function WaiterMobileView() {
+  useTableLabelMode(); // re-render si el administrador cambia "por nombre / por número"
   const { user, logout, can } = useAuth();
   const { tables, loading: loadingTables } = useTables();
   const { items: menu, loading: loadingMenu } = useMenu({ onlyEnabled: true });
@@ -170,7 +172,7 @@ export function WaiterMobileView() {
         guestCount: orderType === 'dine-in' && selectedTable.status === 'AVAILABLE' ? guestCount : undefined,
         notes: orderType === 'takeaway' ? `PARA LLEVAR: ${customerName.trim()}` : undefined,
         items: cart.toRequestItems(),
-      }, { label: `Mesa ${selectedTable.number} · ${cart.count} ${cart.count === 1 ? 'ítem' : 'ítems'}` });
+      }, { label: `${tableLabel(selectedTable)} · ${cart.count} ${cart.count === 1 ? 'ítem' : 'ítems'}` });
       if (res.status === 'queued') {
         toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
         backToTables();
@@ -180,7 +182,7 @@ export function WaiterMobileView() {
       toast.success(
         orderType === 'takeaway'
           ? `Pedido para llevar (${customerName}) enviado`
-          : `Pedido enviado a mesa ${selectedTable.number}`,
+          : `Pedido enviado a ${tableLabel(selectedTable)}`,
         {
           description: 'Podés imprimir la comanda abajo',
           duration: 4000,
@@ -239,8 +241,8 @@ export function WaiterMobileView() {
                   {orderType === 'takeaway' ? 'Para llevar' : 'Mesa'}
                 </p>
               </div>
-              <span className="flex h-9 min-w-9 items-center justify-center rounded-xl bg-gradient-to-b from-brand-400 to-brand-600 px-2 font-display text-lg font-bold tabular-nums text-white">
-                {String(selectedTable.number).padStart(2, '0')}
+              <span className="flex h-9 min-w-9 max-w-[9rem] items-center justify-center truncate rounded-xl bg-gradient-to-b from-brand-400 to-brand-600 px-2 font-display text-lg font-bold tabular-nums text-white">
+                <span className="truncate">{tableBadge(selectedTable)}</span>
               </span>
             </motion.div>
           )}
@@ -319,13 +321,13 @@ export function WaiterMobileView() {
         {step === 'type' && selectedTable && (
           <div className="flex flex-col gap-4 py-2">
             <div className="mb-2 text-center">
-              <p className="font-display text-3xl font-bold tracking-tight">Mesa {selectedTable.number}</p>
+              <p className="font-display text-3xl font-bold tracking-tight">{tableLabel(selectedTable)}</p>
               <p className="mt-1 text-sm text-muted-foreground">¿Cómo es el pedido?</p>
             </div>
             <ChoiceCard
               icon={<UtensilsCrossed className="h-7 w-7" />}
               title="Para comer acá"
-              subtitle={`Mesa ${selectedTable.number} · ${selectedTable.capacity} lugares`}
+              subtitle={`${tableLabel(selectedTable)} · ${selectedTable.capacity} lugares`}
               tone="brand"
               onClick={() => confirmOrderType('dine-in')}
             />
@@ -452,7 +454,7 @@ export function WaiterMobileView() {
       {/* Lo que ya pidió la mesa: rehacer o cambiar platos */}
       {selectedTable && (
         <TableOrderSheet open={tableOrderOpen} onClose={() => setTableOrderOpen(false)}
-          orders={previousOrders} tableId={selectedTable.id} tableNumber={selectedTable.number} />
+          orders={previousOrders} tableId={selectedTable.id} tableLabel={tableLabel(selectedTable)} />
       )}
 
       {/* Modal cobrar y cerrar (mesero — sin impresión) */}
@@ -508,8 +510,12 @@ function TablesList({ tables, loading, onSelect }: {
                 <motion.span aria-hidden className="absolute inset-0 rounded-3xl border-2 border-amber-300"
                   animate={{ opacity: [0.8, 0, 0.8] }} transition={{ duration: 1.6, repeat: Infinity }} />
               )}
-              <span className={cn('font-display text-3xl font-bold leading-none tabular-nums', busy ? style.text : 'text-foreground')}>
-                {String(t.number).padStart(2, '0')}
+              <span className={cn(
+                'font-display font-bold leading-none tabular-nums',
+                showsName(t) ? 'line-clamp-2 break-words px-1.5 text-base leading-tight' : 'text-3xl',
+                busy ? style.text : 'text-foreground',
+              )}>
+                {tableBadge(t)}
               </span>
               <span className={cn('flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.1em]', style.text)}>
                 <span className={cn('h-1.5 w-1.5 rounded-full', style.dot)} />
@@ -556,7 +562,7 @@ function GuestStep({ table, guestCount, onChange, onConfirm }: {
   return (
     <div className="flex flex-col items-center gap-6 py-8">
       <div className="text-center">
-        <p className="font-display text-3xl font-bold tracking-tight">Mesa {table.number}</p>
+        <p className="font-display text-3xl font-bold tracking-tight">{tableLabel(table)}</p>
         <p className="mt-1 text-sm text-muted-foreground">¿Cuántos comensales?</p>
       </div>
       <div className="flex items-center gap-8">

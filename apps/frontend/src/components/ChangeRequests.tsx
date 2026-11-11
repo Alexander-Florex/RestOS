@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { formatMoney } from '../lib/format';
 import { Button } from './ui/button';
 import { ItemModifiers } from './ItemModifiers';
+import { tableLabel } from '../lib/table-label';
 
 export const FAULT_LABEL: Record<string, string> = {
   KITCHEN: 'Error de cocina', WAITER: 'Error del mozo', CUSTOMER: 'Cambio del cliente', OTHER: 'Otro',
@@ -57,7 +58,7 @@ export function ChangeRequestCard({ change, showTable = true }: { change: ItemCh
     setBusy('approve');
     try {
       await ordersApi.approveChange(change.id);
-      toast.success(`Cambio aprobado · Mesa ${change.order.table.number}`, { description: 'Salió el ticket a cocina' });
+      toast.success(`Cambio aprobado · ${tableLabel(change.order.table)}`, { description: 'Salió el ticket a cocina' });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'No se pudo aprobar');
     } finally { setBusy(null); }
@@ -77,7 +78,7 @@ export function ChangeRequestCard({ change, showTable = true }: { change: ItemCh
     <div className="rounded-xl border border-amber-400/30 bg-amber-500/5 p-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-semibold">
-          {showTable && `Mesa ${change.order.table.number} · `}{change.requestedBy?.name ?? 'Mozo'} pide cambiar
+          {showTable && `${tableLabel(change.order.table)} · `}{change.requestedBy?.name ?? 'Mozo'} pide cambiar
         </span>
         <span className="text-xs text-muted-foreground">
           {new Date(change.createdAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
