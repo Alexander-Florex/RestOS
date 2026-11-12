@@ -17,6 +17,10 @@ const createSchema = z.object({
 
 const labelModeSchema = z.object({ mode: z.enum(['NAME', 'NUMBER']) });
 
+const joinSchema = z.object({
+  tableIds: z.array(z.coerce.number().int().positive()).min(1, 'Elegí al menos otra mesa').max(20),
+});
+
 const updateSchema = z.object({
   number:    z.coerce.number().int().positive().optional(),
   name:      nameSchema,
@@ -118,6 +122,21 @@ export const tablesController = {
     const { id } = idParamSchema.parse(req.params);
     const table = await tablesService.cancelReservation(req.user.restaurantId, id);
     res.json({ table });
+  },
+
+  async join(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParamSchema.parse(req.params);
+    const { tableIds } = joinSchema.parse(req.body);
+    const tables = await tablesService.join(req.user.restaurantId, id, tableIds);
+    res.json({ tables });
+  },
+
+  async separate(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParamSchema.parse(req.params);
+    const tables = await tablesService.separate(req.user.restaurantId, id);
+    res.json({ tables });
   },
 
   async toggleEnabled(req: Request, res: Response) {

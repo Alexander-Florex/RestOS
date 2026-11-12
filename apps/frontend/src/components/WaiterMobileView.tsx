@@ -29,7 +29,8 @@ import { cn } from '../lib/utils';
 import { submitOrder } from '../lib/order-queue';
 import { TableOrderSheet } from './TableOrderSheet';
 import { useChangeNotifications } from '../hooks/useChangeNotifications';
-import { tableLabel, tableBadge, showsName, useTableLabelMode } from '../lib/table-label';
+import { tableLabel, tableBadge, showsName, useTableLabelMode, tablesLabel } from '../lib/table-label';
+import { groupOf } from './JoinTablesDialog';
 
 type Step = 'tables' | 'type' | 'takeaway-name' | 'guests' | 'menu';
 type OrderType = 'dine-in' | 'takeaway';
@@ -521,6 +522,12 @@ function TablesList({ tables, loading, onSelect }: {
                 <span className={cn('h-1.5 w-1.5 rounded-full', style.dot)} />
                 {TABLE_STATUS_LABEL[t.status]}
               </span>
+              {/* Mesas unidas (tarea 5.3) */}
+              {groupOf(t, tables).length > 0 && (
+                <span className="max-w-full truncate px-1.5 text-[9px] font-medium text-sky-300">
+                  + {tablesLabel(groupOf(t, tables).filter(p => p.id !== t.id))}
+                </span>
+              )}
               {elapsed && (
                 <span className="flex items-center gap-0.5 text-[10px] tabular-nums text-muted-foreground">
                   <Clock className="h-2.5 w-2.5" />{elapsed}

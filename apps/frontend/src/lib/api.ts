@@ -191,6 +191,8 @@ export interface Table {
   number: number;
   /** Nombre con el que el local llama a la mesa ("Ventana"); null si no tiene */
   name: string | null;
+  /** Mesas unidas: las del mismo grupo comparten este valor (null = no está unida) */
+  groupId: number | null;
   status: TableStatus;
   capacity: number;
   enabled: boolean;
@@ -217,6 +219,14 @@ export const tablesApi = {
 
   remove: (id: number) =>
     request<void>(`/tables/${id}`, { method: 'DELETE' }),
+
+  /** Une la mesa con otras (sus pedidos siguen en cada una; se cobran juntas o por separado) */
+  join: (id: number, tableIds: number[]) =>
+    request<{ tables: Table[] }>(`/tables/${id}/join`, { method: 'POST', body: { tableIds } }),
+
+  /** Separa la mesa de su grupo */
+  separate: (id: number) =>
+    request<{ tables: Table[] }>(`/tables/${id}/separate`, { method: 'POST' }),
 
   toggleEnabled: (id: number) =>
     request<{ table: Table }>(`/tables/${id}/toggle`, { method: 'POST' }),
@@ -475,6 +485,8 @@ export interface Sale {
 
 export interface CreateSaleBody {
   tableId: number;
+  /** Mesas unidas: cobrar todas las del grupo en una sola venta */
+  wholeGroup?: boolean;
   paymentMethod: PaymentMethod;
   amount: number;
   notes?: string;

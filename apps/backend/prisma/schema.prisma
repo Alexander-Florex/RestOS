@@ -148,6 +148,10 @@ model Table {
   openedAt     DateTime?
   sectionId    Int?
   section      Section?    @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  /// Mesas unidas (tarea 5.3): todas las del grupo tienen el mismo valor (el id de la mesa
+  /// desde la que se unieron). Cada mesa conserva sus pedidos; se cobran juntas o por separado.
+  /// Un "grupo" de una sola mesa no cuenta como unida.
+  groupId      Int?
   orders       Order[]
   sales        Sale[]
   reservations Reservation[]
@@ -158,6 +162,7 @@ model Table {
   @@unique([restaurantId, name])
   @@index([restaurantId])
   @@index([sectionId])
+  @@index([restaurantId, groupId])
   @@map("tables")
 }
 

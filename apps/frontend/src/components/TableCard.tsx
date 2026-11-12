@@ -4,7 +4,7 @@
 // ──────────────────────────────────────────────
 import { forwardRef } from 'react';
 import { motion } from 'motion/react';
-import { Users, Clock } from 'lucide-react';
+import { Users, Clock, Link2 } from 'lucide-react';
 import type { Table } from '../lib/api';
 import {
   TABLE_STATUS_LABEL,
@@ -13,14 +13,16 @@ import {
 } from '../lib/table-helpers';
 import { useTick } from '../hooks/useTables';
 import { cn } from '../lib/utils';
-import { showsName, tableBadge, useTableLabelMode } from '../lib/table-label';
+import { showsName, tableBadge, tablesLabel, useTableLabelMode } from '../lib/table-label';
 
 interface TableCardProps {
   table: Table;
+  /** Mesas unidas a esta (tarea 5.3) */
+  partners?: Table[];
   onClick: () => void;
 }
 
-export const TableCard = forwardRef<HTMLButtonElement, TableCardProps>(function TableCard({ table, onClick }, ref) {
+export const TableCard = forwardRef<HTMLButtonElement, TableCardProps>(function TableCard({ table, partners = [], onClick }, ref) {
   // Tick cada 30s para refrescar el tiempo
   useTick(30_000);
   useTableLabelMode();
@@ -95,6 +97,14 @@ export const TableCard = forwardRef<HTMLButtonElement, TableCardProps>(function 
           </>
         )}
       </div>
+
+      {/* Unida con otras mesas */}
+      {partners.length > 0 && (
+        <span className="relative flex w-full min-w-0 items-center gap-1 truncate rounded-full border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-200" title={`Unida con ${tablesLabel(partners)}`}>
+          <Link2 className="h-3 w-3 shrink-0" />
+          <span className="truncate">con {tablesLabel(partners)}</span>
+        </span>
+      )}
 
       {/* Footer: capacidad o comensales + tiempo */}
       <div className="relative flex w-full items-center justify-between text-xs text-muted-foreground">

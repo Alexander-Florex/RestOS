@@ -4,9 +4,25 @@
 import { TableStatus, TableLabelMode, Prisma, type Table } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
-import { lockTable, type LockedTable } from '../../lib/table-lock.js';
+import { lockTable, lockTables, groupUpdatesAfterLeaving, type LockedTable } from '../../lib/table-lock.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
-import { normalizeTableName } from '../../shared/table-label.js';
+import { normalizeTableName, tableLabel, tablesLabel } from '../../shared/table-label.js';
+
+/**
+ * Aplica los cambios de grupo y devuelve las mesas tocadas (para avisar por socket).
+ * `alsoIds`: otras mesas que cambiaron en la misma operación (por ejemplo, la cobrada).
+ */
+export async function applyGroupUpdates(
+  tx: Prisma.TransactionClient,
+  updates: Array<{ ids: number[]; groupId: number | null }>,
+  alsoIds: number[],
+): Promise<Table[]> {
+  for (const u of updates) {
+    await tx.table.updateMany({ where: { id: { in: u.ids } }, data: { groupId: u.groupId } });
+  }
+  const ids = [...new Set([...alsoIds, ...updates.flatMap(u => u.ids)])];
+  return ids.length ? tx.table.findMany({ where: { id: { in: ids } } }) : [];
+}
 
 /** Cómo muestra las mesas el restaurante (por nombre o por número). */
 export async function getTableLabelMode(restaurantId: number, tx: Prisma.TransactionClient = prisma): Promise<TableLabelMode> {
@@ -203,14 +219,18 @@ export const tablesService = {
    * Bloquea la mesa igual que el alta de pedidos, para que no entre uno en el medio.
    */
   async close(restaurantId: number, id: number): Promise<Table> {
-    const table = await prisma.$transaction(async (tx) => {
-      const locked = await lockTable(tx, restaurantId, id);
+    // Si está unida a otras, sale del grupo (las demás siguen unidas si quedan dos o más)
+    const pre = await tablesService.getById(restaurantId, id);
+    const changed = await prisma.$transaction(async (tx) => {
+      const lockedAll = await lockTables(tx, restaurantId, [id], pre.groupId);
+      const locked = lockedAll.find(t => t.id === id);
       if (!locked) throw HttpError.notFound('Mesa no encontrada');
+      if (locked.groupId !== pre.groupId) throw HttpError.conflict('La mesa cambió mientras la liberabas. Probá de nuevo.');
       const pending = await tx.order.count({ where: { tableId: id, restaurantId, status: 'OPEN' } });
       if (pending > 0) {
         throw HttpError.conflict('La mesa tiene pedidos sin cobrar. Cobrala o anulá los pedidos antes de liberarla.');
       }
-      return tx.table.update({
+      await tx.table.update({
         where: { id },
         data: {
           status: TableStatus.AVAILABLE,
@@ -218,9 +238,70 @@ export const tablesService = {
           openedAt: null,
         },
       });
+      const group = locked.groupId !== null ? lockedAll.filter(t => t.groupId === locked.groupId) : [];
+      return applyGroupUpdates(tx, groupUpdatesAfterLeaving(group, [id]), [id]);
     });
-    emitTableChanged(restaurantId, table);
-    return table;
+    changed.forEach(t => emitTableChanged(restaurantId, t));
+    return changed.find(t => t.id === id)!;
+  },
+
+  /**
+   * Une mesas (tarea 5.3): una familia grande en Ventana + Patio. Cada mesa conserva sus
+   * pedidos; la cuenta se ve junta y se cobra junta o por separado. Las libres se abren.
+   * Si la mesa ya está unida, las otras se suman a su grupo.
+   */
+  async join(restaurantId: number, tableId: number, otherIds: number[]): Promise<Table[]> {
+    const others = [...new Set(otherIds)].filter(id => id !== tableId);
+    if (others.length === 0) throw HttpError.badRequest('Elegí al menos otra mesa para unir');
+    const pre = await tablesService.getById(restaurantId, tableId);
+
+    const changed = await prisma.$transaction(async (tx) => {
+      const locked = await lockTables(tx, restaurantId, [tableId, ...others], pre.groupId);
+      const byId = new Map(locked.map(t => [t.id, t]));
+      const head = byId.get(tableId);
+      if (!head) throw HttpError.notFound('Mesa no encontrada');
+      if (head.groupId !== pre.groupId) throw HttpError.conflict('La mesa cambió mientras la unías. Probá de nuevo.');
+      const key = head.groupId ?? head.id;
+      const mode = await getTableLabelMode(restaurantId, tx);
+
+      for (const id of [tableId, ...others]) {
+        const t = byId.get(id);
+        if (!t) throw HttpError.notFound('Mesa no encontrada');
+        const label = tableLabel(t, mode);
+        if (!t.enabled) throw HttpError.badRequest(`${label} está deshabilitada`);
+        if (t.status === TableStatus.RESERVED) throw HttpError.badRequest(`${label} está reservada: cancelá la reserva o sentá a los comensales primero`);
+        if (t.groupId !== null && t.groupId !== key) {
+          const partners = await tx.table.findMany({ where: { restaurantId, groupId: t.groupId, id: { not: t.id } }, select: { number: true, name: true } });
+          throw HttpError.conflict(`${label} ya está unida con ${tablesLabel(partners, mode)}. Separala primero.`);
+        }
+      }
+
+      const now = new Date();
+      const free = [tableId, ...others].filter(id => byId.get(id)!.status === TableStatus.AVAILABLE);
+      if (free.length) {
+        await tx.table.updateMany({ where: { id: { in: free }, restaurantId }, data: { status: TableStatus.OCCUPIED, openedAt: now } });
+      }
+      await tx.table.updateMany({ where: { id: { in: [tableId, ...others] }, restaurantId }, data: { groupId: key } });
+      return tx.table.findMany({ where: { restaurantId, groupId: key }, orderBy: { number: 'asc' } });
+    });
+    changed.forEach(t => emitTableChanged(restaurantId, t));
+    return changed;
+  },
+
+  /** Separa una mesa de su grupo. Conserva sus pedidos y su estado. */
+  async separate(restaurantId: number, tableId: number): Promise<Table[]> {
+    const pre = await tablesService.getById(restaurantId, tableId);
+    if (pre.groupId === null) throw HttpError.badRequest('La mesa no está unida a otra');
+    const changed = await prisma.$transaction(async (tx) => {
+      const lockedAll = await lockTables(tx, restaurantId, [tableId], pre.groupId);
+      const locked = lockedAll.find(t => t.id === tableId);
+      if (!locked) throw HttpError.notFound('Mesa no encontrada');
+      if (locked.groupId !== pre.groupId) throw HttpError.conflict('La mesa cambió mientras la separabas. Probá de nuevo.');
+      const group = lockedAll.filter(t => t.groupId === pre.groupId);
+      return applyGroupUpdates(tx, groupUpdatesAfterLeaving(group, [tableId]), []);
+    });
+    changed.forEach(t => emitTableChanged(restaurantId, t));
+    return changed;
   },
 
 

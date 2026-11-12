@@ -12,6 +12,8 @@ const paymentEnum = z.nativeEnum(PaymentMethod);
 
 const createSchema = z.object({
   tableId: z.number().int().positive(),
+  // Mesas unidas: cobrar todas juntas en una venta
+  wholeGroup: z.boolean().optional(),
   paymentMethod: paymentEnum,
   amount: z.coerce.number().nonnegative(),
   notes: z.string().trim().max(1000).optional(),

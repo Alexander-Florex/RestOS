@@ -9,6 +9,7 @@ import { useTables } from '../hooks/useTables';
 import { useSections } from '../hooks/useSections';
 import { TableCard } from './TableCard';
 import { TableDetailModal } from './TableDetailModal';
+import { groupOf } from './JoinTablesDialog';
 import { TableAdminPanel } from './TableAdminPanel';
 import { Button } from './ui/button';
 import { TABLE_STATUS_LABEL, TABLE_STATUS_STYLE } from '../lib/table-helpers';
@@ -253,7 +254,7 @@ export function TableMap() {
             <motion.div layout className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
               <AnimatePresence mode="popLayout">
                 {filtered.map(t => (
-                  <TableCard key={t.id} table={t} onClick={() => setSelected(t)} />
+                  <TableCard key={t.id} table={t} partners={groupOf(t, tables).filter(p => p.id !== t.id)} onClick={() => setSelected(t)} />
                 ))}
               </AnimatePresence>
             </motion.div>
@@ -264,6 +265,7 @@ export function TableMap() {
             table={liveSelected}
             open={selected !== null}
             onClose={() => setSelected(null)}
+            allTables={tables}
           />
         </>
       )}

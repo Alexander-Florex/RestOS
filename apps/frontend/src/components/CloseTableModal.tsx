@@ -21,7 +21,7 @@ import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { cn } from '../lib/utils';
 import { ItemModifiers } from './ItemModifiers';
-import { tableLabel } from '../lib/table-label';
+import { tableLabel, tablesLabel } from '../lib/table-label';
 
 interface CloseTableModalProps {
   table: Table;
@@ -30,6 +30,8 @@ interface CloseTableModalProps {
   onSuccess: () => void;
   orders: Order[];
   total: number;
+  /** Mesas unidas (tarea 5.3): todas las del grupo, sus pedidos y el total del grupo */
+  group?: { tables: Table[]; orders: Order[]; total: number } | null;
 }
 
 // Convierte File → base64 (con prefijo data:)
@@ -43,8 +45,14 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export function CloseTableModal({
-  table, open, onClose, onSuccess, orders, total,
+  table, open, onClose, onSuccess, orders: ownOrders, total: ownTotal, group,
 }: CloseTableModalProps) {
+  // Mesas unidas: por defecto se cobra todo junto; se puede cobrar solo esta mesa
+  const [whole, setWhole] = useState(true);
+  const isWhole = !!group && whole;
+  const orders = isWhole ? group!.orders : ownOrders;
+  const total = isWhole ? group!.total : ownTotal;
+  const label = isWhole ? tablesLabel(group!.tables) : tableLabel(table);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [amount, setAmount] = useState<string>('');
   const [notes, setNotes] = useState('');
@@ -54,6 +62,10 @@ export function CloseTableModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Al abrir, autocompletamos amount = total
+  useEffect(() => {
+    if (open) setWhole(true);
+  }, [open]);
+
   useEffect(() => {
     if (open) {
       setPaymentMethod('CASH');
@@ -102,12 +114,13 @@ export function CloseTableModal({
     try {
       const { sale } = await salesApi.create({
         tableId: table.id,
+        wholeGroup: isWhole,
         paymentMethod,
         amount: numericAmount,
         notes: notes.trim() || undefined,
         imageBase64: imageBase64 || undefined,
       });
-      toast.success(`${tableLabel(table)} cobrada: ${formatMoney(numericAmount)}`);
+      toast.success(`${label} ${isWhole ? 'cobradas' : 'cobrada'}: ${formatMoney(numericAmount)}`);
 
       // Ticket de caja: siempre, desde la venta guardada. Imprime el agente local,
       // no depende de que este dispositivo tenga una impresora elegida.
@@ -125,7 +138,7 @@ export function CloseTableModal({
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         // Otro dispositivo ya cobró esta mesa: cerramos el modal y refrescamos
-        toast.error(`${tableLabel(table)} ya fue cobrada desde otro dispositivo`);
+        toast.error(isWhole ? 'Alguna de las mesas ya se cobró desde otro dispositivo. Revisá la cuenta.' : `${label} ya fue cobrada desde otro dispositivo`);
         onSuccess();
         return;
       }
@@ -141,12 +154,26 @@ export function CloseTableModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-brand-400" />
-            Cobrar {tableLabel(table)}
+            Cobrar {label}
           </DialogTitle>
           <DialogDescription>
-            Revisá el desglose y confirmá el cobro. Al hacerlo, la mesa quedará libre.
+            Revisá el desglose y confirmá el cobro. Al hacerlo, {isWhole ? 'las mesas quedarán libres' : 'la mesa quedará libre'}.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Mesas unidas: cobrar todo junto o solo esta mesa */}
+        {group && (
+          <div className="grid grid-cols-2 gap-2">
+            {([[true, `Todo junto · ${formatMoney(group.total)}`, tablesLabel(group.tables)], [false, `Solo esta mesa · ${formatMoney(ownTotal)}`, tableLabel(table)]] as const).map(([v, title, sub]) => (
+              <button key={String(v)} type="button" disabled={submitting} onClick={() => setWhole(v)}
+                className={cn('rounded-xl border-2 px-3 py-2 text-left text-sm transition-colors',
+                  whole === v ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-border text-muted-foreground hover:text-foreground')}>
+                <span className="block font-semibold">{title}</span>
+                <span className="block truncate text-xs">{sub}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Desglose */}
         <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">

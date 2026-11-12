@@ -22,7 +22,9 @@ import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
-import { lockTable } from '../../lib/table-lock.js';
+import { lockTables, groupUpdatesAfterLeaving } from '../../lib/table-lock.js';
+import { applyGroupUpdates } from '../tables/tables.service.js';
+import { tablesLabel } from '../../shared/table-label.js';
 import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money.js';
 import { localDayKey, localDaysRange, type DayKey } from '../../lib/time.js';
 import { modifiersKey } from '../../lib/modifiers.js';
@@ -82,6 +84,8 @@ function emitTableChanged(restaurantId: number, table: unknown) {
 
 export interface CreateSaleInput {
   tableId: number;
+  /** Mesas unidas (tarea 5.3): cobrar todas las del grupo en una sola venta. Sin grupo, se ignora. */
+  wholeGroup?: boolean;
   paymentMethod: PaymentMethod;
   amount: number;
   notes?: string;
@@ -155,19 +159,34 @@ export const salesService = {
       imageUrl = await saveBase64Image(input.imageBase64);
     }
 
+    // Grupo de la mesa (lectura fuera de la transacción: solo para saber qué bloquear;
+    // adentro se verifica que no haya cambiado)
+    const pre = await prisma.table.findFirst({ where: { id: input.tableId, restaurantId }, select: { groupId: true } });
+    if (!pre) throw HttpError.notFound('Mesa no encontrada');
+
     try {
-      const { sale, updatedTable } = await prisma.$transaction(async (tx) => {
-        // 1. Bloquear la mesa: tiene que ser la primera lectura de la transacción
-        const locked = await lockTable(tx, restaurantId, input.tableId);
+      const { sale, updatedTables } = await prisma.$transaction(async (tx) => {
+        // 1. Bloquear la mesa (y las de su grupo, en orden): tiene que ser la primera lectura
+        const lockedAll = await lockTables(tx, restaurantId, [input.tableId], pre.groupId);
+        const locked = lockedAll.find(t => t.id === input.tableId);
         if (!locked) throw HttpError.notFound('Mesa no encontrada');
-        if (!PAYABLE_STATUSES.includes(locked.status)) {
-          throw HttpError.conflict('La mesa ya fue cobrada o no tiene una cuenta abierta');
+        if (locked.groupId !== pre.groupId) {
+          throw HttpError.conflict('Las mesas unidas cambiaron mientras cobrabas. Revisá la cuenta y volvé a cobrar.');
+        }
+        const group = locked.groupId !== null ? lockedAll.filter(t => t.groupId === locked.groupId) : [locked];
+        // Todo junto (si de verdad está unida a otra) o solo esta mesa
+        const charged = input.wholeGroup && group.length >= 2 ? group : [locked];
+        const chargedIds = charged.map(t => t.id);
+        if (charged.some(t => !PAYABLE_STATUSES.includes(t.status))) {
+          throw HttpError.conflict(charged.length > 1
+            ? 'Alguna de las mesas unidas ya se cobró o no tiene cuenta abierta. Revisá la cuenta y volvé a cobrar.'
+            : 'La mesa ya fue cobrada o no tiene una cuenta abierta');
         }
 
-        // 2. Leer pedidos con la mesa ya bloqueada
+        // 2. Leer pedidos con las mesas ya bloqueadas
         const orders = await tx.order.findMany({
           // Solo la cuenta abierta: los cobrados/anulados de antes quedan en el historial
-          where: { tableId: input.tableId, restaurantId, status: OrderStatus.OPEN },
+          where: { tableId: { in: chargedIds }, restaurantId, status: OrderStatus.OPEN },
           // Los platos anulados por un cambio no se cobran (tarea 5.8)
           include: { items: { where: { status: 'ACTIVE' }, include: { menuItem: true } } },
         });
@@ -222,18 +241,22 @@ export const salesService = {
           );
         }
 
-        // 4. Cerrar la mesa (el where por estado es una segunda garantía además del lock)
+        // 4. Cerrar las mesas cobradas (el where por estado es una segunda garantía además del lock)
         const closed = await tx.table.updateMany({
-          where: { id: input.tableId, restaurantId, status: { in: PAYABLE_STATUSES } },
+          where: { id: { in: chargedIds }, restaurantId, status: { in: PAYABLE_STATUSES } },
           data: {
             status: TableStatus.AVAILABLE,
             guestCount: null,
             openedAt: null,
           },
         });
-        if (closed.count !== 1) {
+        if (closed.count !== charged.length) {
           throw HttpError.conflict('La mesa ya fue cobrada o no tiene una cuenta abierta');
         }
+        // Las cobradas salen del grupo (si queda una sola sin cobrar, deja de estar unida)
+        const touched = locked.groupId !== null
+          ? await applyGroupUpdates(tx, groupUpdatesAfterLeaving(group, chargedIds), chargedIds)
+          : await tx.table.findMany({ where: { id: { in: chargedIds } } });
 
         const sale = await tx.sale.create({
           data: {
@@ -241,7 +264,8 @@ export const salesService = {
             tableId: input.tableId,
             channel: SaleChannel.DINE_IN,
             tableNumber: locked.number,
-            tableName: locked.name,
+            // Mesas unidas: "Ventana + Patio" (queda como estaba al cobrar)
+            tableName: charged.length > 1 ? tablesLabel(charged, 'NAME').slice(0, 120) : locked.name,
             paymentMethod: input.paymentMethod,
             amount: fromCents(amountCents),
             total: fromCents(totalCents),
@@ -284,18 +308,18 @@ export const salesService = {
           restaurantId, action: 'sale.create', entity: 'Sale', entityId: sale.id,
           userId: input.registeredById ?? undefined,
           after: {
-            tableNumber: locked.number, tableName: locked.name, paymentMethod: input.paymentMethod,
+            tableNumber: locked.number, tableName: sale.tableName, paymentMethod: input.paymentMethod,
+            ...(charged.length > 1 ? { tableNumbers: charged.map(t => t.number) } : {}),
             total: sale.total, amount: sale.amount, orderIds: orders.map(o => o.id),
             notes: input.notes ?? null, receipt: !!imageUrl,
           },
         });
 
-        const updatedTable = await tx.table.findUniqueOrThrow({ where: { id: input.tableId } });
-        return { sale, updatedTable };
+        return { sale, updatedTables: touched };
       });
 
       emitSaleRegistered(restaurantId, sale);
-      emitTableChanged(restaurantId, updatedTable);
+      updatedTables.forEach(t => emitTableChanged(restaurantId, t));
 
       return sale;
     } catch (err) {
