@@ -31,6 +31,7 @@ import { TableOrderSheet } from './TableOrderSheet';
 import { useChangeNotifications } from '../hooks/useChangeNotifications';
 import { tableLabel, tableBadge, showsName, useTableLabelMode, tablesLabel } from '../lib/table-label';
 import { groupOf } from './JoinTablesDialog';
+import { useOrderedCategories } from '../hooks/useMenuCategories';
 
 type Step = 'tables' | 'type' | 'takeaway-name' | 'guests' | 'menu';
 type OrderType = 'dine-in' | 'takeaway';
@@ -66,18 +67,8 @@ export function WaiterMobileView() {
     selectedTable && selectedTable.status !== 'AVAILABLE' ? selectedTable.id : null
   );
 
-  // Categorías dinámicas de los ítems del menú
-  const categories = useMemo(() => {
-    const seen = new Set<string>();
-    const result: string[] = [];
-    for (const item of menu) {
-      if (item.category && !seen.has(item.category)) {
-        seen.add(item.category);
-        result.push(item.category);
-      }
-    }
-    return result.sort();
-  }, [menu]);
+  // Categorías en el orden que eligió el administrador (Entradas, Principales, Postres…)
+  const categories = useOrderedCategories(menu);
 
   const effectiveCategory = useMemo(() => {
     if (!activeCategory || !categories.includes(activeCategory)) {

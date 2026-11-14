@@ -20,6 +20,7 @@ import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
 import { ItemModifiers } from './ItemModifiers';
 import { submitOrder } from '../lib/order-queue';
 import { tableLabel } from '../lib/table-label';
+import { useOrderedCategories } from '../hooks/useMenuCategories';
 
 interface AddOrderDialogProps {
   table: Table;
@@ -41,10 +42,8 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
     if (!open) { clear(); setSearch(''); setSubmitting(false); setCustomizing(null); }
   }, [open, clear]);
 
-  const categories = useMemo(
-    () => [...new Set(menu.map(m => m.category).filter(Boolean))].sort(),
-    [menu],
-  );
+  // En el orden que eligió el administrador en Menú
+  const categories = useOrderedCategories(menu);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();

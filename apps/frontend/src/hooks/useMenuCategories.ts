@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // useMenuCategories.ts — Hook para listar categorías del menú + sync socket
 // ──────────────────────────────────────────────
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { menuCategoriesApi, type MenuCategory } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
 import { useResync } from './useConnection';
@@ -64,4 +64,18 @@ export function useMenuCategories(): UseMenuCategoriesResult {
   }, []);
 
   return { categories, loading, error, refresh };
+}
+
+/**
+ * Categorías de los platos en el orden que eligió el administrador en Menú
+ * (Entradas, Principales, Postres…). Las que no tienen orden cargado van al final.
+ */
+export function useOrderedCategories(menu: Array<{ category: string | null | undefined }>): string[] {
+  const { categories } = useMenuCategories();
+  return useMemo(() => {
+    const rank = new Map(categories.map((c, i) => [c.name, i]));
+    const names = [...new Set(menu.map(m => m.category).filter((c): c is string => !!c))];
+    return names.sort((a, b) =>
+      (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity) || a.localeCompare(b, 'es'));
+  }, [menu, categories]);
 }
