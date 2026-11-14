@@ -224,6 +224,10 @@ export const tablesApi = {
   join: (id: number, tableIds: number[]) =>
     request<{ tables: Table[] }>(`/tables/${id}/join`, { method: 'POST', body: { tableIds } }),
 
+  /** Mueve pedidos a otra mesa: todos (se mudan; esta queda libre) o algunos */
+  moveOrders: (id: number, toTableId: number, orderIds?: number[]) =>
+    request<{ tables: Table[] }>(`/tables/${id}/move-orders`, { method: 'POST', body: { toTableId, ...(orderIds ? { orderIds } : {}) } }),
+
   /** Separa la mesa de su grupo */
   separate: (id: number) =>
     request<{ tables: Table[] }>(`/tables/${id}/separate`, { method: 'POST' }),

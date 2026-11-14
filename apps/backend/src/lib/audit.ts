@@ -22,6 +22,7 @@ export const AUDIT_ACTIONS = [
   'order.item.remake',  // plato rehecho (se cobra una vez; pérdida)
   'order.item.replace', // plato cambiado por otro (el original no se cobra)
   'order.item.reject',  // pedido de cambio rechazado por caja
+  'order.move',         // pedidos movidos a otra mesa (tarea 5.3)
   'menu.price',         // cambio de precio de un plato
   'menu.options',       // cambio de opciones/recargos de un plato
   'menu.delete',        // plato borrado

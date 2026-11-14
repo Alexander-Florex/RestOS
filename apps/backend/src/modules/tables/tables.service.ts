@@ -7,6 +7,7 @@ import { HttpError } from '../../lib/http-error.js';
 import { lockTable, lockTables, groupUpdatesAfterLeaving, type LockedTable } from '../../lib/table-lock.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 import { normalizeTableName, tableLabel, tablesLabel } from '../../shared/table-label.js';
+import { audit } from '../../lib/audit.js';
 
 /**
  * Aplica los cambios de grupo y devuelve las mesas tocadas (para avisar por socket).
@@ -285,6 +286,69 @@ export const tablesService = {
       return tx.table.findMany({ where: { restaurantId, groupId: key }, orderBy: { number: 'asc' } });
     });
     changed.forEach(t => emitTableChanged(restaurantId, t));
+    return changed;
+  },
+
+  /**
+   * Mueve pedidos abiertos de una mesa a otra (tarea 5.3).
+   * - Sin `orderIds`: toda la mesa (se cambiaron de lugar). La de origen queda libre.
+   * - Con `orderIds`: solo esos pedidos (se cargaron en la mesa equivocada).
+   * Si la de destino está libre, se abre. Las dos mesas se bloquean en orden (como el cobro):
+   * un cobro o un pedido simultáneo espera, nunca queda nada en el medio.
+   */
+  async moveOrders(restaurantId: number, fromId: number, toId: number, orderIds?: number[]): Promise<Table[]> {
+    if (fromId === toId) throw HttpError.badRequest('Elegí otra mesa');
+    const pre = await tablesService.getById(restaurantId, fromId);
+    const changed = await prisma.$transaction(async (tx) => {
+      const locked = await lockTables(tx, restaurantId, [fromId, toId], pre.groupId);
+      const from = locked.find(t => t.id === fromId);
+      const to = locked.find(t => t.id === toId);
+      if (!from || !to) throw HttpError.notFound('Mesa no encontrada');
+      if (from.groupId !== pre.groupId) throw HttpError.conflict('La mesa cambió recién. Probá de nuevo.');
+      const mode = await getTableLabelMode(restaurantId, tx);
+      if (!to.enabled) throw HttpError.badRequest(`${tableLabel(to, mode)} está deshabilitada`);
+      if (to.status === TableStatus.RESERVED) throw HttpError.badRequest(`${tableLabel(to, mode)} está reservada`);
+
+      const open = await tx.order.findMany({ where: { tableId: fromId, restaurantId, status: 'OPEN' }, select: { id: true } });
+      const ids = orderIds ? [...new Set(orderIds)] : open.map(o => o.id);
+      if (ids.length === 0) throw HttpError.badRequest('La mesa no tiene pedidos abiertos para mover');
+      if (ids.some(id => !open.some(o => o.id === id))) {
+        throw HttpError.conflict('Alguno de los pedidos ya no está abierto en esta mesa. Recargá la cuenta.');
+      }
+      const moved = await tx.order.updateMany({ where: { id: { in: ids }, tableId: fromId, restaurantId, status: 'OPEN' }, data: { tableId: toId } });
+      if (moved.count !== ids.length) throw HttpError.conflict('Los pedidos cambiaron recién. Recargá la cuenta.');
+
+      const now = new Date();
+      const fullMove = ids.length === open.length;
+      const full = await tx.table.findUniqueOrThrow({ where: { id: fromId } });
+      // La de destino se abre si estaba libre (con los comensales de la de origen si se mudan todos)
+      if (to.status === TableStatus.AVAILABLE) {
+        await tx.table.update({
+          where: { id: toId },
+          data: { status: TableStatus.OCCUPIED, openedAt: fullMove ? (full.openedAt ?? now) : now, guestCount: fullMove ? full.guestCount : null },
+        });
+      }
+      const touched = [fromId, toId];
+      // Si se mudaron todos, la de origen queda libre (y sale del grupo si estaba unida)
+      if (fullMove) {
+        await tx.table.update({ where: { id: fromId }, data: { status: TableStatus.AVAILABLE, guestCount: null, openedAt: null } });
+        if (from.groupId !== null) {
+          const group = locked.filter(t => t.groupId === from.groupId);
+          await applyGroupUpdates(tx, groupUpdatesAfterLeaving(group, [fromId]), []);
+          touched.push(...group.map(t => t.id));
+        }
+      }
+      await audit(tx, {
+        restaurantId, action: 'order.move', entity: 'Table', entityId: fromId,
+        before: { table: tableLabel(from, mode), orderIds: ids },
+        after: { table: tableLabel(to, mode), fullMove },
+      });
+      return tx.table.findMany({ where: { id: { in: [...new Set(touched)] } } });
+    });
+    changed.forEach(t => emitTableChanged(restaurantId, t));
+    // Las pantallas de pedidos de las dos mesas recargan (mismo aviso que un cambio de pedido)
+    ioRestaurant(restaurantId).emit(SocketEvents.ORDER_UPDATED, { tableId: fromId });
+    ioRestaurant(restaurantId).emit(SocketEvents.ORDER_UPDATED, { tableId: toId });
     return changed;
   },
 

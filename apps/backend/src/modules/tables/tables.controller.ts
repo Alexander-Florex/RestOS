@@ -17,6 +17,12 @@ const createSchema = z.object({
 
 const labelModeSchema = z.object({ mode: z.enum(['NAME', 'NUMBER']) });
 
+const moveSchema = z.object({
+  toTableId: z.coerce.number().int().positive(),
+  // Sin esto se muda toda la mesa
+  orderIds: z.array(z.coerce.number().int().positive()).min(1).max(100).optional(),
+});
+
 const joinSchema = z.object({
   tableIds: z.array(z.coerce.number().int().positive()).min(1, 'Elegí al menos otra mesa').max(20),
 });
@@ -129,6 +135,14 @@ export const tablesController = {
     const { id } = idParamSchema.parse(req.params);
     const { tableIds } = joinSchema.parse(req.body);
     const tables = await tablesService.join(req.user.restaurantId, id, tableIds);
+    res.json({ tables });
+  },
+
+  async moveOrders(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParamSchema.parse(req.params);
+    const { toTableId, orderIds } = moveSchema.parse(req.body);
+    const tables = await tablesService.moveOrders(req.user.restaurantId, id, toTableId, orderIds);
     res.json({ tables });
   },
 
