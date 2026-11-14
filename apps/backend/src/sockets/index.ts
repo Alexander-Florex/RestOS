@@ -10,6 +10,8 @@ import { rolesService } from '../modules/roles/roles.service.js';
 import { corsOrigins } from '../config/env.js';
 import { SocketEvents } from '../shared/socket-events.js';
 import { logger } from '../lib/logger.js';
+import { prisma } from '../lib/prisma.js';
+import { tableLabel } from '../shared/table-label.js';
 
 let io: SocketIOServer | null = null;
 
@@ -90,9 +92,30 @@ export { SocketEvents };
  * @param restaurantId  ID del restaurante (para el room correcto)
  * @param payload       Datos del ticket a imprimir
  */
-export function emitPrintRequest(restaurantId: number, payload: {
+export function emitPrintRequest(restaurantId: number, payload: PrintPayload): void {
+  // El agente imprime la mesa como la ve el local: "VENTANA" o "Mesa 5" (tableLabel).
+  // Si quien pide la impresión no lo trae, se busca acá. tableNumber sigue yendo igual
+  // (lo usa el agente actual).
+  if (payload.tableLabel !== undefined || !payload.tableNumber) {
+    ioRestaurant(restaurantId).emit(SocketEvents.PRINT_REQUEST, payload);
+    return;
+  }
+  Promise.all([
+    prisma.table.findUnique({ where: { restaurantId_number: { restaurantId, number: payload.tableNumber } }, select: { number: true, name: true } }),
+    prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { tableLabelMode: true } }),
+  ])
+    .then(([t, r]) => ({ tableName: t?.name ?? null, tableLabel: tableLabel(t ?? { number: payload.tableNumber! }, r?.tableLabelMode) }))
+    .catch(() => ({}))
+    .then((extra) => ioRestaurant(restaurantId).emit(SocketEvents.PRINT_REQUEST, { ...payload, ...extra }));
+}
+
+type PrintPayload = {
   type:          'kitchen' | 'cash';
   tableNumber?:  number;
+  /** Nombre de la mesa ("Ventana"), si tiene */
+  tableName?:    string | null;
+  /** Cómo imprimir la mesa: "Ventana", "Ventana + Patio" o "Mesa 5" */
+  tableLabel?:   string;
   orderNumber?:  number;
   isTakeaway?:   boolean;
   takeawayName?: string | null;
@@ -103,6 +126,4 @@ export function emitPrintRequest(restaurantId: number, payload: {
   amountPaid?:   number;
   paymentMethod?: string;
   notes?:        string | null;
-}): void {
-  ioRestaurant(restaurantId).emit(SocketEvents.PRINT_REQUEST, payload);
-}
+};

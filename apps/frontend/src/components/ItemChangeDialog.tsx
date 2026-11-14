@@ -41,12 +41,12 @@ const QUICK: Record<ChangeMode, string[]> = {
 
 interface Props {
   item: OrderItem | null;
-  tableNumber: number;
+  tableLabel: string;
   mode: ChangeMode;
   onClose: () => void;
 }
 
-export function ItemChangeDialog({ item, tableNumber, mode, onClose }: Props) {
+export function ItemChangeDialog({ item, tableLabel, mode, onClose }: Props) {
   const { can } = useAuth();
   const canApprove = can('orders.change.approve');
   const { items: menu } = useMenu({ onlyEnabled: true });
@@ -111,7 +111,7 @@ export function ItemChangeDialog({ item, tableNumber, mode, onClose }: Props) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isReplace ? <Replace className="h-5 w-5 text-brand-400" /> : <RotateCcw className="h-5 w-5 text-amber-400" />}
-            {isReplace ? 'Cambiar plato' : 'Rehacer plato'} · Mesa {tableNumber}
+            {isReplace ? 'Cambiar plato' : 'Rehacer plato'} · {tableLabel}
           </DialogTitle>
           <DialogDescription>
             {isReplace

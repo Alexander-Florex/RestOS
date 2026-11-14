@@ -41,7 +41,8 @@ interface NavItem {
   label: string;
   icon: typeof LayoutGrid;
   /** Permiso necesario para ver la sección (si falta, la ve cualquiera con acceso al panel). */
-  perm?: Permission;
+  /** Con varios, alcanza con tener uno */
+  perm?: Permission | Permission[];
 }
 
 const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
@@ -69,7 +70,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { id: 'sales',   label: 'Ventas',   icon: Receipt, perm: 'sales.view' },
       { id: 'reports', label: 'Reportes', icon: BarChart3, perm: 'reports.view' },
-      { id: 'staff',   label: 'Personal', icon: Users, perm: 'staff.manage' },
+      { id: 'staff',   label: 'Personal', icon: Users, perm: ['staff.manage', 'staff.hours'] },
       { id: 'users',   label: 'Usuarios', icon: UserCog, perm: 'users.manage' },
       { id: 'roles',   label: 'Roles',    icon: ShieldCheck, perm: 'users.manage' },
       { id: 'audit',   label: 'Auditoría', icon: ScrollText, perm: 'audit.view' },
@@ -91,7 +92,7 @@ export function DashboardPage() {
   if (!user) return null;
 
   const groups = NAV_GROUPS
-    .map(g => ({ ...g, items: g.items.filter(item => !item.perm || can(item.perm)) }))
+    .map(g => ({ ...g, items: g.items.filter(item => !item.perm || (Array.isArray(item.perm) ? item.perm.some(p => can(p)) : can(item.perm))) }))
     .filter(g => g.items.length > 0);
   const allItems = groups.flatMap(g => g.items);
   const primaryItems = allItems.filter(i => MOBILE_PRIMARY.includes(i.id));

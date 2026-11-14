@@ -4,7 +4,7 @@
 // ──────────────────────────────────────────────
 import { forwardRef } from 'react';
 import { motion } from 'motion/react';
-import { Users, Clock } from 'lucide-react';
+import { Users, Clock, Link2 } from 'lucide-react';
 import type { Table } from '../lib/api';
 import {
   TABLE_STATUS_LABEL,
@@ -13,15 +13,20 @@ import {
 } from '../lib/table-helpers';
 import { useTick } from '../hooks/useTables';
 import { cn } from '../lib/utils';
+import { showsName, tableBadge, tablesLabel, useTableLabelMode } from '../lib/table-label';
 
 interface TableCardProps {
   table: Table;
+  /** Mesas unidas a esta (tarea 5.3) */
+  partners?: Table[];
   onClick: () => void;
 }
 
-export const TableCard = forwardRef<HTMLButtonElement, TableCardProps>(function TableCard({ table, onClick }, ref) {
+export const TableCard = forwardRef<HTMLButtonElement, TableCardProps>(function TableCard({ table, partners = [], onClick }, ref) {
   // Tick cada 30s para refrescar el tiempo
   useTick(30_000);
+  useTableLabelMode();
+  const byName = showsName(table);
 
   const style = TABLE_STATUS_STYLE[table.status];
   const elapsed = elapsedSince(table.openedAt);
@@ -77,13 +82,29 @@ export const TableCard = forwardRef<HTMLButtonElement, TableCardProps>(function 
         </span>
       </div>
 
-      {/* Número */}
-      <div className="relative">
-        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Mesa</p>
-        <p className={cn('font-display text-5xl font-bold leading-none tabular-nums tracking-tight', busy ? style.text : 'text-foreground')}>
-          {String(table.number).padStart(2, '0')}
-        </p>
+      {/* Nombre o número (según lo elegido en el restaurante) */}
+      <div className="relative min-w-0">
+        {byName ? (
+          <p className={cn('font-display text-2xl font-bold leading-tight tracking-tight line-clamp-2 break-words', busy ? style.text : 'text-foreground')}>
+            {tableBadge(table)}
+          </p>
+        ) : (
+          <>
+            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Mesa</p>
+            <p className={cn('font-display text-5xl font-bold leading-none tabular-nums tracking-tight', busy ? style.text : 'text-foreground')}>
+              {tableBadge(table)}
+            </p>
+          </>
+        )}
       </div>
+
+      {/* Unida con otras mesas */}
+      {partners.length > 0 && (
+        <span className="relative flex w-full min-w-0 items-center gap-1 truncate rounded-full border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-200" title={`Unida con ${tablesLabel(partners)}`}>
+          <Link2 className="h-3 w-3 shrink-0" />
+          <span className="truncate">con {tablesLabel(partners)}</span>
+        </span>
+      )}
 
       {/* Footer: capacidad o comensales + tiempo */}
       <div className="relative flex w-full items-center justify-between text-xs text-muted-foreground">

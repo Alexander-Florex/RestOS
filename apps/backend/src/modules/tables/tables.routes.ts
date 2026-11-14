@@ -19,7 +19,8 @@ router.get('/',     asyncHandler(tablesController.list));
 router.get('/:id',  asyncHandler(tablesController.getById));
 
 // ── CRUD estructural — solo ADMIN ──
-router.post('/',                requirePermission('tables.manage'), asyncHandler(tablesController.create));
+router.put('/label-mode',       requirePermission('tables.manage'), asyncHandler(tablesController.setLabelMode));
+router.post('/',              requirePermission('tables.manage'), asyncHandler(tablesController.create));
 router.patch('/:id',            requirePermission('tables.manage'), asyncHandler(tablesController.update));
 router.delete('/:id',           requirePermission('tables.manage'), asyncHandler(tablesController.remove));
 router.post('/:id/toggle',      requirePermission('tables.manage'), asyncHandler(tablesController.toggleEnabled));
@@ -30,5 +31,8 @@ router.post('/:id/request-bill',        requirePermission('tables.operate'), asy
 router.post('/:id/close',               requirePermission('tables.operate'), asyncHandler(tablesController.close));
 router.post('/:id/reserve',             requirePermission('tables.operate'), asyncHandler(tablesController.reserve));
 router.post('/:id/cancel-reservation',  requirePermission('tables.operate'), asyncHandler(tablesController.cancelReservation));
+// Mesas unidas (tarea 5.3)
+router.post('/:id/join',                requirePermission('tables.operate'), asyncHandler(tablesController.join));
+router.post('/:id/separate',            requirePermission('tables.operate'), asyncHandler(tablesController.separate));
 
 export { router as tablesRouter };

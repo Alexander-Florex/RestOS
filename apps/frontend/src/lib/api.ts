@@ -189,6 +189,10 @@ export const sectionsApi = {
 export interface Table {
   id: number;
   number: number;
+  /** Nombre con el que el local llama a la mesa ("Ventana"); null si no tiene */
+  name: string | null;
+  /** Mesas unidas: las del mismo grupo comparten este valor (null = no está unida) */
+  groupId: number | null;
   status: TableStatus;
   capacity: number;
   enabled: boolean;
@@ -200,17 +204,29 @@ export interface Table {
 }
 
 export const tablesApi = {
-  list:    () => request<{ tables: Table[] }>('/tables'),
+  list:    () => request<{ tables: Table[]; labelMode: 'NAME' | 'NUMBER' }>('/tables'),
+
+  /** Mesas por nombre o por número en todas las pantallas (Administrador) */
+  setLabelMode: (mode: 'NAME' | 'NUMBER') =>
+    request<{ labelMode: 'NAME' | 'NUMBER' }>('/tables/label-mode', { method: 'PUT', body: { mode } }),
   getById: (id: number) => request<{ table: Table }>(`/tables/${id}`),
 
-  create: (data: { number: number; capacity?: number; sectionId?: number | null }) =>
+  create: (data: { number: number; name?: string | null; capacity?: number; sectionId?: number | null }) =>
     request<{ table: Table }>('/tables', { method: 'POST', body: data }),
 
-  update: (id: number, data: { number?: number; capacity?: number; sectionId?: number | null; enabled?: boolean }) =>
+  update: (id: number, data: { number?: number; name?: string | null; capacity?: number; sectionId?: number | null; enabled?: boolean }) =>
     request<{ table: Table }>(`/tables/${id}`, { method: 'PATCH', body: data }),
 
   remove: (id: number) =>
     request<void>(`/tables/${id}`, { method: 'DELETE' }),
+
+  /** Une la mesa con otras (sus pedidos siguen en cada una; se cobran juntas o por separado) */
+  join: (id: number, tableIds: number[]) =>
+    request<{ tables: Table[] }>(`/tables/${id}/join`, { method: 'POST', body: { tableIds } }),
+
+  /** Separa la mesa de su grupo */
+  separate: (id: number) =>
+    request<{ tables: Table[] }>(`/tables/${id}/separate`, { method: 'POST' }),
 
   toggleEnabled: (id: number) =>
     request<{ table: Table }>(`/tables/${id}/toggle`, { method: 'POST' }),
@@ -454,6 +470,8 @@ export interface Sale {
   tableId: number | null;
   /** null en ventas para llevar */
   tableNumber: number | null;
+  /** Nombre de la mesa al cobrar (mesas unidas: "Ventana + Patio") */
+  tableName?: string | null;
   takeawayOrderId: number | null;
   paymentMethod: PaymentMethod;
   amount: string;
@@ -467,6 +485,8 @@ export interface Sale {
 
 export interface CreateSaleBody {
   tableId: number;
+  /** Mesas unidas: cobrar todas las del grupo en una sola venta */
+  wholeGroup?: boolean;
   paymentMethod: PaymentMethod;
   amount: number;
   notes?: string;
@@ -900,6 +920,8 @@ export interface StaffMember {
   phone: string | null;
   active: boolean;
   cuit: string | null;
+  /** Valor por hora (Decimal como texto); null = sin cargar */
+  hourlyRate: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -911,7 +933,68 @@ export interface CreateStaffBody {
   phone?: string | null;
   active?: boolean;
   cuit?: string | null;
+  hourlyRate?: number | null;
 }
+
+// ── Horarios del personal ──
+export interface StaffWeekShift {
+  id: number;
+  /** Día (hora del local) en que empezó el turno */
+  day: string;
+  clockIn: string;
+  clockOut: string | null;
+  minutes: number;
+  amount: number;
+  hourlyRate: number | null;
+  note: string | null;
+}
+export interface StaffWeekRow {
+  id: number;
+  name: string;
+  role: StaffRole;
+  active: boolean;
+  hourlyRate: number | null;
+  openShift: { id: number; clockIn: string } | null;
+  minutes: number;
+  amount: number;
+  missingRate: boolean;
+  shifts: StaffWeekShift[];
+}
+export interface StaffWeek {
+  weekStart: string;
+  weekEnd: string;
+  staff: StaffWeekRow[];
+  totals: { minutes: number; amount: number };
+}
+export interface ShiftBody {
+  /** Día de la entrada (YYYY-MM-DD) */
+  day: string;
+  /** HH:MM; una salida más temprano que la entrada es del día siguiente */
+  from: string;
+  to: string | null;
+  note?: string | null;
+  reason: string;
+}
+
+export const staffShiftsApi = {
+  week: (day?: string) => request<StaffWeek>(`/staff-shifts/week${day ? `?day=${day}` : ''}`),
+  clockIn: (staffId: number) => request<unknown>(`/staff-shifts/staff/${staffId}/clock-in`, { method: 'POST' }),
+  clockOut: (staffId: number) => request<unknown>(`/staff-shifts/staff/${staffId}/clock-out`, { method: 'POST' }),
+  create: (data: ShiftBody & { staffMemberId: number }) => request<unknown>('/staff-shifts', { method: 'POST', body: data }),
+  update: (id: number, data: ShiftBody) => request<unknown>(`/staff-shifts/${id}`, { method: 'PATCH', body: data }),
+  remove: (id: number, reason: string) => request<void>(`/staff-shifts/${id}`, { method: 'DELETE', body: { reason } }),
+  downloadCsv: async (day: string): Promise<void> => {
+    const { blob, filename } = await requestBlob(`/staff-shifts/week.csv?day=${day}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename ?? `horarios-${day}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  },
+};
 
 // ── ARCA ──
 export interface ArcaImpuesto {
@@ -1135,7 +1218,7 @@ export interface SalesReport {
   byDay: Array<{ date: string; total: number; count: number }>;
   byChannel: Array<{ channel: SaleChannel; count: number; total: number }>;
   /** Solo salón */
-  byTable: Array<{ tableNumber: number; count: number; total: number }>;
+  byTable: Array<{ tableNumber: number; tableName: string | null; count: number; total: number }>;
 }
 
 export interface TopItem {
@@ -1151,6 +1234,7 @@ export interface DailyTicket {
   channel: SaleChannel;
   /** null en ventas para llevar */
   tableNumber: number | null;
+  tableName: string | null;
   /** Cliente del pedido para llevar */
   customerName: string | null;
   closedAt: string;
@@ -1394,7 +1478,7 @@ export interface ItemChange {
   rejectReason: string | null;
   createdAt: string;
   resolvedAt: string | null;
-  order: { id: number; tableId: number; status: OrderStatus; table: { number: number } };
+  order: { id: number; tableId: number; status: OrderStatus; table: { number: number; name: string | null } };
   requestedBy: { id: number; name: string } | null;
   resolvedBy: { id: number; name: string } | null;
 }

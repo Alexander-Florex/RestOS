@@ -5,8 +5,9 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   Users, Clock, Loader2, Receipt, Lock, CalendarCheck,
-  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard, Printer, ListPlus, RotateCcw, Replace,
+  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard, Printer, ListPlus, RotateCcw, Replace, Link2, Unlink,
 } from 'lucide-react';
+import { JoinTablesDialog, groupOf } from './JoinTablesDialog';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
@@ -16,7 +17,7 @@ import {
   TABLE_STATUS_LABEL, TABLE_STATUS_STYLE, elapsedSince,
 } from '../lib/table-helpers';
 import { useTick } from '../hooks/useTables';
-import { useTableOrders } from '../hooks/useTableOrders';
+import { useTableOrders, useGroupOrders } from '../hooks/useTableOrders';
 import { useAuth } from '../context/AuthContext';
 import { formatMoney } from '../lib/format';
 import { CloseTableModal } from './CloseTableModal';
@@ -27,14 +28,17 @@ import { ItemModifiers } from './ItemModifiers';
 import { CancelOrderDialog } from './CancelOrderDialog';
 import { ItemChangeDialog, type ChangeMode } from './ItemChangeDialog';
 import { ChangeRequestCard, usePendingChanges } from './ChangeRequests';
+import { tableLabel, tablesLabel, useTableLabelMode } from '../lib/table-label';
 
 interface TableDetailModalProps {
   table: Table | null;
   open: boolean;
   onClose: () => void;
+  /** Todas las mesas (para mostrar y armar mesas unidas) */
+  allTables?: Table[];
 }
 
-export function TableDetailModal({ table, open, onClose }: TableDetailModalProps) {
+export function TableDetailModal({ table, open, onClose, allTables = [] }: TableDetailModalProps) {
   const { can } = useAuth();
   const canOperate = can('tables.operate');
   const canCharge = can('sales.charge');
@@ -50,6 +54,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
   const [submitting, setSubmitting] = useState(false);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
   const [addOrderOpen, setAddOrderOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
 
   // Solo cargamos pedidos si la mesa está ocupada o con cuenta pedida
   const tableId = table && (table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED')
@@ -57,8 +62,13 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
     : null;
   const { orders, total, loading: loadingOrders } = useTableOrders(tableId);
   const { changes: pendingChanges } = usePendingChanges(tableId);
+  // Mesas unidas (tarea 5.3): la cuenta del grupo suma los pedidos de todas
+  const members = table ? groupOf(table, allTables) : [];
+  const partners = members.filter(t => t.id !== table?.id);
+  const group = useGroupOrders(members.map(t => t.id));
 
   useTick(30_000);
+  useTableLabelMode();
 
   useEffect(() => {
     if (!open) {
@@ -66,6 +76,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
       setSubmitting(false);
       setCloseModalOpen(false);
       setAddOrderOpen(false);
+      setJoinOpen(false);
     }
   }, [open]);
 
@@ -97,7 +108,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Abrir mesa N° {table.number}</DialogTitle>
+            <DialogTitle>Abrir {tableLabel(table)}</DialogTitle>
             <DialogDescription>¿Cuántos comensales son?</DialogDescription>
           </DialogHeader>
 
@@ -131,7 +142,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
             <Button
               onClick={() => runAction(
                 () => tablesApi.open(table.id, guestCount),
-                `Mesa ${table.number} abierta con ${guestCount} comensales`
+                `${tableLabel(table)} abierta con ${guestCount} comensales`
               )}
               disabled={submitting}
             >
@@ -152,8 +163,8 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
       {/* Al abrir un sub-modal, el foco sale de este y Radix lo interpreta como "cerrar":
           se ignora mientras haya un sub-modal abierto, si no se cierra todo. */}
       <Dialog
-        open={open && !closeModalOpen && !addOrderOpen}
-        onOpenChange={(v) => !v && !closeModalOpen && !addOrderOpen && onClose()}
+        open={open && !closeModalOpen && !addOrderOpen && !joinOpen}
+        onOpenChange={(v) => !v && !closeModalOpen && !addOrderOpen && !joinOpen && onClose()}
       >
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -165,7 +176,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                 {table.number}
               </div>
               <div>
-                <DialogTitle>Mesa N° {table.number}</DialogTitle>
+                <DialogTitle>{tableLabel(table)}</DialogTitle>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className={cn('h-1.5 w-1.5 rounded-full', style.dot)} />
                   <DialogDescription className={style.text}>
@@ -193,6 +204,57 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
               <p className="mt-1 text-lg font-semibold">{elapsed ?? '—'}</p>
             </div>
           </div>
+
+          {/* Mesas unidas */}
+          {(partners.length > 0 || (canOperate && table.enabled && table.status !== 'RESERVED')) && (
+            <div className={cn('mt-4 rounded-2xl border p-4', partners.length ? 'border-sky-400/30 bg-sky-500/5' : 'border-white/[0.07] bg-white/[0.025]')}>
+              {partners.length > 0 ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Link2 className="h-4 w-4 text-sky-300" />
+                    <p className="text-sm font-semibold">Unida con {tablesLabel(partners)}</p>
+                  </div>
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {members.map(t => (
+                      <li key={t.id} className="flex justify-between">
+                        <span className={cn(t.id === table.id && 'font-medium')}>{tableLabel(t)}{t.id === table.id && ' (esta)'}</span>
+                        <span className="tabular-nums text-muted-foreground">{formatMoney(group.byTable[t.id] ?? 0)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
+                    <span className="text-sm font-semibold">Cuenta de las mesas unidas</span>
+                    <span className="text-lg font-bold tabular-nums text-sky-200">{formatMoney(group.total)}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {canCharge && group.total > 0 && (
+                      <Button size="sm" onClick={() => setCloseModalOpen(true)} disabled={submitting}>
+                        <CreditCard className="h-4 w-4" /> Cobrar todo junto
+                      </Button>
+                    )}
+                    {canOperate && (
+                      <Button size="sm" variant="outline" onClick={() => setJoinOpen(true)} disabled={submitting}>
+                        <Link2 className="h-4 w-4" /> Sumar otra mesa
+                      </Button>
+                    )}
+                    {canOperate && (
+                      <Button size="sm" variant="outline" disabled={submitting}
+                        onClick={() => runAction(() => tablesApi.separate(table.id), `${tableLabel(table)} separada`)}>
+                        <Unlink className="h-4 w-4" /> Separar esta mesa
+                      </Button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-muted-foreground">¿Familia numerosa? Uní esta mesa con otras: la cuenta se ve junta.</p>
+                  <Button size="sm" variant="outline" onClick={() => setJoinOpen(true)} disabled={submitting}>
+                    <Link2 className="h-4 w-4" /> Unir con otra mesa
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Pedidos de la mesa */}
           {showOrdersSection && (
@@ -223,7 +285,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                     {/* Anular con motivo (diálogo anidado: no cierra el detalle de la mesa) */}
                     <CancelOrderDialog order={cancelling} onClose={() => setCancelling(null)} />
                     <ItemChangeDialog item={changing?.item ?? null} mode={changing?.mode ?? 'replace'}
-                      tableNumber={table.number} onClose={() => setChanging(null)} />
+                      tableLabel={tableLabel(table)} onClose={() => setChanging(null)} />
                     {/* Pedidos de cambio del mozo esperando a caja */}
                     {pendingChanges.map(c => <ChangeRequestCard key={c.id} change={c} showTable={false} />)}
                     {orders.map((order, idx) => {
@@ -374,7 +436,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                     disabled={submitting}
                     onClick={() => runAction(
                       () => tablesApi.reserve(table.id),
-                      `Mesa ${table.number} reservada`
+                      `${tableLabel(table)} reservada`
                     )}
                   >
                     <CalendarCheck className="h-4 w-4" />
@@ -390,7 +452,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                     disabled={submitting}
                     onClick={() => runAction(
                       () => tablesApi.requestBill(table.id),
-                      `Cuenta pedida en mesa ${table.number}`
+                      `Cuenta pedida en ${tableLabel(table)}`
                     )}
                   >
                     <Receipt className="h-4 w-4" />
@@ -423,7 +485,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                       disabled={submitting}
                       onClick={() => runAction(
                         () => tablesApi.close(table.id),
-                        `Mesa ${table.number} liberada`
+                        `${tableLabel(table)} liberada`
                       )}
                     >
                       <Lock className="h-4 w-4" />
@@ -462,7 +524,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                       disabled={submitting}
                       onClick={() => runAction(
                         () => tablesApi.close(table.id),
-                        `Mesa ${table.number} liberada`
+                        `${tableLabel(table)} liberada`
                       )}
                     >
                       <Lock className="h-4 w-4" />
@@ -483,7 +545,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
                     disabled={submitting}
                     onClick={() => runAction(
                       () => tablesApi.cancelReservation(table.id),
-                      `Reserva de mesa ${table.number} cancelada`
+                      `Reserva de ${tableLabel(table)} cancelada`
                     )}
                   >
                     <XCircle className="h-4 w-4" />
@@ -518,6 +580,9 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
         </DialogContent>
       </Dialog>
 
+      {/* Sub-modal para unir mesas */}
+      <JoinTablesDialog table={table} allTables={allTables} open={open && joinOpen} onClose={() => setJoinOpen(false)} />
+
       {/* Sub-modal para cargar un pedido */}
       <AddOrderDialog table={table} open={open && addOrderOpen} onClose={() => setAddOrderOpen(false)} />
 
@@ -529,6 +594,7 @@ export function TableDetailModal({ table, open, onClose }: TableDetailModalProps
         onSuccess={() => { setCloseModalOpen(false); onClose(); }}
         orders={orders}
         total={total}
+        group={partners.length ? { tables: members, orders: group.orders, total: group.total } : null}
       />
     </>
   );

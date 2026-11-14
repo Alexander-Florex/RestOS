@@ -10,6 +10,8 @@ export const SocketEvents = {
   TABLE_CHANGED:           'table:changed',
   TABLE_CREATED:           'table:created',
   TABLE_DELETED:           'table:deleted',
+  // Cambió cómo se muestran las mesas (por nombre o por número)
+  TABLES_SETTINGS_CHANGED: 'tables-settings:changed',
   // Menú
   MENU_ITEM_CHANGED:       'menu-item:changed',
   MENU_ITEM_CREATED:       'menu-item:created',
@@ -39,6 +41,8 @@ export const SocketEvents = {
   STAFF_CHANGED:           'staff:changed',
   STAFF_CREATED:           'staff:created',
   STAFF_DELETED:           'staff:deleted',
+  // Horarios: alguien marcó entrada/salida o se corrigió un turno
+  STAFF_SHIFTS_CHANGED:    'staff-shifts:changed',
   // Usuarios (cuentas de login)
   USER_CHANGED:            'user:changed',
   USER_CREATED:            'user:created',

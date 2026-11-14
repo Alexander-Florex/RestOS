@@ -14,12 +14,12 @@ import { ItemModifiers } from './ItemModifiers';
 import { ItemChangeDialog, type ChangeMode } from './ItemChangeDialog';
 import { usePendingChanges } from './ChangeRequests';
 
-export function TableOrderSheet({ open, onClose, orders, tableId, tableNumber }: {
+export function TableOrderSheet({ open, onClose, orders, tableId, tableLabel }: {
   open: boolean;
   onClose: () => void;
   orders: Order[];
   tableId: number;
-  tableNumber: number;
+  tableLabel: string;
 }) {
   const [changing, setChanging] = useState<{ item: OrderItem; mode: ChangeMode } | null>(null);
   const { changes: pending } = usePendingChanges(open ? tableId : null);
@@ -31,7 +31,7 @@ export function TableOrderSheet({ open, onClose, orders, tableId, tableNumber }:
     <Dialog open={open} onOpenChange={(v) => !v && !changing && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Pedido de la mesa {tableNumber}</DialogTitle>
+          <DialogTitle>Pedido · {tableLabel}</DialogTitle>
           <DialogDescription>Total: {formatMoney(total)}. Tocá "Rehacer" o "Cambiar" en un plato.</DialogDescription>
         </DialogHeader>
 
@@ -75,7 +75,7 @@ export function TableOrderSheet({ open, onClose, orders, tableId, tableNumber }:
         </ul>
 
         <ItemChangeDialog item={changing?.item ?? null} mode={changing?.mode ?? 'replace'}
-          tableNumber={tableNumber} onClose={() => setChanging(null)} />
+          tableLabel={tableLabel} onClose={() => setChanging(null)} />
       </DialogContent>
     </Dialog>
   );

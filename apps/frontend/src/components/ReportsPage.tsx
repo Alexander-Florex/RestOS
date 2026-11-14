@@ -13,6 +13,7 @@ import { formatMoney, saleOriginLabel } from '../lib/format';
 import { localDateString, parseLocalDate } from '../lib/reservation-helpers';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
+import { tableLabel } from '../lib/table-label';
 
 const PAYMENT_COLOR: Record<string, string> = {
   CASH:     '#10b981',
@@ -330,7 +331,7 @@ export function ReportsPage() {
                       <button key={t.tableNumber} onClick={() => setTicketTableFilter(t.tableNumber)}
                         className={cn('rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
                           ticketTableFilter === t.tableNumber ? 'bg-brand-500/10 text-brand-400 border border-brand-500/30' : 'text-muted-foreground hover:text-foreground border border-transparent')}>
-                        Mesa {t.tableNumber} ({t.count})
+                        {tableLabel({ number: t.tableNumber, name: t.tableName })} ({t.count})
                       </button>
                     ))}
                     {takeawayCount > 0 && (

@@ -4,6 +4,7 @@
 import { StaffRole, type StaffMember } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
+import { audit } from '../../lib/audit.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 function emitChanged(restaurantId: number, member: StaffMember) { ioRestaurant(restaurantId).emit(SocketEvents.STAFF_CHANGED, member); }
@@ -124,6 +125,8 @@ export interface CreateStaffData {
   phone?: string;
   active?: boolean;
   cuit?: string | null;
+  /** Valor por hora (ARS); null = sin cargar */
+  hourlyRate?: number | null;
 }
 
 export interface UpdateStaffData extends Partial<CreateStaffData> {}
@@ -165,6 +168,7 @@ export const staffService = {
         phone: data.phone ?? null,
         active: data.active ?? true,
         cuit: cuitNorm,
+        hourlyRate: data.hourlyRate ?? null,
       },
     });
     emitCreated(restaurantId, member);
@@ -202,8 +206,18 @@ export const staffService = {
         ...(data.phone !== undefined  ? { phone: data.phone }   : {}),
         ...(data.active !== undefined ? { active: data.active } : {}),
         ...(cuitNorm !== undefined    ? { cuit: cuitNorm }      : {}),
+        ...(data.hourlyRate !== undefined ? { hourlyRate: data.hourlyRate } : {}),
       },
     });
+    // El valor por hora define cuánto se paga: cada cambio queda en la auditoría
+    const before = current.hourlyRate === null ? null : Number(current.hourlyRate);
+    const after = member.hourlyRate === null ? null : Number(member.hourlyRate);
+    if (data.hourlyRate !== undefined && before !== after) {
+      await audit(prisma, {
+        restaurantId, action: 'staff.rate', entity: 'StaffMember', entityId: id,
+        before: { name: current.name, hourlyRate: before }, after: { hourlyRate: after },
+      });
+    }
     emitChanged(restaurantId, member);
     return member;
   },
@@ -235,6 +249,9 @@ export const staffService = {
 
   async remove(restaurantId: number, id: number): Promise<void> {
     await staffService.getById(restaurantId, id);
+    // Borrar la ficha borraría sus horarios (y lo que se le pagó): se desactiva
+    const shifts = await prisma.staffShift.count({ where: { restaurantId, staffMemberId: id } });
+    if (shifts > 0) throw HttpError.conflict('Tiene horarios registrados: desactivalo en lugar de borrarlo.');
     await prisma.staffMember.delete({ where: { id } });
     emitDeleted(restaurantId, id);
   },

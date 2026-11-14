@@ -85,3 +85,11 @@ export function localDaysRange(fromDay: DayKey, toDay: DayKey = fromDay): { from
     to: new Date(startOfLocalDay(addDays(toDay, 1)).getTime() - 1),
   };
 }
+
+/** Lunes de la semana a la que pertenece un día (semanas de lunes a domingo). */
+export function weekStartOf(day: DayKey): DayKey {
+  const m = DAY_KEY_RE.exec(day);
+  if (!m) throw new Error(`Día inválido: ${day}`);
+  const dow = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay(); // 0 = domingo
+  return addDays(day, -((dow + 6) % 7));
+}

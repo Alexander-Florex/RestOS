@@ -30,6 +30,7 @@ import { hasOptions, needsChoice, selectionModifiers } from '../lib/modifiers';
 import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
 import { ItemModifiers } from './ItemModifiers';
 import { submitOrder } from '../lib/order-queue';
+import { useOrderedCategories } from '../hooks/useMenuCategories';
 
 const STATUS_STYLE: Record<TakeawayStatus, { text: string; bg: string; border: string; dot: string; label: string }> = {
   OPEN:      { text: 'text-sky-400',    bg: 'bg-sky-500/10',    border: 'border-sky-500/40',    dot: 'bg-sky-500',    label: 'En preparación' },
@@ -176,7 +177,8 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
   const [customizing, setCustomizing]         = useState<{ item: MenuItem; line?: CartLine } | null>(null);
   const [submitting, setSubmitting]           = useState(false);
 
-  const categories = useMemo(() => [...new Set(menu.map(i => i.category))], [menu]);
+  // En el orden que eligió el administrador en Menú
+  const categories = useOrderedCategories(menu);
   const effectiveCat = activeCategory || categories[0] || '';
   const filtered = menu.filter(i => i.category === effectiveCat && i.stock !== 'OUT_OF_STOCK');
 

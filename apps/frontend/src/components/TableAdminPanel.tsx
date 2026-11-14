@@ -21,6 +21,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { cn } from '../lib/utils';
+import { tableLabel } from '../lib/table-label';
 
 // ── Paleta de colores de sección ──
 const SECTION_COLORS = [
@@ -37,10 +38,11 @@ const SECTION_COLORS = [
 // ── Modal de mesa (crear / editar) ──
 interface TableFormState {
   number: string;
+  name: string;
   capacity: string;
   sectionId: string;
 }
-const EMPTY_TABLE_FORM: TableFormState = { number: '', capacity: '4', sectionId: '' };
+const EMPTY_TABLE_FORM: TableFormState = { number: '', name: '', capacity: '4', sectionId: '' };
 
 function TableFormDialog({
   open, onClose, editing, sections,
@@ -55,7 +57,7 @@ function TableFormDialog({
 
   // Sync con la mesa en edición
   const resetForm = (t: Table | null) => setForm(
-    t ? { number: String(t.number), capacity: String(t.capacity), sectionId: t.sectionId ? String(t.sectionId) : '' }
+    t ? { number: String(t.number), name: t.name ?? '', capacity: String(t.capacity), sectionId: t.sectionId ? String(t.sectionId) : '' }
       : EMPTY_TABLE_FORM
   );
 
@@ -74,15 +76,16 @@ function TableFormDialog({
     try {
       const data = {
         number: num,
+        name: form.name.trim() || null,
         capacity: cap,
         sectionId: form.sectionId ? Number(form.sectionId) : null,
       };
       if (editing) {
         await tablesApi.update(editing.id, data);
-        toast.success(`Mesa N° ${num} actualizada`);
+        toast.success(`${tableLabel({ number: num, name: data.name })} actualizada`);
       } else {
         await tablesApi.create(data);
-        toast.success(`Mesa N° ${num} creada`);
+        toast.success(`${tableLabel({ number: num, name: data.name })} creada`);
       }
       resetForm(null);
       onClose();
@@ -102,18 +105,28 @@ function TableFormDialog({
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{editing ? `Editar mesa N° ${editing.number}` : 'Nueva mesa'}</DialogTitle>
+          <DialogTitle>{editing ? `Editar ${tableLabel(editing)}` : 'Nueva mesa'}</DialogTitle>
           <DialogDescription>
-            {editing ? 'Modificá número, capacidad o sección.' : 'Creá una nueva mesa y asignala a una sección.'}
+            {editing ? 'Modificá nombre, número, capacidad o sección.' : 'Creá una nueva mesa y asignala a una sección.'}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="tName">Nombre de la mesa</Label>
+            <Input
+              id="tName" maxLength={40} autoFocus
+              value={form.name}
+              onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
+              disabled={submitting} placeholder="Ej.: Ventana, Patio 2, Barra"
+            />
+            <p className="text-xs text-muted-foreground">Como la llaman en el local. Si la dejás vacía, se muestra por número.</p>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="tNumber">Número de mesa *</Label>
               <Input
-                id="tNumber" type="number" min="1" inputMode="numeric" autoFocus
+                id="tNumber" type="number" min="1" inputMode="numeric"
                 value={form.number}
                 onChange={(e) => setForm(f => ({ ...f, number: e.target.value }))}
                 disabled={submitting} placeholder="1"
@@ -289,10 +302,10 @@ export function TableAdminPanel() {
     if (t.status !== 'AVAILABLE') {
       toast.error('Solo se puede eliminar una mesa libre'); return;
     }
-    if (!await confirm({ title: `¿Eliminar mesa N° ${t.number}?`, description: 'Esta acción no se puede deshacer.', variant: 'destructive', confirmLabel: 'Eliminar' })) return;
+    if (!await confirm({ title: `¿Eliminar ${tableLabel(t)}?`, description: 'Esta acción no se puede deshacer.', variant: 'destructive', confirmLabel: 'Eliminar' })) return;
     try {
       await tablesApi.remove(t.id);
-      toast.success(`Mesa N° ${t.number} eliminada`);
+      toast.success(`${tableLabel(t)} eliminada`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     }
@@ -301,7 +314,7 @@ export function TableAdminPanel() {
   async function handleToggleTable(t: Table) {
     try {
       await tablesApi.toggleEnabled(t.id);
-      toast.success(`Mesa N° ${t.number} ${t.enabled ? 'deshabilitada' : 'habilitada'}`);
+      toast.success(`${tableLabel(t)} ${t.enabled ? 'deshabilitada' : 'habilitada'}`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     }
@@ -394,7 +407,7 @@ export function TableAdminPanel() {
           <table className="w-full text-sm">
             <thead className="bg-white/[0.04] text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-3 py-2.5 text-left font-medium">Nº</th>
+                <th className="px-3 py-2.5 text-left font-medium">Mesa</th>
                 <th className="px-3 py-2.5 text-left font-medium">Sección</th>
                 <th className="px-3 py-2.5 text-center font-medium">Capacidad</th>
                 <th className="px-3 py-2.5 text-left font-medium">Estado</th>
@@ -414,8 +427,9 @@ export function TableAdminPanel() {
                   const section = t.sectionId ? sectionMap.get(t.sectionId) : null;
                   return (
                     <tr key={t.id} className={cn('hover:bg-white/[0.025]', !t.enabled && 'opacity-50')}>
-                      <td className="px-3 py-3 font-bold tabular-nums text-brand-400">
-                        N° {t.number}
+                      <td className="px-3 py-3">
+                        <span className="font-bold tabular-nums text-brand-400">N° {t.number}</span>
+                        {t.name && <span className="ml-2 font-medium">{t.name}</span>}
                       </td>
                       <td className="px-3 py-3">
                         {section ? (
