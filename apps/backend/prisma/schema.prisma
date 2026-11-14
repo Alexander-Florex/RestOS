@@ -40,6 +40,7 @@ model Restaurant {
   staffShifts      StaffShift[]
   accountCustomers AccountCustomer[]
   accountPayments  AccountPayment[]
+  cashSessions     CashSession[]
   reservations     Reservation[]
   takeawayOrders   TakeawayOrder[]
   menuOptionGroups MenuItemOptionGroup[]
@@ -81,6 +82,9 @@ model User {
   takeawaysCreated     TakeawayOrder[]   @relation("TakeawayCreatedBy")
   shiftsRecorded       StaffShift[]      @relation("ShiftRecordedBy")
   accountPayments      AccountPayment[]  @relation("AccountPaymentBy")
+  cashOpened           CashSession[]     @relation("CashOpenedBy")
+  cashClosed           CashSession[]     @relation("CashClosedBy")
+  cashMovements        CashMovement[]    @relation("CashMovementBy")
 
   @@unique([restaurantId, username])
   @@unique([restaurantId, email])
@@ -964,4 +968,62 @@ model PriceHistory {
   @@index([inventoryItemId, createdAt])
   @@index([restaurantId, createdAt])
   @@map("price_history")
+}
+
+// ──────────────────────────────────────────────
+// CAJA (tarea 5.1)
+// ──────────────────────────────────────────────
+/// Una sola caja por local (decisión del cliente, 2026-11-14). Se abre con el monto inicial
+/// y se cierra con el arqueo. Cubre todo lo cobrado desde el cierre anterior (periodStart)
+/// hasta su cierre: si se cobró con la caja cerrada, entra en la siguiente.
+model CashSession {
+  id            Int            @id @default(autoincrement())
+  restaurantId  Int
+  restaurant    Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  /// Desde cuándo cuenta: el cierre anterior (o la apertura, si es la primera)
+  periodStart   DateTime
+  openedAt      DateTime       @default(now())
+  openedById    Int?
+  openedBy      User?          @relation("CashOpenedBy", fields: [openedById], references: [id], onDelete: SetNull)
+  openingAmount Decimal        @db.Decimal(10, 2)
+  closedAt      DateTime?
+  closedById    Int?
+  closedBy      User?          @relation("CashClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  /// Efectivo que debería haber (apertura + efectivo cobrado + ingresos − egresos)
+  expectedCash  Decimal?       @db.Decimal(10, 2)
+  /// Efectivo contado al cerrar
+  countedCash   Decimal?       @db.Decimal(10, 2)
+  /// countedCash − expectedCash (negativo = falta plata)
+  difference    Decimal?       @db.Decimal(10, 2)
+  closeNotes    String?        @db.VarChar(500)
+  /// Resumen al cerrar (por medio de pago, a cuenta, anulaciones…): queda fijo aunque después cambie algo
+  summary       Json?
+  /// = restaurantId mientras está abierta: una sola caja abierta por local
+  openKey       Int?           @unique
+  movements     CashMovement[]
+
+  @@index([restaurantId, openedAt])
+  @@map("cash_sessions")
+}
+
+/// Ingreso o egreso de efectivo que no es una venta (pago a un proveedor, cambio que se trajo…)
+model CashMovement {
+  id           Int              @id @default(autoincrement())
+  restaurantId Int
+  sessionId    Int
+  session      CashSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type         CashMovementType
+  amount       Decimal          @db.Decimal(10, 2)
+  reason       String           @db.VarChar(200)
+  createdById  Int?
+  createdBy    User?            @relation("CashMovementBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime         @default(now())
+
+  @@index([sessionId])
+  @@map("cash_movements")
+}
+
+enum CashMovementType {
+  IN
+  OUT
 }

@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LogOut, Home, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace, ClipboardList, NotebookPen,
+  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace, ClipboardList, NotebookPen, Wallet,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import type { Permission } from '../lib/permissions';
@@ -24,6 +24,7 @@ import { InventoryPage } from '../components/InventoryPage';
 import { StockCountPage } from '../components/StockCountPage';
 import { StaffPage } from '../components/StaffPage';
 import { AccountsPage } from '../components/AccountsPage';
+import { CashPage } from '../components/CashPage';
 import { UsersPage } from '../components/UsersPage';
 import { ReservationsPage } from '../components/ReservationsPage';
 import { ReportsPage } from '../components/ReportsPage';
@@ -35,7 +36,7 @@ import { useChangeNotifications } from '../hooks/useChangeNotifications';
 import { BrandMark, EASE_OUT, PageTransition } from '../components/ui/motion';
 import { cn } from '../lib/utils';
 
-type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'stock-count' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes' | 'accounts';
+type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'stock-count' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes' | 'accounts' | 'cash';
 
 interface NavItem {
   id: View;
@@ -69,6 +70,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Negocio',
     items: [
+      { id: 'cash',    label: 'Caja',     icon: Wallet, perm: 'cash.manage' },
       { id: 'sales',   label: 'Ventas',   icon: Receipt, perm: 'sales.view' },
       { id: 'reports', label: 'Reportes', icon: BarChart3, perm: 'reports.view' },
       { id: 'accounts', label: 'Cuentas corrientes', icon: NotebookPen, perm: 'accounts.manage' },
@@ -230,6 +232,7 @@ export function DashboardPage() {
                 {shown === 'audit'        && <AuditPage />}
                 {shown === 'changes'      && <ChangesPage />}
                 {shown === 'accounts'     && <AccountsPage />}
+                {shown === 'cash'         && <CashPage />}
               </PageTransition>
             </AnimatePresence>
           </div>

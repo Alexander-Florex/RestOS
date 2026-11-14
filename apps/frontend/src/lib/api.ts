@@ -1531,3 +1531,42 @@ export const accountsApi = {
   cancelPayment: (paymentId: number, reason: string) =>
     request<void>(`/accounts/payments/${paymentId}`, { method: 'DELETE', body: { reason } }),
 };
+
+// ──────────────────────────────────────────────
+// Caja (tarea 5.1)
+// ──────────────────────────────────────────────
+type CashMethod = 'CASH' | 'CARD' | 'TRANSFER';
+export interface CashSummary {
+  from: string;
+  to: string;
+  openingAmount: number;
+  sales: Record<CashMethod, { count: number; amount: number }>;
+  accountPayments: Record<CashMethod, { count: number; amount: number }>;
+  onAccount: { count: number; amount: number };
+  movements: { in: number; out: number; list: Array<{ id: number; type: 'IN' | 'OUT'; amount: number; reason: string; createdAt: string; by: string | null }> };
+  cancelledOrders: number;
+  salesBeforeOpening: number;
+  totalSales: number;
+  totalCollected: number;
+  expectedCash: number;
+}
+export interface CashCurrent {
+  open: { id: number; openedAt: string; openedBy: string | null; openingAmount: number; summary: CashSummary } | null;
+  lastClosedAt: string | null;
+  salesSinceLastClose: { count: number; total: number } | null;
+}
+export interface CashHistoryRow {
+  id: number; openedAt: string; closedAt: string; openedBy: string | null; closedBy: string | null;
+  openingAmount: number; expectedCash: number; countedCash: number; difference: number; closeNotes: string | null;
+  summary: CashSummary;
+}
+
+export const cashApi = {
+  current: () => request<CashCurrent>('/cash/current'),
+  history: () => request<{ sessions: CashHistoryRow[] }>('/cash/history'),
+  open: (openingAmount: number) => request<unknown>('/cash/open', { method: 'POST', body: { openingAmount } }),
+  movement: (data: { type: 'IN' | 'OUT'; amount: number; reason: string }) =>
+    request<unknown>('/cash/movements', { method: 'POST', body: data }),
+  close: (data: { countedCash: number; notes?: string | null }) =>
+    request<unknown>('/cash/close', { method: 'POST', body: data }),
+};

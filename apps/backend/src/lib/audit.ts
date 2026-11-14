@@ -45,6 +45,9 @@ export const AUDIT_ACTIONS = [
   'staff.rate',          // cambio del valor por hora
   'account.payment',        // cobro de cuenta corriente (con recargo)
   'account.payment.cancel', // cobro de cuenta corriente anulado (con motivo)
+  'cash.open',          // apertura de caja (monto inicial)
+  'cash.movement',      // ingreso o egreso de efectivo (con motivo)
+  'cash.close',         // cierre de caja con arqueo y diferencia
 ] as const;
 
 export type AuditAction = typeof AUDIT_ACTIONS[number];

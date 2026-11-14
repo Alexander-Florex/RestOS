@@ -31,6 +31,8 @@ export const SocketEvents = {
   SALE_REGISTERED:         'sale:registered',
   // Cuenta corriente (tarea 5.9): clientes, comidas a cuenta o cobros cambiaron
   ACCOUNTS_CHANGED:        'accounts:changed',
+  // Caja (tarea 5.1): se abrió, se cerró o hubo un ingreso/egreso
+  CASH_CHANGED:            'cash:changed',
   // Inventario
   INVENTORY_ITEM_CHANGED:  'inventory-item:changed',
   INVENTORY_ITEM_CREATED:  'inventory-item:created',
