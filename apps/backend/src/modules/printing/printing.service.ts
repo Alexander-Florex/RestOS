@@ -163,7 +163,7 @@ export function buildCashTicket(data: {
   const hora  = data.printedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
   const fecha = data.printedAt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ });
 
-  const PAY: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia' };
+  const PAY: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', ACCOUNT: 'A cuenta', TRANSFER: 'Transferencia' };
   const payLabel = PAY[data.paymentMethod] ?? data.paymentMethod;
 
   push(CMD.INIT, CMD.SET_CP858);
@@ -339,7 +339,7 @@ export const printingService = {
   async printSale(opts: { restaurantId: number; saleId: number }): Promise<void> {
     const sale = await prisma.sale.findFirst({
       where: { id: opts.saleId, restaurantId: opts.restaurantId },
-      include: { items: { orderBy: { id: 'asc' } }, takeawayOrder: { select: { customerName: true } } },
+      include: { items: { orderBy: { id: 'asc' } }, takeawayOrder: { select: { customerName: true } }, customer: { select: { name: true } } },
     });
     if (!sale) throw HttpError.notFound('Venta no encontrada');
 
@@ -353,7 +353,8 @@ export const printingService = {
         ? { tableName: sale.tableName, tableLabel: tableLabel({ number: sale.tableNumber, name: sale.tableName }, mode) }
         : {}),
       isTakeaway,
-      customerName:  isTakeaway ? (sale.takeawayOrder?.customerName ?? null) : null,
+      // Para llevar: quien retira. A cuenta: de qué cliente es la deuda (firma la comanda)
+      customerName:  isTakeaway ? (sale.takeawayOrder?.customerName ?? null) : (sale.customer?.name ?? null),
       items:         sale.items.map(i => ({
         name: i.itemName,
         quantity: i.quantity,

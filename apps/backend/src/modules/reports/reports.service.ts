@@ -3,7 +3,8 @@
 // ──────────────────────────────────────────────
 import { PaymentMethod, SaleChannel } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
-import { collectedCents, fromCents } from '../../lib/money.js';
+import { collectedCents, fromCents, toCents } from '../../lib/money.js';
+import { accountsService } from '../accounts/accounts.service.js';
 import { formatLocalDateTime, localDayKey } from '../../lib/time.js';
 
 export interface ReportRange {
@@ -44,6 +45,8 @@ export interface SalesReport {
     count: number;
     total: number;
   }>;
+  /** Cobros de cuenta corriente en el rango (tarea 5.9): deuda saldada + recargo */
+  accountCollections: { count: number; debt: number; surcharge: number; total: number };
 }
 
 export interface TopItem {
@@ -80,7 +83,10 @@ export const reportsService = {
 
     const totalSold = sales.reduce((sum, s) => sum + Number(s.total), 0);
     // amount incluye el vuelto en efectivo: lo cobrado de cada venta es min(amount, total)
-    const totalCollected = fromCents(sales.reduce((sum, s) => sum + collectedCents(s), 0));
+    // A cuenta no entra plata (collectedCents da 0: amount = 0). Los cobros de cuenta
+    // corriente entran el día que se pagan, con su recargo (tarea 5.9).
+    const accountCollections = await accountsService.collections(restaurantId, from, to);
+    const totalCollected = fromCents(sales.reduce((sum, s) => sum + collectedCents(s), 0) + toCents(accountCollections.total));
     const salesCount = sales.length;
     const averageTicket = salesCount > 0 ? totalSold / salesCount : 0;
 
@@ -146,6 +152,7 @@ export const reportsService = {
       byDay,
       byChannel,
       byTable,
+      accountCollections,
     };
   },
 

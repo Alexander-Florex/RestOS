@@ -17,6 +17,7 @@ export const PERMISSIONS = [
   { key: 'orders.change.approve', group: 'Caja',      label: 'Autorizar cambios de platos',        description: 'Aprobar o hacer directamente cambios de plato pedidos por el mozo.' },
   { key: 'takeaway.cancel',     group: 'Caja',        label: 'Cancelar pedidos para llevar',       description: 'Cancelar un pedido para llevar que no se cobró.' },
   { key: 'sales.view',          group: 'Caja',        label: 'Ver ventas',                         description: 'Historial de ventas y totales del día.' },
+  { key: 'accounts.manage',     group: 'Caja',        label: 'Cuentas corrientes',                 description: 'Dejar una mesa "a cuenta" de un cliente (Municipalidad, cooperativa) y registrar sus cobros con recargo.' },
   { key: 'reports.view',        group: 'Caja',        label: 'Ver reportes',                       description: 'Reportes de ventas, ranking de platos y exportación CSV.' },
   { key: 'menu.availability',   group: 'Carta y stock', label: 'Cambiar disponibilidad de platos', description: 'Habilitar/deshabilitar platos y marcar stock bajo o agotado.' },
   { key: 'menu.manage',         group: 'Carta y stock', label: 'Editar la carta',                  description: 'Crear, editar y borrar platos y categorías.' },
@@ -56,6 +57,8 @@ export const SYSTEM_ROLES = {
       'reservations.manage', 'sales.charge', 'takeaway.cancel', 'sales.view', 'reports.view',
       // Agregado por la migración 20261102150000_order_item_changes (tarea 5.8)
       'orders.change.approve',
+      // Agregado por la migración 20261114120000_account_customers (tarea 5.9)
+      'accounts.manage',
       'menu.availability', 'inventory.view', 'inventory.adjust',
     ] as Permission[],
   },

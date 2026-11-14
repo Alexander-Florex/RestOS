@@ -86,6 +86,8 @@ export interface CreateSaleInput {
   tableId: number;
   /** Mesas unidas (tarea 5.3): cobrar todas las del grupo en una sola venta. Sin grupo, se ignora. */
   wholeGroup?: boolean;
+  /** Solo con paymentMethod ACCOUNT: de qué cliente de cuenta corriente es la deuda (tarea 5.9) */
+  customerId?: number;
   paymentMethod: PaymentMethod;
   amount: number;
   notes?: string;
@@ -148,7 +150,17 @@ export const salesService = {
    * después del cobro, nunca en el medio.
    */
   async create(restaurantId: number, input: CreateSaleInput): Promise<Sale> {
-    const amountCents = toCents(input.amount);
+    // A cuenta (tarea 5.9): no entra plata; la venta queda como deuda del cliente
+    const onAccount = input.paymentMethod === PaymentMethod.ACCOUNT;
+    if (onAccount) {
+      if (!input.customerId) throw HttpError.badRequest('Elegí a cuenta de qué cliente queda la mesa');
+      const customer = await prisma.accountCustomer.findFirst({ where: { id: input.customerId, restaurantId } });
+      if (!customer) throw HttpError.notFound('Cliente de cuenta corriente no encontrado');
+      if (!customer.active) throw HttpError.badRequest(`${customer.name} está desactivado: no se le puede dejar a cuenta`);
+    } else if (input.customerId) {
+      throw HttpError.badRequest('Un cliente de cuenta corriente solo se elige con "A cuenta"');
+    }
+    const amountCents = onAccount ? 0 : toCents(input.amount);
     if (amountCents < 0) {
       throw HttpError.badRequest('El monto cobrado no puede ser negativo');
     }
@@ -234,7 +246,7 @@ export const salesService = {
 
         // 3. No se aceptan cobros parciales. Si entró un pedido mientras se
         //    cobraba, el total subió y el monto de la pantalla ya no alcanza.
-        if (amountCents < totalCents) {
+        if (!onAccount && amountCents < totalCents) {
           throw HttpError.badRequest(
             `El monto cobrado (${formatCents(amountCents)}) no cubre el total de la cuenta ` +
             `(${formatCents(totalCents)}). Si se agregaron pedidos, revisá la cuenta y volvé a cobrar.`,
@@ -268,6 +280,7 @@ export const salesService = {
             tableName: charged.length > 1 ? tablesLabel(charged, 'NAME').slice(0, 120) : locked.name,
             paymentMethod: input.paymentMethod,
             amount: fromCents(amountCents),
+            customerId: onAccount ? input.customerId : null,
             total: fromCents(totalCents),
             notes: input.notes ?? null,
             imageUrl,
@@ -309,6 +322,7 @@ export const salesService = {
           userId: input.registeredById ?? undefined,
           after: {
             tableNumber: locked.number, tableName: sale.tableName, paymentMethod: input.paymentMethod,
+            ...(onAccount ? { customerId: input.customerId } : {}),
             ...(charged.length > 1 ? { tableNumbers: charged.map(t => t.number) } : {}),
             total: sale.total, amount: sale.amount, orderIds: orders.map(o => o.id),
             notes: input.notes ?? null, receipt: !!imageUrl,
@@ -319,6 +333,7 @@ export const salesService = {
       });
 
       emitSaleRegistered(restaurantId, sale);
+      if (onAccount) ioRestaurant(restaurantId).emit(SocketEvents.ACCOUNTS_CHANGED, {});
       updatedTables.forEach(t => emitTableChanged(restaurantId, t));
 
       return sale;
@@ -347,10 +362,17 @@ export const salesService = {
       CASH:     { count: 0, amount: 0 },
       CARD:     { count: 0, amount: 0 },
       TRANSFER: { count: 0, amount: 0 },
+      // A cuenta: lo que quedó debiendo (no entra en el total cobrado)
+      ACCOUNT:  { count: 0, amount: 0 },
     };
     let totalCents = 0;
-    const byMethodCents: Record<PaymentMethod, number> = { CASH: 0, CARD: 0, TRANSFER: 0 };
+    const byMethodCents: Record<PaymentMethod, number> = { CASH: 0, CARD: 0, TRANSFER: 0, ACCOUNT: 0 };
     for (const s of sales) {
+      if (s.paymentMethod === PaymentMethod.ACCOUNT) {
+        byMethod.ACCOUNT.count += 1;
+        byMethodCents.ACCOUNT += toCents(s.total);
+        continue;
+      }
       // amount es lo que entregó el cliente (incluye el vuelto): lo cobrado es min(amount, total)
       const collected = collectedCents(s);
       totalCents += collected;
