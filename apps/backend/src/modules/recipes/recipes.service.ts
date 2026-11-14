@@ -46,7 +46,18 @@ export interface CreateRecipeData {
   profitPct?: number;
   vatPct?: number;
   notes?: string | null;
+  /** Elaborado con stock propio (tarea 3.5): el insumo que suma al producirla */
+  stockItemId?: number | null;
   ingredients: RecipeIngredientInput[];
+}
+
+/** El insumo que produce una receta tiene que ser del restaurante y no estar tomado por otra. */
+async function checkStockItem(restaurantId: number, recipeId: number | null, stockItemId: number | null | undefined) {
+  if (stockItemId === undefined || stockItemId === null) return;
+  const item = await prisma.inventoryItem.findFirst({ where: { id: stockItemId, restaurantId } });
+  if (!item) throw HttpError.badRequest('El insumo de stock indicado no existe');
+  const other = await prisma.recipe.findFirst({ where: { stockItemId, ...(recipeId ? { id: { not: recipeId } } : {}) } });
+  if (other) throw HttpError.conflict(`"${item.name}" ya lo produce la receta "${other.name}"`);
 }
 
 export interface UpdateRecipeData extends Partial<CreateRecipeData> {}
@@ -511,6 +522,7 @@ export const recipesService = {
     }
     const ingredients = await validateIngredients(restaurantId, null, data.ingredients);
     const yieldUnits = yieldOrFail(data.yieldQty, data.yieldUnit);
+    await checkStockItem(restaurantId, null, data.stockItemId);
     // Sin margen indicado: el objetivo de la categoría del plato (o 50 %)
     const margin = data.profitPct ?? (await categoryTargetMargin(restaurantId, data.menuItemId ?? null)) ?? 0.5;
 
@@ -524,6 +536,7 @@ export const recipesService = {
         profitPct: margin,
         vatPct: data.vatPct ?? 0.21,
         notes: data.notes ?? null,
+        stockItemId: data.stockItemId ?? null,
         ingredients: { create: ingredients },
       },
     });
@@ -543,6 +556,7 @@ export const recipesService = {
     }
     const ingredients = data.ingredients ? await validateIngredients(restaurantId, id, data.ingredients) : null;
     const yieldUnits = yieldOrFail(data.yieldQty, data.yieldUnit);
+    await checkStockItem(restaurantId, id, data.stockItemId);
 
     // Si otras recetas la usan por unidades, el rendimiento tiene que seguir siendo compatible
     if (yieldUnits !== undefined) {
@@ -570,6 +584,7 @@ export const recipesService = {
           ...(data.profitPct !== undefined ? { profitPct: data.profitPct } : {}),
           ...(data.vatPct !== undefined ? { vatPct: data.vatPct } : {}),
           ...(data.notes !== undefined ? { notes: data.notes } : {}),
+          ...(data.stockItemId !== undefined ? { stockItemId: data.stockItemId } : {}),
           ...(ingredients ? { ingredients: { create: ingredients } } : {}),
         },
       });

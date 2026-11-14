@@ -24,6 +24,7 @@ import { staffRouter } from './modules/staff/staff.routes.js';
 import { staffShiftsRouter } from './modules/staff/staff-shifts.routes.js';
 import { accountsRouter } from './modules/accounts/accounts.routes.js';
 import { cashRouter } from './modules/cash/cash.routes.js';
+import { stockRouter } from './modules/stock/stock.routes.js';
 import { reservationsRouter } from './modules/reservations/reservations.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { sectionsRouter } from './modules/sections/sections.routes.js';
@@ -145,6 +146,7 @@ export function buildApp(): Express {
   app.use('/api/staff-shifts', staffShiftsRouter);
   app.use('/api/accounts',     accountsRouter);
   app.use('/api/cash',         cashRouter);
+  app.use('/api/stock',        stockRouter);
   app.use('/api/reservations', reservationsRouter);
   app.use('/api/reports',      reportsRouter);
   app.use('/api/sections',     sectionsRouter);

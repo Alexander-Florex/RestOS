@@ -15,6 +15,8 @@ const createSchema = z.object({
   price: z.coerce.number().nonnegative('El precio no puede ser negativo'),
   description: z.string().trim().optional().nullable(),
   stock: stockEnum.optional(),
+  // El estado sale del stock de los insumos (tarea 3.8)
+  stockAuto: z.boolean().optional(),
   enabled: z.boolean().optional(),
   imageUrl: z.string().url().optional().nullable(),
 });

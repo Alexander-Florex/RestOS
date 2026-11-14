@@ -2,6 +2,7 @@
 // takeaway.service.ts — multi-tenant
 // ──────────────────────────────────────────────
 import { TakeawayStatus, PaymentMethod, SaleChannel, Prisma } from '@prisma/client';
+import { deductForSale } from '../stock/stock-auto.service.js';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { toCents, fromCents, formatCents } from '../../lib/money.js';
@@ -236,6 +237,8 @@ export const takeawayService = {
           total: sale.total, amount: sale.amount, notes: saleNotes,
         },
       });
+      // Stock automático (tarea 3.4): si el local lo activó, descuenta los insumos
+      await deductForSale(tx, restaurantId, sale.id, order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity })));
       return sale;
     });
 

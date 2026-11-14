@@ -15,20 +15,24 @@ datasource db {
 // RESTAURANTS — Tenants del sistema
 // ──────────────────────────────────────────────
 model Restaurant {
-  id             Int            @id @default(autoincrement())
-  name           String
-  email          String?
-  phone          String?
-  address        String?
+  id              Int            @id @default(autoincrement())
+  name            String
+  email           String?
+  phone           String?
+  address         String?
   /// Mesas por nombre (si lo tienen) o por número, en todas las pantallas y tickets
-  tableLabelMode TableLabelMode @default(NAME)
+  tableLabelMode  TableLabelMode @default(NAME)
   /// Promo de efectivo (tarea 5.2): al cobrar en efectivo esos días se sugiere el descuento.
   /// Días ISO separados por coma (1 = lunes … 7 = domingo). Vacío = sin promo.
-  cashPromoPct   Decimal?       @default(10) @db.Decimal(5, 2)
-  cashPromoDays  String         @default("3,4,5") @db.VarChar(20)
-  createdAt      DateTime       @default(now())
+  cashPromoPct    Decimal?       @default(10) @db.Decimal(5, 2)
+  cashPromoDays   String         @default("3,4,5") @db.VarChar(20)
+  /// Descontar insumos al vender según la receta (tarea 3.4). Apagado hasta que carguen
+  /// recetas y hagan el primer conteo (decisión del cliente, 2026-11-14).
+  autoStockOnSale Boolean        @default(false)
+  suppliers       Supplier[]
+  createdAt       DateTime       @default(now())
   // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
-  updatedAt      DateTime       @default(now()) @updatedAt
+  updatedAt       DateTime       @default(now()) @updatedAt
 
   users            User[]
   roles            Role[]
@@ -202,6 +206,8 @@ model MenuItem {
   price         Decimal               @db.Decimal(10, 2)
   description   String?               @db.Text
   stock         StockStatus           @default(IN_STOCK)
+  /// Tarea 3.8: el estado sale del stock de los insumos de su receta (si no, el manual de arriba)
+  stockAuto     Boolean               @default(false)
   enabled       Boolean               @default(true)
   imageUrl      String?
   orderItems    OrderItem[]
@@ -613,7 +619,12 @@ model InventoryItem {
   /// actualizado en la misma transacción que cada movimiento.
   movements         StockMovement[]
   countLines        StockCountLine[]
+  /// Texto libre de antes (se mantiene); el proveedor de verdad es supplierRef
   supplier          String?
+  supplierId        Int?
+  supplierRef       Supplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  /// Si es un elaborado (salsa, pasta): la receta que lo produce (tarea 3.5)
+  producedBy        Recipe?            @relation("RecipeOutput")
   lastRestocked     DateTime?
   recipeIngredients RecipeIngredient[]
   createdAt         DateTime           @default(now())
@@ -766,6 +777,10 @@ model Recipe {
   /// la receta es componente de otra: costo por unidad de rendimiento = costo total / yieldQty
   yieldQty     Float?
   yieldUnit    String?
+  /// Elaborado con stock propio (tarea 3.5): al producir suma este insumo; al vender o
+  /// usarlo en otra receta se descuenta de acá y no de sus ingredientes.
+  stockItemId  Int?               @unique
+  stockItem    InventoryItem?     @relation("RecipeOutput", fields: [stockItemId], references: [id], onDelete: SetNull)
   ingredients  RecipeIngredient[] @relation("RecipeLines")
   /// Recetas que usan esta como sub-receta
   usedIn       RecipeIngredient[] @relation("SubRecipeUses")
@@ -1060,4 +1075,22 @@ model CashMovement {
 enum CashMovementType {
   IN
   OUT
+}
+
+/// Proveedor (tarea 3.6): a quién se le compra cada insumo; arma la lista de compras.
+model Supplier {
+  id           Int             @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String          @db.VarChar(120)
+  phone        String?         @db.VarChar(50)
+  email        String?         @db.VarChar(120)
+  notes        String?         @db.VarChar(500)
+  active       Boolean         @default(true)
+  items        InventoryItem[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([restaurantId, name])
+  @@map("suppliers")
 }

@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LogOut, Home, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace, ClipboardList, NotebookPen, Wallet,
+  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace, ClipboardList, NotebookPen, Wallet, Truck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import type { Permission } from '../lib/permissions';
@@ -25,6 +25,7 @@ import { StockCountPage } from '../components/StockCountPage';
 import { StaffPage } from '../components/StaffPage';
 import { AccountsPage } from '../components/AccountsPage';
 import { CashPage } from '../components/CashPage';
+import { StockToolsPage } from '../components/StockToolsPage';
 import { UsersPage } from '../components/UsersPage';
 import { ReservationsPage } from '../components/ReservationsPage';
 import { ReportsPage } from '../components/ReportsPage';
@@ -36,7 +37,7 @@ import { useChangeNotifications } from '../hooks/useChangeNotifications';
 import { BrandMark, EASE_OUT, PageTransition } from '../components/ui/motion';
 import { cn } from '../lib/utils';
 
-type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'stock-count' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes' | 'accounts' | 'cash';
+type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'stock-count' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes' | 'accounts' | 'cash' | 'stock-tools';
 
 interface NavItem {
   id: View;
@@ -64,6 +65,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { id: 'menu',      label: 'Menú',       icon: BookOpen },
       { id: 'inventory', label: 'Inventario', icon: Package, perm: 'inventory.view' },
       { id: 'stock-count', label: 'Conteo',   icon: ClipboardList, perm: 'inventory.count' },
+      { id: 'stock-tools', label: 'Stock y compras', icon: Truck, perm: 'inventory.view' },
       { id: 'recipes',   label: 'Recetas',    icon: Calculator, perm: 'recipes.manage' },
     ],
   },
@@ -233,6 +235,7 @@ export function DashboardPage() {
                 {shown === 'changes'      && <ChangesPage />}
                 {shown === 'accounts'     && <AccountsPage />}
                 {shown === 'cash'         && <CashPage />}
+                {shown === 'stock-tools'  && <StockToolsPage />}
               </PageTransition>
             </AnimatePresence>
           </div>

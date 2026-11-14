@@ -24,6 +24,7 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { lockTables, groupUpdatesAfterLeaving } from '../../lib/table-lock.js';
 import { checkParts, discountCents, settlePayments, type PaymentPart } from '../../lib/payments.js';
+import { deductForSale } from '../stock/stock-auto.service.js';
 import { applyGroupUpdates } from '../tables/tables.service.js';
 import { tablesLabel } from '../../shared/table-label.js';
 import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money.js';
@@ -185,7 +186,7 @@ export const salesService = {
     if (!pre) throw HttpError.notFound('Mesa no encontrada');
 
     try {
-      const { sale, updatedTables } = await prisma.$transaction(async (tx) => {
+      const { sale, updatedTables, stockTouched } = await prisma.$transaction(async (tx) => {
         // 1. Bloquear la mesa (y las de su grupo, en orden): tiene que ser la primera lectura
         const lockedAll = await lockTables(tx, restaurantId, [input.tableId], pre.groupId);
         const locked = lockedAll.find(t => t.id === input.tableId);
@@ -323,6 +324,10 @@ export const salesService = {
           });
         }
 
+        // Stock automático (tarea 3.4): si el local lo activó, descuenta los insumos
+        const stockTouched = await deductForSale(tx, restaurantId, sale.id,
+          [...snapshot.values()].map(s => ({ menuItemId: s.menuItemId, quantity: s.quantity })));
+
         // Los pedidos cobrados quedan en el historial, vinculados a la venta.
         // Se marcan exactamente los que se sumaron (leídos con la mesa bloqueada).
         const paid = await tx.order.updateMany({
@@ -349,10 +354,11 @@ export const salesService = {
           },
         });
 
-        return { sale, updatedTables: touched };
+        return { sale, updatedTables: touched, stockTouched };
       });
 
       emitSaleRegistered(restaurantId, sale);
+      if (stockTouched.length) ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_CHANGED, { ids: stockTouched });
       if (onAccount) ioRestaurant(restaurantId).emit(SocketEvents.ACCOUNTS_CHANGED, {});
       updatedTables.forEach(t => emitTableChanged(restaurantId, t));
 

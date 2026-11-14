@@ -26,6 +26,8 @@ const createSchema = z.object({
   profitPct: z.coerce.number().min(0).max(0.95, 'El margen tiene que ser menor a 95 % (es sobre el precio)').optional(),
   vatPct: z.coerce.number().min(0).optional(),
   notes: z.string().trim().optional().nullable(),
+  // Elaborado con stock propio: el insumo que suma al producirla (tarea 3.5)
+  stockItemId: z.number().int().positive().optional().nullable(),
   ingredients: z.array(ingredientSchema).min(1, 'Agregá al menos un ingrediente'),
 });
 

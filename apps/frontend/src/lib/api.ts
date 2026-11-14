@@ -263,6 +263,9 @@ export interface MenuItem {
   price: string; // Prisma Decimal viene como string
   description: string | null;
   stock: StockStatus;
+  /** El estado sale del stock de los insumos (tarea 3.8); portionsLeft = porciones que alcanzan */
+  stockAuto?: boolean;
+  portionsLeft?: number | null;
   enabled: boolean;
   imageUrl: string | null;
   /** Opciones para personalizar el plato al pedir (las carga el Administrador). */
@@ -317,6 +320,8 @@ export interface CreateMenuItemBody {
   price: number;
   description?: string | null;
   stock?: StockStatus;
+  /** El estado sale del stock de los insumos de su receta (tarea 3.8) */
+  stockAuto?: boolean;
   enabled?: boolean;
 }
 
@@ -874,6 +879,7 @@ export interface Recipe {
   profitPct: number;
   vatPct: number;
   notes: string | null;
+  stockItemId?: number | null;
   ingredients: RecipeIngredient[];
   cost: RecipeCost;
   createdAt: string;
@@ -898,6 +904,8 @@ export interface CreateRecipeBody {
   profitPct?: number;
   vatPct?: number;
   notes?: string | null;
+  /** Elaborado con stock propio: el insumo que suma al producirla (tarea 3.5) */
+  stockItemId?: number | null;
   ingredients: RecipeIngredientBody[];
 }
 
@@ -1582,4 +1590,36 @@ export const cashApi = {
     request<unknown>('/cash/movements', { method: 'POST', body: data }),
   close: (data: { countedCash: number; notes?: string | null }) =>
     request<unknown>('/cash/close', { method: 'POST', body: data }),
+};
+
+// ──────────────────────────────────────────────
+// Stock automático, producción, mermas, compras y proveedores (fase 3)
+// ──────────────────────────────────────────────
+export interface Supplier {
+  id: number; name: string; phone: string | null; email: string | null; notes: string | null; active: boolean; itemCount: number;
+}
+export interface ShoppingGroup {
+  supplier: { id: number; name: string; phone: string | null } | null;
+  items: Array<{
+    id: number; name: string; unit: string; quantity: number; minStock: number; suggested: number;
+    presentations: number | null; purchaseLabel: string | null; estimatedCost: number;
+  }>;
+}
+export interface ProductionResult { item: string; quantity: number; unit: string; cost: number; unitCost: number; warnings: string[] }
+
+export const stockApi = {
+  settings: () => request<{ autoStockOnSale: boolean }>('/stock/settings'),
+  setSettings: (autoStockOnSale: boolean) => request<{ autoStockOnSale: boolean }>('/stock/settings', { method: 'PUT', body: { autoStockOnSale } }),
+  produce: (recipeId: number, quantity: number) => request<ProductionResult>('/stock/production', { method: 'POST', body: { recipeId, quantity } }),
+  waste: (itemId: number, quantity: number, reason: string) =>
+    request<{ balance: number }>(`/stock/items/${itemId}/waste`, { method: 'POST', body: { quantity, reason } }),
+  shoppingList: () => request<{ groups: ShoppingGroup[] }>('/stock/shopping-list'),
+  unrecipeSales: (from: string, to: string) =>
+    request<{ items: Array<{ menuItemId: number | null; name: string; quantity: number }> }>(`/stock/unrecipe-sales?from=${from}&to=${to}`),
+  suppliers: () => request<{ suppliers: Supplier[] }>('/stock/suppliers'),
+  createSupplier: (data: { name: string; phone?: string | null; email?: string | null; notes?: string | null }) =>
+    request<unknown>('/stock/suppliers', { method: 'POST', body: data }),
+  updateSupplier: (id: number, data: { name?: string; phone?: string | null; email?: string | null; notes?: string | null; active?: boolean }) =>
+    request<unknown>(`/stock/suppliers/${id}`, { method: 'PATCH', body: data }),
+  deleteSupplier: (id: number) => request<void>(`/stock/suppliers/${id}`, { method: 'DELETE' }),
 };
