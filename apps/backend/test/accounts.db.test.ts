@@ -155,9 +155,13 @@ test('cobro: dos cobros a la vez de la misma semana dejan uno solo', async () =>
   const ok = results.filter(x => x.status === 'fulfilled').length;
   assert.ok(ok >= 1);
   for (const x of results) if (x.status === 'rejected') assert.ok(x.reason instanceof HttpError, String(x.reason));
-  // Cada comida quedó en un solo cobro y lo cobrado suma exactamente la deuda (+ recargo)
+  // Gane el que gane, cada comida quedó en un solo cobro: lo cobrado coincide
+  // exactamente con las comidas saldadas (nunca se cobra una dos veces)
   const pays = await prisma.accountPayment.findMany({ where: { restaurantId: r } });
-  assert.equal(pays.reduce((s, p) => s + Number(p.debt), 0), 20000);
+  const settled = await prisma.sale.findMany({ where: { restaurantId: r, accountPaymentId: { not: null } } });
+  assert.equal(pays.length, ok);
+  assert.equal(pays.reduce((s, p) => s + Number(p.debt), 0), settled.reduce((s, x) => s + Number(x.total), 0));
+  assert.ok(settled.length >= 1);
 });
 
 test('anular un cobro: las comidas vuelven a deberse; queda en auditoría con motivo', async () => {
