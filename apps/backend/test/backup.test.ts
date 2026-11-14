@@ -4,7 +4,8 @@
 // ──────────────────────────────────────────────
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { decryptFile, encryptFile } from '../src/lib/backup/crypto.js';
@@ -38,7 +39,9 @@ test('cifrado: ida y vuelta; contraseña equivocada o archivo tocado fallan', as
     writeFileSync(enc, 'cualquier cosa que no es un respaldo de restos');
     await assert.rejects(decryptFile(enc, back, PASS), /No es un respaldo|incompleto/);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    // Un descifrado rechazado puede terminar de cerrar su archivo un instante después:
+    // se reintenta el borrado (en Linux daba ENOTEMPTY de vez en cuando)
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
