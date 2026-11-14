@@ -29,6 +29,8 @@ export const SocketEvents = {
   ORDER_CHANGE_RESOLVED:   'order-change:resolved',
   // Ventas
   SALE_REGISTERED:         'sale:registered',
+  // Cuenta corriente (tarea 5.9): clientes, comidas a cuenta o cobros cambiaron
+  ACCOUNTS_CHANGED:        'accounts:changed',
   // Inventario
   INVENTORY_ITEM_CHANGED:  'inventory-item:changed',
   INVENTORY_ITEM_CREATED:  'inventory-item:created',

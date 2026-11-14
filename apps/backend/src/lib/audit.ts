@@ -43,6 +43,8 @@ export const AUDIT_ACTIONS = [
   'staff.shift.update',  // turno corregido
   'staff.shift.delete',  // turno borrado
   'staff.rate',          // cambio del valor por hora
+  'account.payment',        // cobro de cuenta corriente (con recargo)
+  'account.payment.cancel', // cobro de cuenta corriente anulado (con motivo)
 ] as const;
 
 export type AuditAction = typeof AUDIT_ACTIONS[number];

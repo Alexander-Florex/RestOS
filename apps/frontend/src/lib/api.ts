@@ -460,7 +460,8 @@ export const ordersApi = {
 // ──────────────────────────────────────────────
 // Ventas — tipos y API
 // ──────────────────────────────────────────────
-export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER';
+/** ACCOUNT = a cuenta (cuenta corriente, tarea 5.9): no entra plata */
+export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'ACCOUNT';
 /** Salón (mesa) o para llevar */
 export type SaleChannel = 'DINE_IN' | 'TAKEAWAY';
 
@@ -472,6 +473,9 @@ export interface Sale {
   tableNumber: number | null;
   /** Nombre de la mesa al cobrar (mesas unidas: "Ventana + Patio") */
   tableName?: string | null;
+  /** Venta a cuenta: cliente de cuenta corriente y cobro que la saldó */
+  customerId?: number | null;
+  accountPaymentId?: number | null;
   takeawayOrderId: number | null;
   paymentMethod: PaymentMethod;
   amount: string;
@@ -487,6 +491,8 @@ export interface CreateSaleBody {
   tableId: number;
   /** Mesas unidas: cobrar todas las del grupo en una sola venta */
   wholeGroup?: boolean;
+  /** Solo con paymentMethod ACCOUNT */
+  customerId?: number;
   paymentMethod: PaymentMethod;
   amount: number;
   notes?: string;
@@ -1219,6 +1225,8 @@ export interface SalesReport {
   byChannel: Array<{ channel: SaleChannel; count: number; total: number }>;
   /** Solo salón */
   byTable: Array<{ tableNumber: number; tableName: string | null; count: number; total: number }>;
+  /** Cobros de cuenta corriente en el rango: deuda saldada + recargo */
+  accountCollections: { count: number; debt: number; surcharge: number; total: number };
 }
 
 export interface TopItem {
@@ -1482,3 +1490,44 @@ export interface ItemChange {
   requestedBy: { id: number; name: string } | null;
   resolvedBy: { id: number; name: string } | null;
 }
+
+// ──────────────────────────────────────────────
+// Cuenta corriente (tarea 5.9)
+// ──────────────────────────────────────────────
+export interface AccountCustomer {
+  id: number;
+  name: string;
+  cuit: string | null;
+  contact: string | null;
+  active: boolean;
+  /** Lo que debe hoy */
+  balance: number;
+  unpaidCount: number;
+  oldestUnpaid: string | null;
+}
+export interface AccountStatementSale {
+  id: number; closedAt: string; day: string; table: string | null; total: number; notes: string | null;
+}
+export interface AccountStatement {
+  customer: Omit<AccountCustomer, 'balance' | 'unpaidCount' | 'oldestUnpaid'>;
+  balance: number;
+  weeks: Array<{ weekStart: string; weekEnd: string; total: number; sales: AccountStatementSale[] }>;
+  payments: Array<{
+    id: number; paidAt: string; debt: number; surchargePct: number; surcharge: number; total: number;
+    paymentMethod: PaymentMethod; notes: string | null; registeredByName: string | null; salesCount: number;
+  }>;
+}
+
+export const accountsApi = {
+  list: () => request<{ customers: AccountCustomer[] }>('/accounts/customers'),
+  create: (data: { name: string; cuit?: string | null; contact?: string | null }) =>
+    request<unknown>('/accounts/customers', { method: 'POST', body: data }),
+  update: (id: number, data: { name?: string; cuit?: string | null; contact?: string | null; active?: boolean }) =>
+    request<unknown>(`/accounts/customers/${id}`, { method: 'PATCH', body: data }),
+  remove: (id: number) => request<void>(`/accounts/customers/${id}`, { method: 'DELETE' }),
+  statement: (id: number) => request<AccountStatement>(`/accounts/customers/${id}/statement`),
+  registerPayment: (id: number, data: { saleIds: number[]; surchargePct: number; paymentMethod: PaymentMethod; notes?: string | null }) =>
+    request<unknown>(`/accounts/customers/${id}/payments`, { method: 'POST', body: data }),
+  cancelPayment: (paymentId: number, reason: string) =>
+    request<void>(`/accounts/payments/${paymentId}`, { method: 'DELETE', body: { reason } }),
+};

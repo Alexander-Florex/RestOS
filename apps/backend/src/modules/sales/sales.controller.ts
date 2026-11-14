@@ -7,6 +7,7 @@ import { PaymentMethod } from '@prisma/client';
 import { salesService } from './sales.service.js';
 import { HttpError } from '../../lib/http-error.js';
 import { dayParam } from '../../lib/date-query.js';
+import { rolesService } from '../roles/roles.service.js';
 
 const paymentEnum = z.nativeEnum(PaymentMethod);
 
@@ -15,6 +16,8 @@ const createSchema = z.object({
   // Mesas unidas: cobrar todas juntas en una venta
   wholeGroup: z.boolean().optional(),
   paymentMethod: paymentEnum,
+  // A cuenta (tarea 5.9): de qué cliente de cuenta corriente
+  customerId: z.number().int().positive().optional(),
   amount: z.coerce.number().nonnegative(),
   notes: z.string().trim().max(1000).optional(),
   imageBase64: z.string().max(15_000_000).optional(),
@@ -59,6 +62,11 @@ export const salesController = {
   async create(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);
+    // Dejar a cuenta: solo quien tiene "Cuentas corrientes" (Caja y Administrador por defecto)
+    if (data.paymentMethod === PaymentMethod.ACCOUNT) {
+      const access = await rolesService.getAccess(req.user.userId, req.user.restaurantId);
+      if (!access.permissions.includes('accounts.manage')) throw HttpError.forbidden('Tu rol no puede dejar mesas a cuenta');
+    }
     const sale = await salesService.create(req.user.restaurantId, {
       ...data,
       registeredById: req.user.userId,

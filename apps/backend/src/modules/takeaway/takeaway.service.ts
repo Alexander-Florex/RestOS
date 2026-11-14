@@ -162,6 +162,8 @@ export const takeawayService = {
     amountPaid: number,
     opts: { notes?: string | null; registeredById?: number } = {},
   ) {
+    // "A cuenta" es solo para mesas de clientes con cuenta corriente (tarea 5.9)
+    if (paymentMethod === PaymentMethod.ACCOUNT) throw HttpError.badRequest('Los pedidos para llevar no se pueden dejar a cuenta');
     await findOne(id, restaurantId);
     const paidCents = toCents(amountPaid);
     const notes = opts.notes?.trim() || null;

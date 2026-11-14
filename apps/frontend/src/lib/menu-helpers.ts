@@ -40,6 +40,7 @@ export const PAYMENT_LABEL: Record<PaymentMethod, string> = {
   CASH:     'Efectivo',
   CARD:     'Tarjeta',
   TRANSFER: 'Transferencia',
+  ACCOUNT:  'A cuenta',
 };
 
 export const PAYMENT_OPTIONS = [
