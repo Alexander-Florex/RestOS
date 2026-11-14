@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import {
-  CreditCard, Loader2, Banknote, Image as ImageIcon, X, ArrowLeft,
+  CreditCard, Loader2, Banknote, Image as ImageIcon, X, ArrowLeft, NotebookPen,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -15,8 +15,9 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select } from './ui/select';
 import {
-  salesApi, printingApi, type Order, type PaymentMethod, type Table, ApiError,
+  salesApi, printingApi, accountsApi, type Order, type PaymentMethod, type Table, type AccountCustomer, ApiError,
 } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { cn } from '../lib/utils';
@@ -60,6 +61,17 @@ export function CloseTableModal({
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Cuenta corriente (tarea 5.9): solo quien tiene "Cuentas corrientes" (Caja y Administrador)
+  const { can } = useAuth();
+  const canAccount = can('accounts.manage');
+  const [customers, setCustomers] = useState<AccountCustomer[]>([]);
+  const [customerId, setCustomerId] = useState('');
+  const isAccount = paymentMethod === 'ACCOUNT';
+  useEffect(() => {
+    if (!open || !canAccount) return;
+    setCustomerId('');
+    accountsApi.list().then(r => setCustomers(r.customers)).catch(() => setCustomers([]));
+  }, [open, canAccount]);
 
   // Al abrir, autocompletamos amount = total
   useEffect(() => {
@@ -99,13 +111,19 @@ export function CloseTableModal({
   }
 
   async function handleSubmit() {
-    const numericAmount = Number(amount);
+    // A cuenta (tarea 5.9): no entra plata; hay que elegir el cliente
+    const customer = customers.find(c => String(c.id) === customerId);
+    if (isAccount && !customer) {
+      toast.error('Elegí a cuenta de qué cliente queda');
+      return;
+    }
+    const numericAmount = isAccount ? 0 : Number(amount);
     if (Number.isNaN(numericAmount) || numericAmount < 0) {
       toast.error('Ingresá un monto válido');
       return;
     }
     // No se aceptan cobros parciales (el backend también lo rechaza). Comparamos en centavos.
-    if (Math.round(numericAmount * 100) < Math.round(total * 100)) {
+    if (!isAccount && Math.round(numericAmount * 100) < Math.round(total * 100)) {
       toast.error(`El monto cobrado (${formatMoney(numericAmount)}) no cubre el total (${formatMoney(total)})`);
       return;
     }
@@ -116,11 +134,14 @@ export function CloseTableModal({
         tableId: table.id,
         wholeGroup: isWhole,
         paymentMethod,
+        ...(isAccount ? { customerId: customer!.id } : {}),
         amount: numericAmount,
         notes: notes.trim() || undefined,
         imageBase64: imageBase64 || undefined,
       });
-      toast.success(`${label} ${isWhole ? 'cobradas' : 'cobrada'}: ${formatMoney(numericAmount)}`);
+      toast.success(isAccount
+        ? `${label}: ${formatMoney(total)} a cuenta de ${customer!.name}`
+        : `${label} ${isWhole ? 'cobradas' : 'cobrada'}: ${formatMoney(numericAmount)}`);
 
       // Ticket de caja: siempre, desde la venta guardada. Imprime el agente local,
       // no depende de que este dispositivo tenga una impresora elegida.
@@ -209,8 +230,8 @@ export function CloseTableModal({
           {/* Método de pago: como botones grandes */}
           <div className="space-y-2">
             <Label>Método de pago</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {PAYMENT_OPTIONS.map(opt => (
+            <div className={cn('grid gap-2', canAccount ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3')}>
+              {[...PAYMENT_OPTIONS, ...(canAccount ? [{ value: 'ACCOUNT' as PaymentMethod, label: 'A cuenta' }] : [])].map(opt => (
                 <button
                   key={opt.value}
                   type="button"
@@ -225,14 +246,32 @@ export function CloseTableModal({
                 >
                   {opt.value === 'CASH' && <Banknote className="h-4 w-4" />}
                   {opt.value === 'CARD' && <CreditCard className="h-4 w-4" />}
+                  {opt.value === 'ACCOUNT' && <NotebookPen className="h-4 w-4" />}
                   {opt.label}
                 </button>
               ))}
             </div>
           </div>
 
+          {/* A cuenta: de qué cliente (Municipalidad, cooperativa) */}
+          {isAccount && (
+            <div className="space-y-2">
+              <Label htmlFor="accCustomer">A cuenta de</Label>
+              <Select id="accCustomer" value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={submitting}>
+                <option value="">Elegí el cliente…</option>
+                {customers.filter(c => c.active).map(c => (
+                  <option key={c.id} value={c.id}>{c.name}{c.balance > 0 ? ` (debe ${formatMoney(c.balance)})` : ''}</option>
+                ))}
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                No entra plata: la mesa se libera y queda como deuda. Pedí que firmen la comanda.
+                {customers.filter(c => c.active).length === 0 && ' No hay clientes con cuenta: cargalos en "Cuentas corrientes".'}
+              </p>
+            </div>
+          )}
+
           {/* Monto cobrado */}
-          <div className="space-y-2">
+          {!isAccount && <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="amount">Monto cobrado</Label>
               {paymentMethod === 'CASH' && change > 0 && (
@@ -251,7 +290,7 @@ export function CloseTableModal({
               disabled={submitting}
               className="tabular-nums text-lg"
             />
-          </div>
+          </div>}
 
           {/* Notas */}
           <div className="space-y-2">
@@ -317,7 +356,7 @@ export function CloseTableModal({
           </Button>
           <Button onClick={handleSubmit} disabled={submitting || items.length === 0}>
             {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-            Confirmar cobro {PAYMENT_LABEL[paymentMethod].toLowerCase()}
+            {isAccount ? 'Dejar a cuenta' : `Confirmar cobro ${PAYMENT_LABEL[paymentMethod].toLowerCase()}`}
           </Button>
         </DialogFooter>
       </DialogContent>

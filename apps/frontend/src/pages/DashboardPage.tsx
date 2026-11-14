@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LogOut, Home, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace, ClipboardList,
+  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace, ClipboardList, NotebookPen,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import type { Permission } from '../lib/permissions';
@@ -23,6 +23,7 @@ import { SalesHistoryPage } from '../components/SalesHistoryPage';
 import { InventoryPage } from '../components/InventoryPage';
 import { StockCountPage } from '../components/StockCountPage';
 import { StaffPage } from '../components/StaffPage';
+import { AccountsPage } from '../components/AccountsPage';
 import { UsersPage } from '../components/UsersPage';
 import { ReservationsPage } from '../components/ReservationsPage';
 import { ReportsPage } from '../components/ReportsPage';
@@ -34,7 +35,7 @@ import { useChangeNotifications } from '../hooks/useChangeNotifications';
 import { BrandMark, EASE_OUT, PageTransition } from '../components/ui/motion';
 import { cn } from '../lib/utils';
 
-type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'stock-count' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes';
+type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'stock-count' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes' | 'accounts';
 
 interface NavItem {
   id: View;
@@ -70,6 +71,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { id: 'sales',   label: 'Ventas',   icon: Receipt, perm: 'sales.view' },
       { id: 'reports', label: 'Reportes', icon: BarChart3, perm: 'reports.view' },
+      { id: 'accounts', label: 'Cuentas corrientes', icon: NotebookPen, perm: 'accounts.manage' },
       { id: 'staff',   label: 'Personal', icon: Users, perm: ['staff.manage', 'staff.hours'] },
       { id: 'users',   label: 'Usuarios', icon: UserCog, perm: 'users.manage' },
       { id: 'roles',   label: 'Roles',    icon: ShieldCheck, perm: 'users.manage' },
@@ -227,6 +229,7 @@ export function DashboardPage() {
                 {shown === 'roles'        && <RolesPage />}
                 {shown === 'audit'        && <AuditPage />}
                 {shown === 'changes'      && <ChangesPage />}
+                {shown === 'accounts'     && <AccountsPage />}
               </PageTransition>
             </AnimatePresence>
           </div>

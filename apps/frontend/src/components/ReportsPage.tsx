@@ -19,6 +19,7 @@ const PAYMENT_COLOR: Record<string, string> = {
   CASH:     '#10b981',
   CARD:     '#3b82f6',
   TRANSFER: '#a855f7',
+  ACCOUNT:  '#f59e0b',
 };
 
 type ViewMode = 'daily' | 'monthly' | 'custom';
@@ -256,8 +257,8 @@ export function ReportsPage() {
                 <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-brand-400">Hoy</span>
               )}
             </h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {(['CASH','CARD','TRANSFER'] as PaymentMethod[]).map(method => {
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {(['CASH','CARD','TRANSFER','ACCOUNT'] as PaymentMethod[]).map(method => {
                 const d = report!.byPaymentMethod.find(x => x.method === method);
                 const amount = d?.amount ?? 0;
                 const count  = d?.count ?? 0;
@@ -278,6 +279,7 @@ export function ReportsPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {count} {count === 1 ? 'venta' : 'ventas'}
                       {pct > 0 && ` · ${pct.toFixed(1)}%`}
+                      {method === 'ACCOUNT' && count > 0 && ' · sin cobrar'}
                     </p>
                     {amount > 0 && (
                       <div className="mt-2 h-1.5 w-full rounded-full bg-white/[0.06]">
@@ -290,6 +292,20 @@ export function ReportsPage() {
               })}
             </div>
           </div>
+
+          {/* Cobros de cuenta corriente (tarea 5.9): entran el día que pagan, con el recargo */}
+          {report!.accountCollections && report!.accountCollections.count > 0 && (
+            <div className="mb-6 glass rounded-3xl p-5">
+              <h3 className="mb-3 text-sm font-semibold">Cobros de cuenta corriente</h3>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 text-sm">
+                <div><p className="text-xs text-muted-foreground">Cobros</p><p className="text-lg font-bold tabular-nums">{report!.accountCollections.count}</p></div>
+                <div><p className="text-xs text-muted-foreground">Deuda saldada</p><p className="text-lg font-bold tabular-nums">{formatMoney(report!.accountCollections.debt)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Recargo</p><p className="text-lg font-bold tabular-nums">{formatMoney(report!.accountCollections.surcharge)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Total cobrado</p><p className="text-lg font-bold tabular-nums text-amber-300">{formatMoney(report!.accountCollections.total)}</p></div>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">Ya está sumado en lo cobrado del período.</p>
+            </div>
+          )}
 
           {/* Ventas por canal: salón y para llevar */}
           <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
