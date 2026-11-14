@@ -461,7 +461,7 @@ export const ordersApi = {
 // Ventas — tipos y API
 // ──────────────────────────────────────────────
 /** ACCOUNT = a cuenta (cuenta corriente, tarea 5.9): no entra plata */
-export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'ACCOUNT';
+export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'ACCOUNT' | 'MIXED';
 /** Salón (mesa) o para llevar */
 export type SaleChannel = 'DINE_IN' | 'TAKEAWAY';
 
@@ -493,8 +493,13 @@ export interface CreateSaleBody {
   wholeGroup?: boolean;
   /** Solo con paymentMethod ACCOUNT */
   customerId?: number;
-  paymentMethod: PaymentMethod;
-  amount: number;
+  /** Varios medios o cuenta dividida (reemplaza paymentMethod/amount) */
+  payments?: Array<{ method: PaymentMethod; amount: number }>;
+  /** Descuento con motivo (permiso sales.discount) */
+  discountPct?: number;
+  discountReason?: string;
+  paymentMethod?: PaymentMethod;
+  amount?: number;
   notes?: string;
   imageBase64?: string;
 }
@@ -1561,7 +1566,11 @@ export interface CashHistoryRow {
   summary: CashSummary;
 }
 
+export interface CashPromo { pct: number | null; days: number[]; today: number; activeToday: boolean }
+
 export const cashApi = {
+  promo: () => request<CashPromo>('/cash/promo'),
+  setPromo: (data: { pct: number | null; days: number[] }) => request<CashPromo>('/cash/promo', { method: 'PUT', body: data }),
   current: () => request<CashCurrent>('/cash/current'),
   history: () => request<{ sessions: CashHistoryRow[] }>('/cash/history'),
   open: (openingAmount: number) => request<unknown>('/cash/open', { method: 'POST', body: { openingAmount } }),

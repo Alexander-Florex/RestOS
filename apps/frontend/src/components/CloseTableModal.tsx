@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import {
-  CreditCard, Loader2, Banknote, Image as ImageIcon, X, ArrowLeft, NotebookPen,
+  CreditCard, Loader2, Banknote, Image as ImageIcon, X, ArrowLeft, NotebookPen, Split,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -15,7 +15,7 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select } from './ui/select';
 import {
-  salesApi, printingApi, accountsApi, type Order, type PaymentMethod, type Table, type AccountCustomer, ApiError,
+  salesApi, printingApi, accountsApi, cashApi, type Order, type PaymentMethod, type Table, type AccountCustomer, type CashPromo, ApiError,
 } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
@@ -52,7 +52,8 @@ export function CloseTableModal({
   const [whole, setWhole] = useState(true);
   const isWhole = !!group && whole;
   const orders = isWhole ? group!.orders : ownOrders;
-  const total = isWhole ? group!.total : ownTotal;
+  // Lo consumido; lo que se cobra es esto menos el descuento (tarea 5.2)
+  const subtotal = isWhole ? group!.total : ownTotal;
   const label = isWhole ? tablesLabel(group!.tables) : tableLabel(table);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [amount, setAmount] = useState<string>('');
@@ -67,6 +68,41 @@ export function CloseTableModal({
   const [customers, setCustomers] = useState<AccountCustomer[]>([]);
   const [customerId, setCustomerId] = useState('');
   const isAccount = paymentMethod === 'ACCOUNT';
+
+  // Descuento con motivo (permiso "Hacer descuentos") y promo de efectivo
+  const canDiscount = can('sales.discount');
+  const [discountOn, setDiscountOn] = useState(false);
+  const [discountPct, setDiscountPct] = useState('');
+  const [discountReason, setDiscountReason] = useState('');
+  const [promo, setPromo] = useState<CashPromo | null>(null);
+  const pctNum = Number(discountPct.replace(',', '.'));
+  const pctValid = !discountOn || (Number.isFinite(pctNum) && pctNum > 0 && pctNum <= 100);
+  const subtotalCents = Math.round(subtotal * 100);
+  const discountCentsV = discountOn && pctValid ? Math.round((subtotalCents * Math.round(pctNum * 100)) / 10_000) : 0;
+  const total = (subtotalCents - discountCentsV) / 100;
+
+  // Varios medios o cuenta dividida entre comensales
+  const [split, setSplit] = useState(false);
+  const [parts, setParts] = useState<Array<{ method: 'CASH' | 'CARD' | 'TRANSFER'; amount: string }>>([]);
+  const partsCents = parts.map(p => Math.round(Number(p.amount.replace(',', '.')) * 100) || 0);
+  const nonCashCents = parts.reduce((s, p, i) => s + (p.method === 'CASH' ? 0 : partsCents[i]), 0);
+  const cashCents = parts.reduce((s, p, i) => s + (p.method === 'CASH' ? partsCents[i] : 0), 0);
+  const totalCents = Math.round(total * 100);
+  const missingCents = Math.max(0, totalCents - nonCashCents - cashCents);
+  const splitChangeCents = Math.max(0, cashCents - Math.max(0, totalCents - nonCashCents));
+  function splitEqually(n: number) {
+    const count = Math.max(2, Math.min(20, Math.floor(n)));
+    const base = Math.floor(totalCents / count);
+    setParts(Array.from({ length: count }, (_, i) => ({
+      method: parts[i]?.method ?? 'CASH',
+      amount: ((i === count - 1 ? totalCents - base * (count - 1) : base) / 100).toFixed(2),
+    })));
+  }
+  useEffect(() => {
+    if (!open) return;
+    setDiscountOn(false); setDiscountPct(''); setDiscountReason(''); setSplit(false); setParts([]);
+    cashApi.promo().then(setPromo).catch(() => setPromo(null));
+  }, [open]);
   useEffect(() => {
     if (!open || !canAccount) return;
     setCustomerId('');
@@ -89,6 +125,8 @@ export function CloseTableModal({
   }, [open, total]);
 
   const change = Number(amount) - total;
+  const promoSuggested = !!promo?.activeToday && !!promo.pct && canDiscount && !isAccount && !discountOn
+    && (split ? parts.every(p => p.method === 'CASH') : paymentMethod === 'CASH');
   // Los platos cambiados no se cobran (tarea 5.8)
   const items = orders.flatMap(o => o.items).filter(i => i.status !== 'VOIDED');
 
@@ -117,13 +155,22 @@ export function CloseTableModal({
       toast.error('Elegí a cuenta de qué cliente queda');
       return;
     }
-    const numericAmount = isAccount ? 0 : Number(amount);
+    if (discountOn && (!pctValid || discountReason.trim().length < 3)) {
+      toast.error('Completá el descuento: porcentaje entre 1 y 100 y el motivo');
+      return;
+    }
+    if (split && !isAccount) {
+      if (parts.length === 0 || partsCents.some(c => c <= 0)) { toast.error('Cada parte tiene que tener un monto'); return; }
+      if (nonCashCents > totalCents) { toast.error('Con tarjeta o transferencia no se puede pagar de más'); return; }
+      if (missingCents > 0) { toast.error(`Falta cobrar ${formatMoney(missingCents / 100)}`); return; }
+    }
+    const numericAmount = isAccount ? 0 : split ? (nonCashCents + cashCents) / 100 : Number(amount);
     if (Number.isNaN(numericAmount) || numericAmount < 0) {
       toast.error('Ingresá un monto válido');
       return;
     }
     // No se aceptan cobros parciales (el backend también lo rechaza). Comparamos en centavos.
-    if (!isAccount && Math.round(numericAmount * 100) < Math.round(total * 100)) {
+    if (!isAccount && !split && Math.round(numericAmount * 100) < Math.round(total * 100)) {
       toast.error(`El monto cobrado (${formatMoney(numericAmount)}) no cubre el total (${formatMoney(total)})`);
       return;
     }
@@ -133,9 +180,11 @@ export function CloseTableModal({
       const { sale } = await salesApi.create({
         tableId: table.id,
         wholeGroup: isWhole,
-        paymentMethod,
+        ...(split && !isAccount
+          ? { payments: parts.map((p, i) => ({ method: p.method, amount: partsCents[i] / 100 })) }
+          : { paymentMethod, amount: numericAmount }),
         ...(isAccount ? { customerId: customer!.id } : {}),
-        amount: numericAmount,
+        ...(discountOn ? { discountPct: pctNum, discountReason: discountReason.trim() } : {}),
         notes: notes.trim() || undefined,
         imageBase64: imageBase64 || undefined,
       });
@@ -217,6 +266,12 @@ export function CloseTableModal({
               </div>
             ))}
           </div>
+          {discountCentsV > 0 && (
+            <div className="mt-3 space-y-1 border-t border-border pt-3 text-sm">
+              <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span className="tabular-nums">{formatMoney(subtotal)}</span></div>
+              <div className="flex justify-between text-emerald-300"><span>Descuento {pctNum}%{discountReason.trim() ? ` · ${discountReason.trim()}` : ''}</span><span className="tabular-nums">−{formatMoney(discountCentsV / 100)}</span></div>
+            </div>
+          )}
           <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
             <span className="text-sm font-semibold">Total a cobrar</span>
             <span className="text-2xl font-bold text-brand-400 tabular-nums">
@@ -230,16 +285,16 @@ export function CloseTableModal({
           {/* Método de pago: como botones grandes */}
           <div className="space-y-2">
             <Label>Método de pago</Label>
-            <div className={cn('grid gap-2', canAccount ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3')}>
+            <div className={cn('grid gap-2', canAccount ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4')}>
               {[...PAYMENT_OPTIONS, ...(canAccount ? [{ value: 'ACCOUNT' as PaymentMethod, label: 'A cuenta' }] : [])].map(opt => (
                 <button
                   key={opt.value}
                   type="button"
                   disabled={submitting}
-                  onClick={() => setPaymentMethod(opt.value)}
+                  onClick={() => { setPaymentMethod(opt.value); setSplit(false); }}
                   className={cn(
                     'flex items-center justify-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-colors',
-                    paymentMethod === opt.value
+                    !split && paymentMethod === opt.value
                       ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
                       : 'border-border bg-white/[0.04] text-muted-foreground hover:border-foreground/30'
                   )}
@@ -250,8 +305,82 @@ export function CloseTableModal({
                   {opt.label}
                 </button>
               ))}
+              {/* Varios medios o cuenta dividida entre comensales */}
+              <button type="button" disabled={submitting}
+                onClick={() => {
+                  setSplit(true); setPaymentMethod('CASH');
+                  if (parts.length === 0) setParts([{ method: 'CASH', amount: total.toFixed(2) }]);
+                }}
+                className={cn('flex items-center justify-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-colors',
+                  split ? 'border-sky-400/50 bg-sky-500/10 text-sky-300' : 'border-border bg-white/[0.04] text-muted-foreground hover:border-foreground/30')}>
+                <Split className="h-4 w-4" /> Dividir
+              </button>
             </div>
           </div>
+
+          {/* Dividir la cuenta o pagar con varios medios */}
+          {split && (
+            <div className="space-y-2 rounded-2xl border border-sky-400/30 bg-sky-500/5 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-medium">Partes del pago</span>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  Dividir en
+                  {[2, 3, 4, 5, 6].map(n => (
+                    <button key={n} type="button" onClick={() => splitEqually(n)} disabled={submitting}
+                      className="rounded-md border border-border px-2 py-0.5 font-medium hover:border-sky-400/50">{n}</button>
+                  ))}
+                </span>
+              </div>
+              {parts.map((p, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Select value={p.method} disabled={submitting} className="w-36"
+                    onChange={(e) => setParts(ps => ps.map((x, j) => j === i ? { ...x, method: e.target.value as 'CASH' | 'CARD' | 'TRANSFER' } : x))}>
+                    {PAYMENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </Select>
+                  <Input type="number" step="0.01" inputMode="decimal" value={p.amount} disabled={submitting} className="tabular-nums"
+                    onChange={(e) => setParts(ps => ps.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))} />
+                  <button type="button" onClick={() => setParts(ps => ps.filter((_, j) => j !== i))} disabled={submitting || parts.length === 1}
+                    className="rounded-lg p-2 text-muted-foreground hover:text-rose-300 disabled:opacity-30" aria-label="Quitar parte">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex items-center justify-between text-sm">
+                <button type="button" disabled={submitting} className="text-sky-300 hover:underline"
+                  onClick={() => setParts(ps => [...ps, { method: 'CARD', amount: (missingCents / 100).toFixed(2) }])}>
+                  + Agregar parte
+                </button>
+                <span className={cn('font-medium', missingCents > 0 ? 'text-rose-300' : 'text-emerald-300')}>
+                  {missingCents > 0 ? `Falta ${formatMoney(missingCents / 100)}` : splitChangeCents > 0 ? `Vuelto ${formatMoney(splitChangeCents / 100)}` : 'Cubre el total'}
+                </span>
+              </div>
+              {nonCashCents > totalCents && <p className="text-xs text-rose-300">Con tarjeta o transferencia no se puede pagar de más.</p>}
+            </div>
+          )}
+
+          {/* Descuento con motivo; la promo de efectivo se sugiere esos días */}
+          {canDiscount && (
+            <div className="space-y-2">
+              {promoSuggested && (
+                <button type="button" disabled={submitting}
+                  onClick={() => { setDiscountOn(true); setDiscountPct(String(promo!.pct)); setDiscountReason('Promo efectivo'); }}
+                  className="w-full rounded-xl border-2 border-dashed border-emerald-400/40 bg-emerald-500/5 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/10">
+                  Hoy hay promo: aplicar {promo!.pct}% pagando en efectivo
+                </button>
+              )}
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={discountOn} disabled={submitting}
+                  onChange={(e) => { setDiscountOn(e.target.checked); if (!e.target.checked) { setDiscountPct(''); setDiscountReason(''); } }} />
+                Descuento
+              </label>
+              {discountOn && (
+                <div className="grid grid-cols-3 gap-2">
+                  <Input inputMode="decimal" placeholder="%" value={discountPct} onChange={(e) => setDiscountPct(e.target.value)} disabled={submitting} />
+                  <Input className="col-span-2" maxLength={200} placeholder="Motivo (obligatorio)" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} disabled={submitting} />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* A cuenta: de qué cliente (Municipalidad, cooperativa) */}
           {isAccount && (
@@ -271,7 +400,7 @@ export function CloseTableModal({
           )}
 
           {/* Monto cobrado */}
-          {!isAccount && <div className="space-y-2">
+          {!isAccount && !split && <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="amount">Monto cobrado</Label>
               {paymentMethod === 'CASH' && change > 0 && (
@@ -356,7 +485,7 @@ export function CloseTableModal({
           </Button>
           <Button onClick={handleSubmit} disabled={submitting || items.length === 0}>
             {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isAccount ? 'Dejar a cuenta' : `Confirmar cobro ${PAYMENT_LABEL[paymentMethod].toLowerCase()}`}
+            {isAccount ? 'Dejar a cuenta' : split ? `Confirmar cobro (${parts.length} ${parts.length === 1 ? 'parte' : 'partes'})` : `Confirmar cobro ${PAYMENT_LABEL[paymentMethod].toLowerCase()}`}
           </Button>
         </DialogFooter>
       </DialogContent>

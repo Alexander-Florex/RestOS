@@ -164,6 +164,7 @@ export const takeawayService = {
   ) {
     // "A cuenta" es solo para mesas de clientes con cuenta corriente (tarea 5.9)
     if (paymentMethod === PaymentMethod.ACCOUNT) throw HttpError.badRequest('Los pedidos para llevar no se pueden dejar a cuenta');
+    if (paymentMethod === PaymentMethod.MIXED) throw HttpError.badRequest('Elegí un medio de pago');
     await findOne(id, restaurantId);
     const paidCents = toCents(amountPaid);
     const notes = opts.notes?.trim() || null;
@@ -205,6 +206,12 @@ export const takeawayService = {
           paymentMethod,
           amount: fromCents(paidCents),
           total: fromCents(totalCents),
+          subtotal: fromCents(totalCents),
+          // Un solo medio: lo cobrado (sin vuelto); el efectivo entregado queda en tendered
+          payments: { create: [{
+            method: paymentMethod, amount: fromCents(Math.min(paidCents, totalCents)),
+            tendered: paymentMethod === PaymentMethod.CASH ? fromCents(paidCents) : null,
+          }] },
           notes: saleNotes,
           registeredById: opts.registeredById ?? null,
           closedAt: new Date(),

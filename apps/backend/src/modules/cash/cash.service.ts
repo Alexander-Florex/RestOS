@@ -13,7 +13,8 @@ import { CashMovementType, PaymentMethod, Prisma, type CashSession } from '@pris
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
-import { collectedCents, fromCents, toCents } from '../../lib/money.js';
+import { fromCents, toCents } from '../../lib/money.js';
+import { localDayKey } from '../../lib/time.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 function emitChanged(restaurantId: number) {
@@ -57,7 +58,7 @@ async function buildSummary(
   // La primera caja del local arranca en su apertura; las siguientes, justo después del cierre anterior
   const range = firstSession ? { gte: session.periodStart, lte: to } : { gt: session.periodStart, lte: to };
   const [sales, payments, movements, cancelledOrders] = await Promise.all([
-    db.sale.findMany({ where: { restaurantId, closedAt: range } }),
+    db.sale.findMany({ where: { restaurantId, closedAt: range }, include: { payments: true } }),
     db.accountPayment.findMany({ where: { restaurantId, paidAt: range } }),
     db.cashMovement.findMany({ where: { sessionId: session.id }, orderBy: { createdAt: 'asc' }, include: { createdBy: { select: { name: true } } } }),
     db.order.count({ where: { restaurantId, status: 'CANCELLED', closedAt: range } }),
@@ -73,9 +74,13 @@ async function buildSummary(
     totalSalesCents += toCents(s.total);
     if (s.closedAt < session.openedAt) before++;
     if (s.paymentMethod === PaymentMethod.ACCOUNT) { onAccountCount++; onAccountCents += toCents(s.total); continue; }
-    const m = s.paymentMethod as Method;
-    salesBy[m].count++;
-    byMethodCents[m] += collectedCents(s);
+    // Cada parte del pago en su medio (las cuentas mixtas o divididas se reparten)
+    for (const p of s.payments) {
+      const m = p.method as Method;
+      if (!METHODS.includes(m)) continue;
+      salesBy[m].count++;
+      byMethodCents[m] += toCents(p.amount);
+    }
   }
   for (const m of METHODS) salesBy[m].amount = fromCents(byMethodCents[m]);
 
@@ -248,5 +253,35 @@ export const cashService = {
       openingAmount: Number(r.openingAmount), expectedCash: Number(r.expectedCash), countedCash: Number(r.countedCash),
       difference: Number(r.difference), closeNotes: r.closeNotes, summary: r.summary as unknown as CashSummary,
     }));
+  },
+};
+
+/** Día ISO (1 = lunes … 7 = domingo) de hoy en el local. */
+function todayIsoWeekday(): number {
+  const [y, m, d] = localDayKey(new Date()).split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = domingo
+  return dow === 0 ? 7 : dow;
+}
+
+function parseDays(raw: string): number[] {
+  return [...new Set(raw.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n >= 1 && n <= 7))].sort();
+}
+
+/** Promo de efectivo (tarea 5.2): se sugiere al cobrar en efectivo esos días; la caja decide. */
+export const promoService = {
+  async get(restaurantId: number) {
+    const r = await prisma.restaurant.findUniqueOrThrow({ where: { id: restaurantId }, select: { cashPromoPct: true, cashPromoDays: true } });
+    const days = parseDays(r.cashPromoDays);
+    const pct = r.cashPromoPct === null ? null : Number(r.cashPromoPct);
+    return { pct, days, today: todayIsoWeekday(), activeToday: !!pct && days.includes(todayIsoWeekday()) };
+  },
+  async set(restaurantId: number, input: { pct: number | null; days: number[] }) {
+    if (input.pct !== null && (!Number.isFinite(input.pct) || input.pct <= 0 || input.pct > 100)) {
+      throw HttpError.badRequest('El porcentaje tiene que estar entre 0 y 100');
+    }
+    const days = parseDays(input.days.join(','));
+    await prisma.restaurant.update({ where: { id: restaurantId }, data: { cashPromoPct: input.pct, cashPromoDays: days.join(',') } });
+    emitChanged(restaurantId);
+    return promoService.get(restaurantId);
   },
 };

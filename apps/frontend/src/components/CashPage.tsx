@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ArrowDownCircle, ArrowUpCircle, Loader2, Lock, LockOpen, Wallet } from 'lucide-react';
-import { cashApi, ApiError, type CashCurrent, type CashHistoryRow, type CashSummary } from '../lib/api';
+import { cashApi, ApiError, type CashCurrent, type CashHistoryRow, type CashSummary, type CashPromo } from '../lib/api';
 import { getSocket, SocketEvents } from '../lib/socket';
 import { useResync } from '../hooks/useConnection';
 import { formatMoney, formatDateTime } from '../lib/format';
@@ -84,6 +84,8 @@ export function CashPage() {
         <OpenForm cur={cur} onDone={refresh} />
       )}
 
+      <PromoSettings />
+
       {history.length > 0 && (
         <section>
           <h3 className="mb-2 text-sm font-semibold">Cierres anteriores</h3>
@@ -125,6 +127,58 @@ export function CashPage() {
         <CloseDialog summary={cur.open.summary} onClose={() => setClosing(false)} onDone={() => { setClosing(false); refresh(); }} />
       )}
     </div>
+  );
+}
+
+const DAY_NAMES = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+/** Promo de efectivo (tarea 5.2): esos días, al cobrar en efectivo se sugiere el descuento. */
+function PromoSettings() {
+  const [promo, setPromo] = useState<CashPromo | null>(null);
+  const [pct, setPct] = useState('');
+  const [days, setDays] = useState<number[]>([]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    cashApi.promo().then(p => { setPromo(p); setPct(p.pct ? String(p.pct) : ''); setDays(p.days); }).catch(() => {});
+  }, []);
+  if (!promo) return null;
+  async function save() {
+    const v = pct.trim() === '' ? null : Number(pct.replace(',', '.'));
+    if (v !== null && (!Number.isFinite(v) || v <= 0 || v > 100)) { toast.error('Porcentaje entre 1 y 100 (vacío = sin promo)'); return; }
+    setSaving(true);
+    try {
+      const p = await cashApi.setPromo({ pct: v, days });
+      setPromo(p);
+      toast.success(v ? `Promo: ${v}% en efectivo` : 'Promo de efectivo apagada');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo guardar');
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <section className="glass max-w-xl space-y-3 rounded-3xl p-5">
+      <div>
+        <h3 className="text-sm font-semibold">Promo pagando en efectivo</h3>
+        <p className="text-xs text-muted-foreground">Esos días, al cobrar en efectivo aparece el botón para aplicarla. La caja decide si la usa.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input className="w-20" inputMode="decimal" value={pct} onChange={(e) => setPct(e.target.value)} disabled={saving} placeholder="%" />
+        <span className="text-sm text-muted-foreground">%</span>
+        {DAY_NAMES.map((d, i) => {
+          const on = days.includes(i + 1);
+          return (
+            <button key={d} type="button" disabled={saving} aria-pressed={on}
+              onClick={() => setDays(ds => on ? ds.filter(x => x !== i + 1) : [...ds, i + 1].sort())}
+              className={cn('rounded-lg border px-2 py-1 text-xs font-medium', on ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-300' : 'border-border text-muted-foreground')}>
+              {d}
+            </button>
+          );
+        })}
+        <Button size="sm" onClick={save} disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}Guardar</Button>
+      </div>
+      {promo.activeToday && <p className="text-xs text-emerald-300">Hoy está activa.</p>}
+    </section>
   );
 }
 

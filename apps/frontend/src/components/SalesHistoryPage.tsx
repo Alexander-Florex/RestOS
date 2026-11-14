@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Banknote, CreditCard, Wallet, Loader2, RefreshCw, Receipt, NotebookPen,
+  Banknote, CreditCard, Wallet, Loader2, RefreshCw, Receipt, NotebookPen, Split,
   TrendingUp, ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -25,6 +25,7 @@ const PAYMENT_ICON: Record<PaymentMethod, typeof Banknote> = {
   CARD: CreditCard,
   TRANSFER: Wallet,
   ACCOUNT: NotebookPen,
+  MIXED: Split,
 };
 
 export function SalesHistoryPage() {

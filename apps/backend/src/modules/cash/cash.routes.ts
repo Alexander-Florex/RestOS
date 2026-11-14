@@ -12,6 +12,9 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/current',    requirePermission('cash.manage', 'sales.charge'), asyncHandler(cashController.current));
+// Promo de efectivo: la lee quien cobra; la configura quien maneja la caja
+router.get('/promo',      requirePermission('cash.manage', 'sales.charge'), asyncHandler(cashController.getPromo));
+router.put('/promo',      requirePermission('cash.manage'), asyncHandler(cashController.setPromo));
 router.get('/history',    requirePermission('cash.manage'), asyncHandler(cashController.history));
 router.post('/open',      requirePermission('cash.manage'), asyncHandler(cashController.open));
 router.post('/movements', requirePermission('cash.manage'), asyncHandler(cashController.movement));

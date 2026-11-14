@@ -4,7 +4,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { CashMovementType } from '@prisma/client';
-import { cashService } from './cash.service.js';
+import { cashService, promoService } from './cash.service.js';
 import { HttpError } from '../../lib/http-error.js';
 
 const openSchema = z.object({ openingAmount: z.coerce.number().min(0, 'El monto inicial no puede ser negativo') });
@@ -18,7 +18,21 @@ const closeSchema = z.object({
   notes: z.string().trim().max(500).optional().nullable(),
 });
 
+const promoSchema = z.object({
+  pct: z.coerce.number().min(0).max(100).nullable(),
+  days: z.array(z.coerce.number().int().min(1).max(7)).max(7),
+});
+
 export const cashController = {
+  async getPromo(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    res.json(await promoService.get(req.user.restaurantId));
+  },
+  async setPromo(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const d = promoSchema.parse(req.body);
+    res.json(await promoService.set(req.user.restaurantId, { pct: d.pct || null, days: d.days }));
+  },
   async current(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     res.json(await cashService.current(req.user.restaurantId));

@@ -163,7 +163,7 @@ export function buildCashTicket(data: {
   const hora  = data.printedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
   const fecha = data.printedAt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ });
 
-  const PAY: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', ACCOUNT: 'A cuenta', TRANSFER: 'Transferencia' };
+  const PAY: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', ACCOUNT: 'A cuenta', MIXED: 'Varios medios', TRANSFER: 'Transferencia' };
   const payLabel = PAY[data.paymentMethod] ?? data.paymentMethod;
 
   push(CMD.INIT, CMD.SET_CP858);

@@ -22,6 +22,10 @@ model Restaurant {
   address        String?
   /// Mesas por nombre (si lo tienen) o por número, en todas las pantallas y tickets
   tableLabelMode TableLabelMode @default(NAME)
+  /// Promo de efectivo (tarea 5.2): al cobrar en efectivo esos días se sugiere el descuento.
+  /// Días ISO separados por coma (1 = lunes … 7 = domingo). Vacío = sin promo.
+  cashPromoPct   Decimal?       @default(10) @db.Decimal(5, 2)
+  cashPromoDays  String         @default("3,4,5") @db.VarChar(20)
   createdAt      DateTime       @default(now())
   // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
   updatedAt      DateTime       @default(now()) @updatedAt
@@ -442,9 +446,20 @@ model Sale {
   /// Pedido para llevar que originó la venta. Único: un pedido no genera dos ventas.
   takeawayOrderId  Int?             @unique
   takeawayOrder    TakeawayOrder?   @relation(fields: [takeawayOrderId], references: [id], onDelete: SetNull)
+  /// Medio de pago (MIXED = varios; el detalle está en payments)
   paymentMethod    PaymentMethod
+  /// Lo que entregó el cliente en total (incluye el vuelto en efectivo)
   amount           Decimal          @db.Decimal(10, 2)
+  /// Lo que se cobra: subtotal − descuento
   total            Decimal          @db.Decimal(10, 2)
+  /// Suma de lo consumido antes del descuento (vacío en ventas anteriores a la tarea 5.2 = sin descuento)
+  subtotal         Decimal?         @db.Decimal(10, 2)
+  /// Descuento aplicado (con motivo y permiso)
+  discount         Decimal          @default(0) @db.Decimal(10, 2)
+  discountPct      Decimal?         @db.Decimal(5, 2)
+  discountReason   String?          @db.VarChar(200)
+  /// Cómo se pagó (uno o varios medios). Las ventas a cuenta no tienen.
+  payments         SalePayment[]
   notes            String?          @db.Text
   imageUrl         String?
   registeredById   Int?
@@ -492,6 +507,25 @@ enum PaymentMethod {
   TRANSFER
   /// A cuenta (tarea 5.9): no entra plata; la venta queda como deuda del cliente
   ACCOUNT
+  /// Varios medios en la misma cuenta (tarea 5.2): el detalle está en sale_payments
+  MIXED
+}
+
+/// Parte del pago de una venta (tarea 5.2): una cuenta se puede pagar con varios medios
+/// o dividirse entre los comensales. Reportes y caja suman por acá.
+model SalePayment {
+  id        Int           @id @default(autoincrement())
+  saleId    Int
+  sale      Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  method    PaymentMethod
+  /// Lo que esta parte paga de la cuenta (sin vuelto)
+  amount    Decimal       @db.Decimal(10, 2)
+  /// Efectivo entregado (para el vuelto); solo en efectivo
+  tendered  Decimal?      @db.Decimal(10, 2)
+  createdAt DateTime      @default(now())
+
+  @@index([saleId])
+  @@map("sale_payments")
 }
 
 /// Cliente con cuenta corriente (tarea 5.9): Municipalidad, cooperativa eléctrica.

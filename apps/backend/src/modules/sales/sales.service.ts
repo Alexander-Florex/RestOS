@@ -23,6 +23,7 @@ import crypto from 'node:crypto';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { lockTables, groupUpdatesAfterLeaving } from '../../lib/table-lock.js';
+import { checkParts, discountCents, settlePayments, type PaymentPart } from '../../lib/payments.js';
 import { applyGroupUpdates } from '../tables/tables.service.js';
 import { tablesLabel } from '../../shared/table-label.js';
 import { toCents, fromCents, formatCents, collectedCents } from '../../lib/money.js';
@@ -88,8 +89,15 @@ export interface CreateSaleInput {
   wholeGroup?: boolean;
   /** Solo con paymentMethod ACCOUNT: de qué cliente de cuenta corriente es la deuda (tarea 5.9) */
   customerId?: number;
-  paymentMethod: PaymentMethod;
-  amount: number;
+  /** Un solo medio (como antes): paymentMethod + amount (lo entregado, con vuelto) */
+  paymentMethod?: PaymentMethod;
+  amount?: number;
+  /** Varios medios o cuenta dividida (tarea 5.2). Reemplaza a paymentMethod/amount. */
+  payments?: PaymentPart[];
+  /** Descuento (tarea 5.2): por % o por monto, con motivo */
+  discountPct?: number | null;
+  discountAmount?: number | null;
+  discountReason?: string | null;
   notes?: string;
   imageBase64?: string;
   registeredById?: number;
@@ -151,7 +159,11 @@ export const salesService = {
    */
   async create(restaurantId: number, input: CreateSaleInput): Promise<Sale> {
     // A cuenta (tarea 5.9): no entra plata; la venta queda como deuda del cliente
-    const onAccount = input.paymentMethod === PaymentMethod.ACCOUNT;
+    const onAccount = input.paymentMethod === PaymentMethod.ACCOUNT && !input.payments;
+    if (input.payments && input.paymentMethod) throw HttpError.badRequest('Mandá el pago en un solo formato');
+    const parts: PaymentPart[] = onAccount ? [] : input.payments
+      ?? (input.paymentMethod ? [{ method: input.paymentMethod, amount: input.amount ?? 0 }] : []);
+    if (!onAccount) checkParts(parts);
     if (onAccount) {
       if (!input.customerId) throw HttpError.badRequest('Elegí a cuenta de qué cliente queda la mesa');
       const customer = await prisma.accountCustomer.findFirst({ where: { id: input.customerId, restaurantId } });
@@ -159,10 +171,6 @@ export const salesService = {
       if (!customer.active) throw HttpError.badRequest(`${customer.name} está desactivado: no se le puede dejar a cuenta`);
     } else if (input.customerId) {
       throw HttpError.badRequest('Un cliente de cuenta corriente solo se elige con "A cuenta"');
-    }
-    const amountCents = onAccount ? 0 : toCents(input.amount);
-    if (amountCents < 0) {
-      throw HttpError.badRequest('El monto cobrado no puede ser negativo');
     }
 
     // Guardar imagen si vino (fuera de la transacción: es I/O de disco)
@@ -243,15 +251,15 @@ export const salesService = {
         if (totalCents === 0) {
           throw HttpError.badRequest('La mesa no tiene consumos para cobrar. Liberala sin venta.');
         }
+        // Descuento con motivo (tarea 5.2): lo que se cobra es el subtotal menos el descuento
+        const subtotalCents = totalCents;
+        const discount = discountCents(subtotalCents, { pct: input.discountPct, amount: input.discountAmount, reason: input.discountReason });
+        totalCents = subtotalCents - discount;
 
         // 3. No se aceptan cobros parciales. Si entró un pedido mientras se
-        //    cobraba, el total subió y el monto de la pantalla ya no alcanza.
-        if (!onAccount && amountCents < totalCents) {
-          throw HttpError.badRequest(
-            `El monto cobrado (${formatCents(amountCents)}) no cubre el total de la cuenta ` +
-            `(${formatCents(totalCents)}). Si se agregaron pedidos, revisá la cuenta y volvé a cobrar.`,
-          );
-        }
+        //    cobraba, el total subió y el pago de la pantalla ya no alcanza.
+        const settled = onAccount ? null : settlePayments(parts, totalCents);
+        const amountCents = settled?.tenderedCents ?? 0;
 
         // 4. Cerrar las mesas cobradas (el where por estado es una segunda garantía además del lock)
         const closed = await tx.table.updateMany({
@@ -278,10 +286,20 @@ export const salesService = {
             tableNumber: locked.number,
             // Mesas unidas: "Ventana + Patio" (queda como estaba al cobrar)
             tableName: charged.length > 1 ? tablesLabel(charged, 'NAME').slice(0, 120) : locked.name,
-            paymentMethod: input.paymentMethod,
+            paymentMethod: onAccount ? PaymentMethod.ACCOUNT : settled!.method,
             amount: fromCents(amountCents),
             customerId: onAccount ? input.customerId : null,
             total: fromCents(totalCents),
+            subtotal: fromCents(subtotalCents),
+            discount: fromCents(discount),
+            discountPct: discount > 0 && input.discountPct != null ? input.discountPct : null,
+            discountReason: discount > 0 ? input.discountReason!.trim().slice(0, 200) : null,
+            payments: settled ? {
+              create: settled.rows.map(r => ({
+                method: r.method, amount: fromCents(r.amountCents),
+                tendered: r.tenderedCents === null ? null : fromCents(r.tenderedCents),
+              })),
+            } : undefined,
             notes: input.notes ?? null,
             imageUrl,
             registeredById: input.registeredById ?? null,
@@ -321,7 +339,9 @@ export const salesService = {
           restaurantId, action: 'sale.create', entity: 'Sale', entityId: sale.id,
           userId: input.registeredById ?? undefined,
           after: {
-            tableNumber: locked.number, tableName: sale.tableName, paymentMethod: input.paymentMethod,
+            tableNumber: locked.number, tableName: sale.tableName, paymentMethod: sale.paymentMethod,
+            ...(settled && settled.rows.length > 1 ? { payments: settled.rows.map(r => ({ method: r.method, amount: fromCents(r.amountCents) })) } : {}),
+            ...(discount > 0 ? { subtotal: sale.subtotal, discount: sale.discount, discountReason: sale.discountReason } : {}),
             ...(onAccount ? { customerId: input.customerId } : {}),
             ...(charged.length > 1 ? { tableNumbers: charged.map(t => t.number) } : {}),
             total: sale.total, amount: sale.amount, orderIds: orders.map(o => o.id),
@@ -356,6 +376,7 @@ export const salesService = {
 
     const sales = await prisma.sale.findMany({
       where: { restaurantId, closedAt: { gte: dayStart, lte: dayEnd } },
+      include: { payments: true },
     });
 
     const byMethod: Record<PaymentMethod, { count: number; amount: number }> = {
@@ -364,20 +385,24 @@ export const salesService = {
       TRANSFER: { count: 0, amount: 0 },
       // A cuenta: lo que quedó debiendo (no entra en el total cobrado)
       ACCOUNT:  { count: 0, amount: 0 },
+      // Nunca tiene montos: las ventas mixtas se reparten en sus medios
+      MIXED:    { count: 0, amount: 0 },
     };
     let totalCents = 0;
-    const byMethodCents: Record<PaymentMethod, number> = { CASH: 0, CARD: 0, TRANSFER: 0, ACCOUNT: 0 };
+    const byMethodCents: Record<PaymentMethod, number> = { CASH: 0, CARD: 0, TRANSFER: 0, ACCOUNT: 0, MIXED: 0 };
     for (const s of sales) {
       if (s.paymentMethod === PaymentMethod.ACCOUNT) {
         byMethod.ACCOUNT.count += 1;
         byMethodCents.ACCOUNT += toCents(s.total);
         continue;
       }
-      // amount es lo que entregó el cliente (incluye el vuelto): lo cobrado es min(amount, total)
-      const collected = collectedCents(s);
-      totalCents += collected;
-      byMethod[s.paymentMethod].count += 1;
-      byMethodCents[s.paymentMethod] += collected;
+      // Cada parte del pago suma en su medio (sin el vuelto: amount de sale_payments)
+      for (const p of s.payments) {
+        const c = toCents(p.amount);
+        totalCents += c;
+        byMethod[p.method].count += 1;
+        byMethodCents[p.method] += c;
+      }
     }
     for (const m of Object.keys(byMethodCents) as PaymentMethod[]) {
       byMethod[m].amount = fromCents(byMethodCents[m]);
