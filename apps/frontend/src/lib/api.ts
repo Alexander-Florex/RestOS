@@ -1623,3 +1623,59 @@ export const stockApi = {
     request<unknown>(`/stock/suppliers/${id}`, { method: 'PATCH', body: data }),
   deleteSupplier: (id: number) => request<void>(`/stock/suppliers/${id}`, { method: 'DELETE' }),
 };
+
+// ──────────────────────────────────────────────
+// Reportes de la fase 4
+// ──────────────────────────────────────────────
+export type MenuClass = 'STAR' | 'PLOWHORSE' | 'PUZZLE' | 'DOG';
+export interface Profitability {
+  dishes: Array<{
+    menuItemId: number | null; name: string; category: string; quantity: number; revenue: number; revenueNet: number;
+    cost: number | null; profit: number | null; marginPct: number | null; profitPerDish: number | null;
+    hasRecipe: boolean; costComplete: boolean; class: MenuClass | null;
+  }>;
+  totals: { revenue: number; profit: number; popularityLine: number; avgProfitPerDish: number; withoutRecipe: number };
+}
+export interface TheoreticalVsReal {
+  items: Array<{ id: number; name: string; unit: string; area: string; real: number; theoretical: number; difference: number; differenceValue: number }>;
+  byArea: Array<{ area: string; value: number }>;
+  totalDifferenceValue: number;
+  warnings: string[];
+}
+export interface DailyClose {
+  day: string; salesCount: number; sold: number; collected: number; averageTicket: number;
+  byMethod: { CASH: number; CARD: number; TRANSFER: number };
+  byChannel: { DINE_IN: { count: number; total: number }; TAKEAWAY: { count: number; total: number } };
+  discounts: { count: number; total: number };
+  onAccount: { count: number; total: number };
+  accountCollections: { count: number; total: number };
+  cancelledOrders: { count: number; total: number };
+  changes: { count: number; lost: number };
+}
+export interface OwnerPanel {
+  today: DailyClose;
+  sameDayLastWeek: { sold: number; salesCount: number };
+  cash: { open: true; expectedCash: number; totalCollected: number } | { open: false };
+  lowStock: { count: number; items: Array<{ name: string; quantity: number; minStock: number; unit: string }> };
+  lowMargin: Array<{ name: string; actualMargin: number | null; target: number; suggestedPrice: number | null }>;
+  receivables: number;
+  lastCount: { area: string; closedAt: string | null; differenceValue: number | null } | null;
+}
+
+export const analyticsApi = {
+  profitability: (from: string, to: string) => request<Profitability>(`/reports/profitability?from=${from}&to=${to}`),
+  theoreticalVsReal: (from: string, to: string) => request<TheoreticalVsReal>(`/reports/theoretical-vs-real?from=${from}&to=${to}`),
+  dailyClose: (day: string) => request<DailyClose>(`/reports/daily-close?day=${day}`),
+  downloadDailyClose: async (day: string): Promise<void> => {
+    const { blob, filename } = await requestBlob(`/reports/daily-close.csv?day=${day}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename ?? `cierre-${day}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  },
+  owner: () => request<OwnerPanel>('/reports/owner'),
+};
