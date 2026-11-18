@@ -224,6 +224,10 @@ export const tablesApi = {
   join: (id: number, tableIds: number[]) =>
     request<{ tables: Table[] }>(`/tables/${id}/join`, { method: 'POST', body: { tableIds } }),
 
+  /** Mueve pedidos a otra mesa: todos (se mudan; esta queda libre) o algunos */
+  moveOrders: (id: number, toTableId: number, orderIds?: number[]) =>
+    request<{ tables: Table[] }>(`/tables/${id}/move-orders`, { method: 'POST', body: { toTableId, ...(orderIds ? { orderIds } : {}) } }),
+
   /** Separa la mesa de su grupo */
   separate: (id: number) =>
     request<{ tables: Table[] }>(`/tables/${id}/separate`, { method: 'POST' }),
@@ -259,6 +263,9 @@ export interface MenuItem {
   price: string; // Prisma Decimal viene como string
   description: string | null;
   stock: StockStatus;
+  /** El estado sale del stock de los insumos (tarea 3.8); portionsLeft = porciones que alcanzan */
+  stockAuto?: boolean;
+  portionsLeft?: number | null;
   enabled: boolean;
   imageUrl: string | null;
   /** Opciones para personalizar el plato al pedir (las carga el Administrador). */
@@ -313,6 +320,8 @@ export interface CreateMenuItemBody {
   price: number;
   description?: string | null;
   stock?: StockStatus;
+  /** El estado sale del stock de los insumos de su receta (tarea 3.8) */
+  stockAuto?: boolean;
   enabled?: boolean;
 }
 
@@ -461,7 +470,7 @@ export const ordersApi = {
 // Ventas — tipos y API
 // ──────────────────────────────────────────────
 /** ACCOUNT = a cuenta (cuenta corriente, tarea 5.9): no entra plata */
-export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'ACCOUNT';
+export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'ACCOUNT' | 'MIXED';
 /** Salón (mesa) o para llevar */
 export type SaleChannel = 'DINE_IN' | 'TAKEAWAY';
 
@@ -493,8 +502,13 @@ export interface CreateSaleBody {
   wholeGroup?: boolean;
   /** Solo con paymentMethod ACCOUNT */
   customerId?: number;
-  paymentMethod: PaymentMethod;
-  amount: number;
+  /** Varios medios o cuenta dividida (reemplaza paymentMethod/amount) */
+  payments?: Array<{ method: PaymentMethod; amount: number }>;
+  /** Descuento con motivo (permiso sales.discount) */
+  discountPct?: number;
+  discountReason?: string;
+  paymentMethod?: PaymentMethod;
+  amount?: number;
   notes?: string;
   imageBase64?: string;
 }
@@ -865,6 +879,7 @@ export interface Recipe {
   profitPct: number;
   vatPct: number;
   notes: string | null;
+  stockItemId?: number | null;
   ingredients: RecipeIngredient[];
   cost: RecipeCost;
   createdAt: string;
@@ -889,6 +904,8 @@ export interface CreateRecipeBody {
   profitPct?: number;
   vatPct?: number;
   notes?: string | null;
+  /** Elaborado con stock propio: el insumo que suma al producirla (tarea 3.5) */
+  stockItemId?: number | null;
   ingredients: RecipeIngredientBody[];
 }
 
@@ -1530,4 +1547,135 @@ export const accountsApi = {
     request<unknown>(`/accounts/customers/${id}/payments`, { method: 'POST', body: data }),
   cancelPayment: (paymentId: number, reason: string) =>
     request<void>(`/accounts/payments/${paymentId}`, { method: 'DELETE', body: { reason } }),
+};
+
+// ──────────────────────────────────────────────
+// Caja (tarea 5.1)
+// ──────────────────────────────────────────────
+type CashMethod = 'CASH' | 'CARD' | 'TRANSFER';
+export interface CashSummary {
+  from: string;
+  to: string;
+  openingAmount: number;
+  sales: Record<CashMethod, { count: number; amount: number }>;
+  accountPayments: Record<CashMethod, { count: number; amount: number }>;
+  onAccount: { count: number; amount: number };
+  movements: { in: number; out: number; list: Array<{ id: number; type: 'IN' | 'OUT'; amount: number; reason: string; createdAt: string; by: string | null }> };
+  cancelledOrders: number;
+  salesBeforeOpening: number;
+  totalSales: number;
+  totalCollected: number;
+  expectedCash: number;
+}
+export interface CashCurrent {
+  open: { id: number; openedAt: string; openedBy: string | null; openingAmount: number; summary: CashSummary } | null;
+  lastClosedAt: string | null;
+  salesSinceLastClose: { count: number; total: number } | null;
+}
+export interface CashHistoryRow {
+  id: number; openedAt: string; closedAt: string; openedBy: string | null; closedBy: string | null;
+  openingAmount: number; expectedCash: number; countedCash: number; difference: number; closeNotes: string | null;
+  summary: CashSummary;
+}
+
+export interface CashPromo { pct: number | null; days: number[]; today: number; activeToday: boolean }
+
+export const cashApi = {
+  promo: () => request<CashPromo>('/cash/promo'),
+  setPromo: (data: { pct: number | null; days: number[] }) => request<CashPromo>('/cash/promo', { method: 'PUT', body: data }),
+  current: () => request<CashCurrent>('/cash/current'),
+  history: () => request<{ sessions: CashHistoryRow[] }>('/cash/history'),
+  open: (openingAmount: number) => request<unknown>('/cash/open', { method: 'POST', body: { openingAmount } }),
+  movement: (data: { type: 'IN' | 'OUT'; amount: number; reason: string }) =>
+    request<unknown>('/cash/movements', { method: 'POST', body: data }),
+  close: (data: { countedCash: number; notes?: string | null }) =>
+    request<unknown>('/cash/close', { method: 'POST', body: data }),
+};
+
+// ──────────────────────────────────────────────
+// Stock automático, producción, mermas, compras y proveedores (fase 3)
+// ──────────────────────────────────────────────
+export interface Supplier {
+  id: number; name: string; phone: string | null; email: string | null; notes: string | null; active: boolean; itemCount: number;
+}
+export interface ShoppingGroup {
+  supplier: { id: number; name: string; phone: string | null } | null;
+  items: Array<{
+    id: number; name: string; unit: string; quantity: number; minStock: number; suggested: number;
+    presentations: number | null; purchaseLabel: string | null; estimatedCost: number;
+  }>;
+}
+export interface ProductionResult { item: string; quantity: number; unit: string; cost: number; unitCost: number; warnings: string[] }
+
+export const stockApi = {
+  settings: () => request<{ autoStockOnSale: boolean }>('/stock/settings'),
+  setSettings: (autoStockOnSale: boolean) => request<{ autoStockOnSale: boolean }>('/stock/settings', { method: 'PUT', body: { autoStockOnSale } }),
+  produce: (recipeId: number, quantity: number) => request<ProductionResult>('/stock/production', { method: 'POST', body: { recipeId, quantity } }),
+  waste: (itemId: number, quantity: number, reason: string) =>
+    request<{ balance: number }>(`/stock/items/${itemId}/waste`, { method: 'POST', body: { quantity, reason } }),
+  shoppingList: () => request<{ groups: ShoppingGroup[] }>('/stock/shopping-list'),
+  unrecipeSales: (from: string, to: string) =>
+    request<{ items: Array<{ menuItemId: number | null; name: string; quantity: number }> }>(`/stock/unrecipe-sales?from=${from}&to=${to}`),
+  suppliers: () => request<{ suppliers: Supplier[] }>('/stock/suppliers'),
+  createSupplier: (data: { name: string; phone?: string | null; email?: string | null; notes?: string | null }) =>
+    request<unknown>('/stock/suppliers', { method: 'POST', body: data }),
+  updateSupplier: (id: number, data: { name?: string; phone?: string | null; email?: string | null; notes?: string | null; active?: boolean }) =>
+    request<unknown>(`/stock/suppliers/${id}`, { method: 'PATCH', body: data }),
+  deleteSupplier: (id: number) => request<void>(`/stock/suppliers/${id}`, { method: 'DELETE' }),
+};
+
+// ──────────────────────────────────────────────
+// Reportes de la fase 4
+// ──────────────────────────────────────────────
+export type MenuClass = 'STAR' | 'PLOWHORSE' | 'PUZZLE' | 'DOG';
+export interface Profitability {
+  dishes: Array<{
+    menuItemId: number | null; name: string; category: string; quantity: number; revenue: number; revenueNet: number;
+    cost: number | null; profit: number | null; marginPct: number | null; profitPerDish: number | null;
+    hasRecipe: boolean; costComplete: boolean; class: MenuClass | null;
+  }>;
+  totals: { revenue: number; profit: number; popularityLine: number; avgProfitPerDish: number; withoutRecipe: number };
+}
+export interface TheoreticalVsReal {
+  items: Array<{ id: number; name: string; unit: string; area: string; real: number; theoretical: number; difference: number; differenceValue: number }>;
+  byArea: Array<{ area: string; value: number }>;
+  totalDifferenceValue: number;
+  warnings: string[];
+}
+export interface DailyClose {
+  day: string; salesCount: number; sold: number; collected: number; averageTicket: number;
+  byMethod: { CASH: number; CARD: number; TRANSFER: number };
+  byChannel: { DINE_IN: { count: number; total: number }; TAKEAWAY: { count: number; total: number } };
+  discounts: { count: number; total: number };
+  onAccount: { count: number; total: number };
+  accountCollections: { count: number; total: number };
+  cancelledOrders: { count: number; total: number };
+  changes: { count: number; lost: number };
+}
+export interface OwnerPanel {
+  today: DailyClose;
+  sameDayLastWeek: { sold: number; salesCount: number };
+  cash: { open: true; expectedCash: number; totalCollected: number } | { open: false };
+  lowStock: { count: number; items: Array<{ name: string; quantity: number; minStock: number; unit: string }> };
+  lowMargin: Array<{ name: string; actualMargin: number | null; target: number; suggestedPrice: number | null }>;
+  receivables: number;
+  lastCount: { area: string; closedAt: string | null; differenceValue: number | null } | null;
+}
+
+export const analyticsApi = {
+  profitability: (from: string, to: string) => request<Profitability>(`/reports/profitability?from=${from}&to=${to}`),
+  theoreticalVsReal: (from: string, to: string) => request<TheoreticalVsReal>(`/reports/theoretical-vs-real?from=${from}&to=${to}`),
+  dailyClose: (day: string) => request<DailyClose>(`/reports/daily-close?day=${day}`),
+  downloadDailyClose: async (day: string): Promise<void> => {
+    const { blob, filename } = await requestBlob(`/reports/daily-close.csv?day=${day}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename ?? `cierre-${day}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  },
+  owner: () => request<OwnerPanel>('/reports/owner'),
 };

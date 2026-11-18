@@ -5,8 +5,9 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   Users, Clock, Loader2, Receipt, Lock, CalendarCheck,
-  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard, Printer, ListPlus, RotateCcw, Replace, Link2, Unlink,
+  XCircle, DoorOpen, Minus, Plus, ShoppingBag, CreditCard, Printer, ListPlus, RotateCcw, Replace, Link2, Unlink, ArrowRightLeft,
 } from 'lucide-react';
+import { MoveOrdersDialog } from './MoveOrdersDialog';
 import { JoinTablesDialog, groupOf } from './JoinTablesDialog';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -55,6 +56,8 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
   const [closeModalOpen, setCloseModalOpen] = useState(false);
   const [addOrderOpen, setAddOrderOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  // Mover pedidos (tarea 5.3): null = cerrado; { order: null } = toda la mesa
+  const [moving, setMoving] = useState<{ order: Order | null } | null>(null);
 
   // Solo cargamos pedidos si la mesa está ocupada o con cuenta pedida
   const tableId = table && (table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED')
@@ -163,8 +166,8 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
       {/* Al abrir un sub-modal, el foco sale de este y Radix lo interpreta como "cerrar":
           se ignora mientras haya un sub-modal abierto, si no se cierra todo. */}
       <Dialog
-        open={open && !closeModalOpen && !addOrderOpen && !joinOpen}
-        onOpenChange={(v) => !v && !closeModalOpen && !addOrderOpen && !joinOpen && onClose()}
+        open={open && !closeModalOpen && !addOrderOpen && !joinOpen && !moving}
+        onOpenChange={(v) => !v && !closeModalOpen && !addOrderOpen && !joinOpen && !moving && onClose()}
       >
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -320,6 +323,16 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
                               )}
                             </div>
                             <div className="flex shrink-0 items-center gap-1">
+                            {canOperate && (
+                              <button
+                                onClick={() => setMoving({ order })}
+                                className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-brand-500/40 hover:text-brand-400"
+                                title={`Mover el pedido #${order.id} a otra mesa`}
+                              >
+                                <ArrowRightLeft className="h-3 w-3" />
+                                Mover
+                              </button>
+                            )}
                             {canCancel && (
                               <button
                                 onClick={() => setCancelling(order)}
@@ -411,6 +424,14 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
                 </>
               )}
             </div>
+          )}
+
+          {/* Mudar toda la mesa (se cambiaron de lugar) */}
+          {showOrdersSection && canOperate && hasOrders && (
+            <Button variant="outline" className="mt-4 w-full" onClick={() => setMoving({ order: null })} disabled={submitting}>
+              <ArrowRightLeft className="h-4 w-4" />
+              Mudar a otra mesa
+            </Button>
           )}
 
           {/* Cargar un pedido desde el panel (mesa abierta) */}
@@ -579,6 +600,11 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Sub-modal para mover pedidos */}
+      <MoveOrdersDialog table={table} allTables={allTables} order={moving?.order ?? null} open={open && !!moving}
+        onClose={() => setMoving(null)}
+        onMoved={() => { const all = !moving?.order; setMoving(null); if (all) onClose(); }} />
 
       {/* Sub-modal para unir mesas */}
       <JoinTablesDialog table={table} allTables={allTables} open={open && joinOpen} onClose={() => setJoinOpen(false)} />

@@ -5,8 +5,23 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Calendar, Clock, Users, Phone, Loader2, ChevronLeft, ChevronRight,
-  Check, X, UserCheck, BookmarkX, Edit, Trash2, AlertCircle,
+  Check, X, UserCheck, BookmarkX, Edit, Trash2, AlertCircle, MessageCircle,
 } from 'lucide-react';
+
+/** Link de WhatsApp con el recordatorio escrito (se abre en el celular o la PC; no usa servicios externos). */
+function whatsappReminder(r: { customerName: string; customerPhone: string | null; partySize: number; reservedAt: string }): string | null {
+  let digits = (r.customerPhone ?? '').split('').filter(c => c >= '0' && c <= '9').join('');
+  if (digits.length < 8) return null;
+  if (digits.startsWith('0')) digits = digits.slice(1);
+  // Celular argentino: 54 9 + área + número (sin el 15)
+  if (!digits.startsWith('54')) digits = '549' + digits;
+  const when = new Date(r.reservedAt);
+  const tz = 'America/Argentina/Buenos_Aires';
+  const day = new Intl.DateTimeFormat('es-AR', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long' }).format(when);
+  const hour = new Intl.DateTimeFormat('es-AR', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(when);
+  const text = `Hola ${r.customerName}! Te recordamos tu reserva para ${r.partySize} ${r.partySize === 1 ? 'persona' : 'personas'} el ${day} a las ${hour}. Si no podés venir, avisanos por acá. ¡Te esperamos!`;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
 import { useReservations } from '../hooks/useReservations';
 import { useTables } from '../hooks/useTables';
 import { useAuth } from '../context/AuthContext';
@@ -334,6 +349,13 @@ export function ReservationsPage() {
 
                 {/* Acciones */}
                 {canManage && <div className="flex flex-wrap items-center gap-1">
+                  {(r.status === 'CONFIRMED' || r.status === 'PENDING') && whatsappReminder(r) && (
+                    <a href={whatsappReminder(r)!} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-emerald-400/30 px-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/10"
+                      title="Abre WhatsApp con el recordatorio ya escrito">
+                      <MessageCircle className="h-3.5 w-3.5" /> Recordar
+                    </a>
+                  )}
                   {r.status === 'CONFIRMED' && r.tableId && (
                     <>
                       <Button

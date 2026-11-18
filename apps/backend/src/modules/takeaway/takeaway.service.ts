@@ -2,6 +2,7 @@
 // takeaway.service.ts — multi-tenant
 // ──────────────────────────────────────────────
 import { TakeawayStatus, PaymentMethod, SaleChannel, Prisma } from '@prisma/client';
+import { deductForSale } from '../stock/stock-auto.service.js';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { toCents, fromCents, formatCents } from '../../lib/money.js';
@@ -164,6 +165,7 @@ export const takeawayService = {
   ) {
     // "A cuenta" es solo para mesas de clientes con cuenta corriente (tarea 5.9)
     if (paymentMethod === PaymentMethod.ACCOUNT) throw HttpError.badRequest('Los pedidos para llevar no se pueden dejar a cuenta');
+    if (paymentMethod === PaymentMethod.MIXED) throw HttpError.badRequest('Elegí un medio de pago');
     await findOne(id, restaurantId);
     const paidCents = toCents(amountPaid);
     const notes = opts.notes?.trim() || null;
@@ -205,6 +207,12 @@ export const takeawayService = {
           paymentMethod,
           amount: fromCents(paidCents),
           total: fromCents(totalCents),
+          subtotal: fromCents(totalCents),
+          // Un solo medio: lo cobrado (sin vuelto); el efectivo entregado queda en tendered
+          payments: { create: [{
+            method: paymentMethod, amount: fromCents(Math.min(paidCents, totalCents)),
+            tendered: paymentMethod === PaymentMethod.CASH ? fromCents(paidCents) : null,
+          }] },
           notes: saleNotes,
           registeredById: opts.registeredById ?? null,
           closedAt: new Date(),
@@ -229,6 +237,8 @@ export const takeawayService = {
           total: sale.total, amount: sale.amount, notes: saleNotes,
         },
       });
+      // Stock automático (tarea 3.4): si el local lo activó, descuenta los insumos
+      await deductForSale(tx, restaurantId, sale.id, order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity })));
       return sale;
     });
 

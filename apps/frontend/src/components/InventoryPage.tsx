@@ -5,8 +5,9 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Edit, Trash2, Loader2, Search, AlertTriangle, PackagePlus, RefreshCw, History,
-  ArrowLeftRight, SlidersHorizontal, Warehouse,
+  ArrowLeftRight, SlidersHorizontal, Warehouse, PackageMinus,
 } from 'lucide-react';
+import { WasteDialog } from './WasteDialog';
 import { useInventory } from '../hooks/useInventory';
 import { useStorageAreas } from '../hooks/useStorageAreas';
 import { StockMovementsDialog, fmtQty } from './StockMovementsDialog';
@@ -133,6 +134,8 @@ export function InventoryPage() {
   const [areaFilter, setAreaFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [movementsItem, setMovementsItem] = useState<InventoryItem | null>(null);
+  // Merma con motivo (tarea 3.7)
+  const [wasteItem, setWasteItem] = useState<InventoryItem | null>(null);
   const [areasOpen, setAreasOpen] = useState(false);
   // Ajuste a mano de la cantidad (tarea 3.2): cantidad real + motivo
   const [adjusting, setAdjusting] = useState<InventoryItem | null>(null);
@@ -514,6 +517,11 @@ export function InventoryPage() {
                       Reabastecer
                     </Button>
                   )}
+                  {canAdjust && (
+                    <Button variant="ghost" size="icon" onClick={() => setWasteItem(item)} title="Merma (se tiró o se perdió)" aria-label={`Merma de ${item.name}`}>
+                      <PackageMinus className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Button variant="ghost" size="icon" onClick={() => setMovementsItem(item)} title="Movimientos de stock" aria-label={`Movimientos de ${item.name}`}>
                     <ArrowLeftRight className="h-4 w-4" />
                   </Button>
@@ -731,6 +739,7 @@ export function InventoryPage() {
 
       <PriceHistoryDialog item={historyItem} onClose={() => setHistoryItem(null)} />
       <StockMovementsDialog item={movementsItem} onClose={() => setMovementsItem(null)} />
+      <WasteDialog item={wasteItem} onClose={() => setWasteItem(null)} />
       <StorageAreasDialog open={areasOpen} onClose={() => setAreasOpen(false)} areas={areas} />
 
       {/* Ajuste a mano (tarea 3.2): cantidad real + motivo; queda como movimiento */}

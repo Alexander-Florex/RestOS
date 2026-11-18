@@ -33,11 +33,13 @@ interface ItemForm {
   price: string;
   description: string;
   stock: StockStatus;
+  /** El estado sale del stock de los insumos de su receta (tarea 3.8) */
+  stockAuto: boolean;
   enabled: boolean;
 }
 
 const EMPTY_ITEM: ItemForm = {
-  name: '', category: '', price: '', description: '', stock: 'IN_STOCK', enabled: true,
+  name: '', category: '', price: '', description: '', stock: 'IN_STOCK', stockAuto: false, enabled: true,
 };
 
 export function MenuPage() {
@@ -98,6 +100,7 @@ export function MenuPage() {
       price:       String(item.price),
       description: item.description ?? '',
       stock:       item.stock as StockStatus,
+      stockAuto:   !!item.stockAuto,
       enabled:     item.enabled,
     });
     setEditingItem(item);
@@ -119,7 +122,9 @@ export function MenuPage() {
         category:    itemForm.category,
         price,
         description: itemForm.description.trim() || undefined,
-        stock:       itemForm.stock as StockStatus,
+        // Con "según el stock" el estado lo calcula el sistema: no se pisa el manual
+        ...(itemForm.stockAuto ? {} : { stock: itemForm.stock as StockStatus }),
+        stockAuto:   itemForm.stockAuto,
         enabled:     itemForm.enabled,
       };
       if (editingItem) {
@@ -424,6 +429,7 @@ export function MenuPage() {
                         )}
                       >
                         {STOCK_LABEL[item.stock as StockStatus]}
+                        {item.stockAuto && item.portionsLeft != null && item.portionsLeft < 20 && ` · ${item.portionsLeft}`}
                       </button>
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -504,11 +510,16 @@ export function MenuPage() {
                 <Label htmlFor="iStock">Stock</Label>
                 <Select id="iStock" value={itemForm.stock}
                   onChange={e => setItemForm(f => ({ ...f, stock: e.target.value as StockStatus }))}
-                  disabled={submitting}>
+                  disabled={submitting || itemForm.stockAuto}>
                   <option value="IN_STOCK">Disponible</option>
                   <option value="LOW_STOCK">Stock bajo</option>
                   <option value="OUT_OF_STOCK">Sin stock</option>
                 </Select>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={itemForm.stockAuto} disabled={submitting}
+                    onChange={e => setItemForm(f => ({ ...f, stockAuto: e.target.checked }))} />
+                  Según el stock de su receta
+                </label>
               </div>
               <div className="space-y-2">
                 <Label>Estado</Label>

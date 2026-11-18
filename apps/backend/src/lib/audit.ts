@@ -22,6 +22,7 @@ export const AUDIT_ACTIONS = [
   'order.item.remake',  // plato rehecho (se cobra una vez; pérdida)
   'order.item.replace', // plato cambiado por otro (el original no se cobra)
   'order.item.reject',  // pedido de cambio rechazado por caja
+  'order.move',         // pedidos movidos a otra mesa (tarea 5.3)
   'menu.price',         // cambio de precio de un plato
   'menu.options',       // cambio de opciones/recargos de un plato
   'menu.delete',        // plato borrado
@@ -45,6 +46,9 @@ export const AUDIT_ACTIONS = [
   'staff.rate',          // cambio del valor por hora
   'account.payment',        // cobro de cuenta corriente (con recargo)
   'account.payment.cancel', // cobro de cuenta corriente anulado (con motivo)
+  'cash.open',          // apertura de caja (monto inicial)
+  'cash.movement',      // ingreso o egreso de efectivo (con motivo)
+  'cash.close',         // cierre de caja con arqueo y diferencia
 ] as const;
 
 export type AuditAction = typeof AUDIT_ACTIONS[number];

@@ -233,3 +233,60 @@ test('concurrencia: unir y cobrar a la vez no se traban', async () => {
     if (x.status === 'rejected') assert.ok(x.reason instanceof HttpError, String(x.reason));
   }
 });
+
+// ──────────────────────────────────────────────
+// Mover pedidos a otra mesa (tarea 5.3)
+// ──────────────────────────────────────────────
+test('mudar toda la mesa: los pedidos pasan, la nueva se abre con los comensales y la vieja queda libre', async () => {
+  const { r, t, order } = await salon();
+  await order(t[0].id, 1);
+  await order(t[0].id, 2);
+  const moved = await tablesService.moveOrders(r, t[0].id, t[1].id);
+  assert.equal(moved.length, 2);
+  assert.equal(await prisma.order.count({ where: { tableId: t[1].id, status: 'OPEN' } }), 2);
+  const [from, to] = [await fresh(t[0].id), await fresh(t[1].id)];
+  assert.equal(from.status, 'AVAILABLE');
+  assert.equal(to.status, 'OCCUPIED');
+  assert.equal(to.guestCount, 2);
+  // Se cobra en la mesa nueva, con todo
+  const sale = await salesService.create(r, { tableId: t[1].id, paymentMethod: 'CASH', amount: 3000 });
+  assert.equal(Number(sale.total), 3000);
+  assert.equal(await prisma.auditLog.count({ where: { restaurantId: r, action: 'order.move' } }), 1);
+});
+
+test('mover un pedido cargado en la mesa equivocada: la de origen sigue abierta con el resto', async () => {
+  const { r, t, order } = await salon();
+  const ok = await order(t[0].id, 1);
+  const wrong = await order(t[0].id, 2);
+  await order(t[1].id, 1);
+  await tablesService.moveOrders(r, t[0].id, t[1].id, [wrong.id]);
+  assert.equal((await prisma.order.findUniqueOrThrow({ where: { id: wrong.id } })).tableId, t[1].id);
+  assert.equal((await prisma.order.findUniqueOrThrow({ where: { id: ok.id } })).tableId, t[0].id);
+  assert.equal((await fresh(t[0].id)).status, 'OCCUPIED');
+});
+
+test('mover: no a la misma mesa, ni a una reservada; ni pedidos de otra mesa o ya cobrados', async () => {
+  const { r, t, order } = await salon();
+  const a = await order(t[0].id, 1);
+  const b = await order(t[1].id, 1);
+  await assert.rejects(tablesService.moveOrders(r, t[0].id, t[0].id), isHttp(400));
+  await tablesService.reserve(r, t[2].id);
+  await assert.rejects(tablesService.moveOrders(r, t[0].id, t[2].id), isHttp(400));
+  await assert.rejects(tablesService.moveOrders(r, t[0].id, t[1].id, [b.id]), isHttp(409));
+  await salesService.create(r, { tableId: t[0].id, paymentMethod: 'CASH', amount: 1000 });
+  await assert.rejects(tablesService.moveOrders(r, t[0].id, t[1].id, [a.id]), isHttp(409));
+  await assert.rejects(tablesService.moveOrders(r, t[0].id, t[1].id), isHttp(400)); // ya no tiene pedidos
+});
+
+test('mover y cobrar la mesa de origen a la vez: nada queda cobrado y movido a la vez', async () => {
+  const { r, t, order } = await salon();
+  await order(t[0].id, 1);
+  const results = await Promise.allSettled([
+    tablesService.moveOrders(r, t[0].id, t[1].id),
+    salesService.create(r, { tableId: t[0].id, paymentMethod: 'CASH', amount: 1000 }),
+  ]);
+  for (const x of results) if (x.status === 'rejected') assert.ok(x.reason instanceof HttpError, String(x.reason));
+  const paid = await prisma.order.count({ where: { restaurantId: r, status: 'PAID' } });
+  const openInTo = await prisma.order.count({ where: { tableId: t[1].id, status: 'OPEN' } });
+  assert.equal(paid + openInTo, 1);
+});

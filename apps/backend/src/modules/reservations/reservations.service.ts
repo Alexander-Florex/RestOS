@@ -12,6 +12,10 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 import { changeTableStatus } from '../tables/tables.service.js';
+import { APP_TIME_ZONE } from '../../lib/time.js';
+
+/** Reservas que ocupan la mesa */
+const ACTIVE: ReservationStatus[] = [ReservationStatus.PENDING, ReservationStatus.CONFIRMED, ReservationStatus.SEATED];
 
 function emitChanged(restaurantId: number, reservation: Reservation) { ioRestaurant(restaurantId).emit(SocketEvents.RESERVATION_CHANGED, reservation); }
 function emitCreated(restaurantId: number, reservation: Reservation) { ioRestaurant(restaurantId).emit(SocketEvents.RESERVATION_CREATED, reservation); }
@@ -74,6 +78,30 @@ export const reservationsService = {
     return r;
   },
 
+  /**
+   * Una mesa no puede tener dos reservas activas que se pisen (tarea 5.5).
+   * Activas: pendientes, confirmadas o sentadas. Cada una ocupa [hora, hora + duración).
+   */
+  async assertNoOverlap(restaurantId: number, tableId: number | null | undefined, start: Date, duration: number, status: ReservationStatus, exceptId?: number) {
+    if (!tableId || !ACTIVE.includes(status)) return;
+    const end = new Date(start.getTime() + duration * 60_000);
+    const candidates = await prisma.reservation.findMany({
+      where: {
+        restaurantId, tableId, status: { in: ACTIVE },
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+        // Empieza antes de que termine esta (el fin de cada una se calcula abajo)
+        reservedAt: { lt: end, gte: new Date(start.getTime() - 24 * 3600_000) },
+      },
+      orderBy: { reservedAt: 'asc' },
+    });
+    const clash = candidates.find(r => r.reservedAt.getTime() + r.duration * 60_000 > start.getTime());
+    if (clash) {
+      const hhmm = (d: Date) => new Intl.DateTimeFormat('es-AR', { timeZone: APP_TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+      const clashEnd = new Date(clash.reservedAt.getTime() + clash.duration * 60_000);
+      throw HttpError.conflict(`Esa mesa ya está reservada para ${clash.customerName} de ${hhmm(clash.reservedAt)} a ${hhmm(clashEnd)}`);
+    }
+  },
+
   async create(restaurantId: number, data: CreateReservationData): Promise<Reservation> {
     if (data.partySize < 1) throw HttpError.badRequest('La cantidad de comensales debe ser ≥ 1');
     if (data.duration !== undefined && data.duration < 15) {
@@ -88,6 +116,10 @@ export const reservationsService = {
         throw HttpError.badRequest(`La mesa N° ${table.number} tiene capacidad para ${table.capacity}`);
       }
     }
+
+    await reservationsService.assertNoOverlap(
+      restaurantId, data.tableId, data.reservedAt, data.duration ?? 90, data.status ?? ReservationStatus.CONFIRMED,
+    );
 
     const reservation = await prisma.reservation.create({
       data: {
@@ -117,6 +149,15 @@ export const reservationsService = {
         throw HttpError.badRequest(`La mesa N° ${table.number} tiene capacidad para ${table.capacity}`);
       }
     }
+
+    await reservationsService.assertNoOverlap(
+      restaurantId,
+      data.tableId !== undefined ? data.tableId : current.tableId,
+      data.reservedAt ?? current.reservedAt,
+      data.duration ?? current.duration,
+      data.status ?? current.status,
+      id,
+    );
 
     const reservation = await prisma.reservation.update({
       where: { id },

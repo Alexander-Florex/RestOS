@@ -40,7 +40,9 @@ export function useInventory(): UseInventoryResult {
   useEffect(() => {
     const socket = getSocket();
 
-    const onChanged = (updated: InventoryItem) => {
+    const onChanged = (updated: InventoryItem | { ids: number[] }) => {
+      // Varios insumos a la vez (venta, producción): se recarga la lista
+      if ('ids' in updated) { refresh(); return; }
       setItems(prev => prev.map(i => (i.id === updated.id ? updated : i)));
     };
     const onCreated = (created: InventoryItem) => {
@@ -59,7 +61,7 @@ export function useInventory(): UseInventoryResult {
       socket.off(SocketEvents.INVENTORY_ITEM_CREATED, onCreated);
       socket.off(SocketEvents.INVENTORY_ITEM_DELETED, onDeleted);
     };
-  }, []);
+  }, [refresh]);
 
   return { items, loading, error, refresh };
 }

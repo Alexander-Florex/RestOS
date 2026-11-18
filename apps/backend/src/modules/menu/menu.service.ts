@@ -4,6 +4,7 @@
 // ──────────────────────────────────────────────
 import { MenuOptionGroupType, StockStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
+import { stockAutoService } from '../stock/stock-auto.service.js';
 import { HttpError } from '../../lib/http-error.js';
 import { optionGroupsInclude, type MenuItemWithOptions } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
@@ -34,6 +35,8 @@ export interface CreateMenuItemData {
   price: number;
   description?: string;
   stock?: StockStatus;
+  /** El estado sale del stock de los insumos de su receta (tarea 3.8) */
+  stockAuto?: boolean;
   enabled?: boolean;
   imageUrl?: string;
 }
@@ -70,7 +73,7 @@ function validateGroups(groups: OptionGroupInput[]) {
 
 export const menuService = {
   async list(restaurantId: number, opts?: { category?: string; onlyEnabled?: boolean }): Promise<MenuItemWithOptions[]> {
-    return prisma.menuItem.findMany({
+    const items = await prisma.menuItem.findMany({
       where: {
         restaurantId,
         ...(opts?.category ? { category: opts.category } : {}),
@@ -78,6 +81,13 @@ export const menuService = {
       },
       include: optionGroupsInclude,
       orderBy: [{ category: 'asc' }, { name: 'asc' }],
+    });
+    // Platos que toman el estado del stock de sus insumos (tarea 3.8)
+    if (!items.some(i => i.stockAuto)) return items;
+    const derived = await stockAutoService.menuStock(restaurantId);
+    return items.map(i => {
+      const d = i.stockAuto ? derived.get(i.id) : undefined;
+      return d ? { ...i, stock: d.status, portionsLeft: d.portions } : i;
     });
   },
 
@@ -116,6 +126,7 @@ export const menuService = {
           ...(data.price !== undefined ? { price: data.price } : {}),
           ...(data.description !== undefined ? { description: data.description } : {}),
           ...(data.stock !== undefined ? { stock: data.stock } : {}),
+          ...(data.stockAuto !== undefined ? { stockAuto: data.stockAuto } : {}),
           ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
           ...(data.imageUrl !== undefined ? { imageUrl: data.imageUrl } : {}),
         },

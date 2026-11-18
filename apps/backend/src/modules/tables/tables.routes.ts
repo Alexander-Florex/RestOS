@@ -33,6 +33,7 @@ router.post('/:id/reserve',             requirePermission('tables.operate'), asy
 router.post('/:id/cancel-reservation',  requirePermission('tables.operate'), asyncHandler(tablesController.cancelReservation));
 // Mesas unidas (tarea 5.3)
 router.post('/:id/join',                requirePermission('tables.operate'), asyncHandler(tablesController.join));
+router.post('/:id/move-orders',         requirePermission('tables.operate'), asyncHandler(tablesController.moveOrders));
 router.post('/:id/separate',            requirePermission('tables.operate'), asyncHandler(tablesController.separate));
 
 export { router as tablesRouter };

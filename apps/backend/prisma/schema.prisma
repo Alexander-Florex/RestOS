@@ -15,16 +15,24 @@ datasource db {
 // RESTAURANTS — Tenants del sistema
 // ──────────────────────────────────────────────
 model Restaurant {
-  id             Int            @id @default(autoincrement())
-  name           String
-  email          String?
-  phone          String?
-  address        String?
+  id              Int            @id @default(autoincrement())
+  name            String
+  email           String?
+  phone           String?
+  address         String?
   /// Mesas por nombre (si lo tienen) o por número, en todas las pantallas y tickets
-  tableLabelMode TableLabelMode @default(NAME)
-  createdAt      DateTime       @default(now())
+  tableLabelMode  TableLabelMode @default(NAME)
+  /// Promo de efectivo (tarea 5.2): al cobrar en efectivo esos días se sugiere el descuento.
+  /// Días ISO separados por coma (1 = lunes … 7 = domingo). Vacío = sin promo.
+  cashPromoPct    Decimal?       @default(10) @db.Decimal(5, 2)
+  cashPromoDays   String         @default("3,4,5") @db.VarChar(20)
+  /// Descontar insumos al vender según la receta (tarea 3.4). Apagado hasta que carguen
+  /// recetas y hagan el primer conteo (decisión del cliente, 2026-11-14).
+  autoStockOnSale Boolean        @default(false)
+  suppliers       Supplier[]
+  createdAt       DateTime       @default(now())
   // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
-  updatedAt      DateTime       @default(now()) @updatedAt
+  updatedAt       DateTime       @default(now()) @updatedAt
 
   users            User[]
   roles            Role[]
@@ -40,6 +48,7 @@ model Restaurant {
   staffShifts      StaffShift[]
   accountCustomers AccountCustomer[]
   accountPayments  AccountPayment[]
+  cashSessions     CashSession[]
   reservations     Reservation[]
   takeawayOrders   TakeawayOrder[]
   menuOptionGroups MenuItemOptionGroup[]
@@ -81,6 +90,9 @@ model User {
   takeawaysCreated     TakeawayOrder[]   @relation("TakeawayCreatedBy")
   shiftsRecorded       StaffShift[]      @relation("ShiftRecordedBy")
   accountPayments      AccountPayment[]  @relation("AccountPaymentBy")
+  cashOpened           CashSession[]     @relation("CashOpenedBy")
+  cashClosed           CashSession[]     @relation("CashClosedBy")
+  cashMovements        CashMovement[]    @relation("CashMovementBy")
 
   @@unique([restaurantId, username])
   @@unique([restaurantId, email])
@@ -194,6 +206,8 @@ model MenuItem {
   price         Decimal               @db.Decimal(10, 2)
   description   String?               @db.Text
   stock         StockStatus           @default(IN_STOCK)
+  /// Tarea 3.8: el estado sale del stock de los insumos de su receta (si no, el manual de arriba)
+  stockAuto     Boolean               @default(false)
   enabled       Boolean               @default(true)
   imageUrl      String?
   orderItems    OrderItem[]
@@ -438,9 +452,20 @@ model Sale {
   /// Pedido para llevar que originó la venta. Único: un pedido no genera dos ventas.
   takeawayOrderId  Int?             @unique
   takeawayOrder    TakeawayOrder?   @relation(fields: [takeawayOrderId], references: [id], onDelete: SetNull)
+  /// Medio de pago (MIXED = varios; el detalle está en payments)
   paymentMethod    PaymentMethod
+  /// Lo que entregó el cliente en total (incluye el vuelto en efectivo)
   amount           Decimal          @db.Decimal(10, 2)
+  /// Lo que se cobra: subtotal − descuento
   total            Decimal          @db.Decimal(10, 2)
+  /// Suma de lo consumido antes del descuento (vacío en ventas anteriores a la tarea 5.2 = sin descuento)
+  subtotal         Decimal?         @db.Decimal(10, 2)
+  /// Descuento aplicado (con motivo y permiso)
+  discount         Decimal          @default(0) @db.Decimal(10, 2)
+  discountPct      Decimal?         @db.Decimal(5, 2)
+  discountReason   String?          @db.VarChar(200)
+  /// Cómo se pagó (uno o varios medios). Las ventas a cuenta no tienen.
+  payments         SalePayment[]
   notes            String?          @db.Text
   imageUrl         String?
   registeredById   Int?
@@ -488,6 +513,25 @@ enum PaymentMethod {
   TRANSFER
   /// A cuenta (tarea 5.9): no entra plata; la venta queda como deuda del cliente
   ACCOUNT
+  /// Varios medios en la misma cuenta (tarea 5.2): el detalle está en sale_payments
+  MIXED
+}
+
+/// Parte del pago de una venta (tarea 5.2): una cuenta se puede pagar con varios medios
+/// o dividirse entre los comensales. Reportes y caja suman por acá.
+model SalePayment {
+  id        Int           @id @default(autoincrement())
+  saleId    Int
+  sale      Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  method    PaymentMethod
+  /// Lo que esta parte paga de la cuenta (sin vuelto)
+  amount    Decimal       @db.Decimal(10, 2)
+  /// Efectivo entregado (para el vuelto); solo en efectivo
+  tendered  Decimal?      @db.Decimal(10, 2)
+  createdAt DateTime      @default(now())
+
+  @@index([saleId])
+  @@map("sale_payments")
 }
 
 /// Cliente con cuenta corriente (tarea 5.9): Municipalidad, cooperativa eléctrica.
@@ -575,7 +619,12 @@ model InventoryItem {
   /// actualizado en la misma transacción que cada movimiento.
   movements         StockMovement[]
   countLines        StockCountLine[]
+  /// Texto libre de antes (se mantiene); el proveedor de verdad es supplierRef
   supplier          String?
+  supplierId        Int?
+  supplierRef       Supplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  /// Si es un elaborado (salsa, pasta): la receta que lo produce (tarea 3.5)
+  producedBy        Recipe?            @relation("RecipeOutput")
   lastRestocked     DateTime?
   recipeIngredients RecipeIngredient[]
   createdAt         DateTime           @default(now())
@@ -728,6 +777,10 @@ model Recipe {
   /// la receta es componente de otra: costo por unidad de rendimiento = costo total / yieldQty
   yieldQty     Float?
   yieldUnit    String?
+  /// Elaborado con stock propio (tarea 3.5): al producir suma este insumo; al vender o
+  /// usarlo en otra receta se descuenta de acá y no de sus ingredientes.
+  stockItemId  Int?               @unique
+  stockItem    InventoryItem?     @relation("RecipeOutput", fields: [stockItemId], references: [id], onDelete: SetNull)
   ingredients  RecipeIngredient[] @relation("RecipeLines")
   /// Recetas que usan esta como sub-receta
   usedIn       RecipeIngredient[] @relation("SubRecipeUses")
@@ -964,4 +1017,80 @@ model PriceHistory {
   @@index([inventoryItemId, createdAt])
   @@index([restaurantId, createdAt])
   @@map("price_history")
+}
+
+// ──────────────────────────────────────────────
+// CAJA (tarea 5.1)
+// ──────────────────────────────────────────────
+/// Una sola caja por local (decisión del cliente, 2026-11-14). Se abre con el monto inicial
+/// y se cierra con el arqueo. Cubre todo lo cobrado desde el cierre anterior (periodStart)
+/// hasta su cierre: si se cobró con la caja cerrada, entra en la siguiente.
+model CashSession {
+  id            Int            @id @default(autoincrement())
+  restaurantId  Int
+  restaurant    Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  /// Desde cuándo cuenta: el cierre anterior (o la apertura, si es la primera)
+  periodStart   DateTime
+  openedAt      DateTime       @default(now())
+  openedById    Int?
+  openedBy      User?          @relation("CashOpenedBy", fields: [openedById], references: [id], onDelete: SetNull)
+  openingAmount Decimal        @db.Decimal(10, 2)
+  closedAt      DateTime?
+  closedById    Int?
+  closedBy      User?          @relation("CashClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  /// Efectivo que debería haber (apertura + efectivo cobrado + ingresos − egresos)
+  expectedCash  Decimal?       @db.Decimal(10, 2)
+  /// Efectivo contado al cerrar
+  countedCash   Decimal?       @db.Decimal(10, 2)
+  /// countedCash − expectedCash (negativo = falta plata)
+  difference    Decimal?       @db.Decimal(10, 2)
+  closeNotes    String?        @db.VarChar(500)
+  /// Resumen al cerrar (por medio de pago, a cuenta, anulaciones…): queda fijo aunque después cambie algo
+  summary       Json?
+  /// = restaurantId mientras está abierta: una sola caja abierta por local
+  openKey       Int?           @unique
+  movements     CashMovement[]
+
+  @@index([restaurantId, openedAt])
+  @@map("cash_sessions")
+}
+
+/// Ingreso o egreso de efectivo que no es una venta (pago a un proveedor, cambio que se trajo…)
+model CashMovement {
+  id           Int              @id @default(autoincrement())
+  restaurantId Int
+  sessionId    Int
+  session      CashSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type         CashMovementType
+  amount       Decimal          @db.Decimal(10, 2)
+  reason       String           @db.VarChar(200)
+  createdById  Int?
+  createdBy    User?            @relation("CashMovementBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime         @default(now())
+
+  @@index([sessionId])
+  @@map("cash_movements")
+}
+
+enum CashMovementType {
+  IN
+  OUT
+}
+
+/// Proveedor (tarea 3.6): a quién se le compra cada insumo; arma la lista de compras.
+model Supplier {
+  id           Int             @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String          @db.VarChar(120)
+  phone        String?         @db.VarChar(50)
+  email        String?         @db.VarChar(120)
+  notes        String?         @db.VarChar(500)
+  active       Boolean         @default(true)
+  items        InventoryItem[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([restaurantId, name])
+  @@map("suppliers")
 }

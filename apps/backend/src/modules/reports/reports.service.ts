@@ -79,6 +79,7 @@ export const reportsService = {
     const sales = await prisma.sale.findMany({
       where: { restaurantId, closedAt: { gte: from, lte: to } },
       orderBy: { closedAt: 'asc' },
+      include: { payments: true },
     });
 
     const totalSold = sales.reduce((sum, s) => sum + Number(s.total), 0);
@@ -86,7 +87,9 @@ export const reportsService = {
     // A cuenta no entra plata (collectedCents da 0: amount = 0). Los cobros de cuenta
     // corriente entran el día que se pagan, con su recargo (tarea 5.9).
     const accountCollections = await accountsService.collections(restaurantId, from, to);
-    const totalCollected = fromCents(sales.reduce((sum, s) => sum + collectedCents(s), 0) + toCents(accountCollections.total));
+    // Lo cobrado sale de cada parte del pago (sin vuelto); las ventas mixtas se reparten
+    const paidCents = sales.reduce((sum, s) => sum + s.payments.reduce((n, p) => n + toCents(p.amount), 0), 0);
+    const totalCollected = fromCents(paidCents + toCents(accountCollections.total));
     const salesCount = sales.length;
     const averageTicket = salesCount > 0 ? totalSold / salesCount : 0;
 
@@ -96,10 +99,20 @@ export const reportsService = {
       methodMap.set(m, { count: 0, amount: 0 });
     }
     for (const s of sales) {
-      const entry = methodMap.get(s.paymentMethod)!;
-      entry.count++;
-      entry.amount += Number(s.total);
+      if (s.paymentMethod === PaymentMethod.ACCOUNT) {
+        const entry = methodMap.get(PaymentMethod.ACCOUNT)!;
+        entry.count++;
+        entry.amount += Number(s.total);
+        continue;
+      }
+      for (const p of s.payments) {
+        const entry = methodMap.get(p.method)!;
+        entry.count++;
+        entry.amount = fromCents(toCents(entry.amount) + toCents(p.amount));
+      }
     }
+    // MIXED no es un medio: sus partes ya se sumaron en efectivo, tarjeta o transferencia
+    methodMap.delete(PaymentMethod.MIXED);
     const byPaymentMethod = Array.from(methodMap.entries()).map(([method, data]) => ({
       method,
       count: data.count,

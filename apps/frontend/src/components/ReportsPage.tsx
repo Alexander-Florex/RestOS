@@ -20,6 +20,7 @@ const PAYMENT_COLOR: Record<string, string> = {
   CARD:     '#3b82f6',
   TRANSFER: '#a855f7',
   ACCOUNT:  '#f59e0b',
+  MIXED:    '#94a3b8',
 };
 
 type ViewMode = 'daily' | 'monthly' | 'custom';

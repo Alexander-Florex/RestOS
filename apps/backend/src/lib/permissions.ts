@@ -17,6 +17,8 @@ export const PERMISSIONS = [
   { key: 'orders.change.approve', group: 'Caja',      label: 'Autorizar cambios de platos',        description: 'Aprobar o hacer directamente cambios de plato pedidos por el mozo.' },
   { key: 'takeaway.cancel',     group: 'Caja',        label: 'Cancelar pedidos para llevar',       description: 'Cancelar un pedido para llevar que no se cobró.' },
   { key: 'sales.view',          group: 'Caja',        label: 'Ver ventas',                         description: 'Historial de ventas y totales del día.' },
+  { key: 'sales.discount',      group: 'Caja',        label: 'Hacer descuentos',                   description: 'Aplicar un descuento al cobrar (con motivo), por ejemplo la promo de efectivo.' },
+  { key: 'cash.manage',         group: 'Caja',        label: 'Abrir y cerrar caja',                description: 'Abrir la caja con el monto inicial, registrar ingresos y egresos de efectivo y cerrarla con el arqueo.' },
   { key: 'accounts.manage',     group: 'Caja',        label: 'Cuentas corrientes',                 description: 'Dejar una mesa "a cuenta" de un cliente (Municipalidad, cooperativa) y registrar sus cobros con recargo.' },
   { key: 'reports.view',        group: 'Caja',        label: 'Ver reportes',                       description: 'Reportes de ventas, ranking de platos y exportación CSV.' },
   { key: 'menu.availability',   group: 'Carta y stock', label: 'Cambiar disponibilidad de platos', description: 'Habilitar/deshabilitar platos y marcar stock bajo o agotado.' },
@@ -59,6 +61,10 @@ export const SYSTEM_ROLES = {
       'orders.change.approve',
       // Agregado por la migración 20261114120000_account_customers (tarea 5.9)
       'accounts.manage',
+      // Agregado por la migración 20261114140000_cash_sessions (tarea 5.1)
+      'cash.manage',
+      // Agregado por la migración 20261114160000_sale_payments (tarea 5.2)
+      'sales.discount',
       'menu.availability', 'inventory.view', 'inventory.adjust',
     ] as Permission[],
   },

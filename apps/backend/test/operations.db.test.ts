@@ -275,7 +275,11 @@ test('reportes: el para llevar entra en totales, canal, ranking y CSV', async ()
 test('reportes por día local: una venta a las 22:30 cuenta en ese día, no en el siguiente', async () => {
   const { restaurantId } = await setup();
   const sale = (closedAt: string, total: string) => prisma.sale.create({
-    data: { restaurantId, tableNumber: 1, total, amount: total, paymentMethod: 'CASH', closedAt: new Date(closedAt) },
+    data: {
+      restaurantId, tableNumber: 1, total, amount: total, paymentMethod: 'CASH', closedAt: new Date(closedAt),
+      // Como lo deja el cobro desde la tarea 5.2: lo cobrado está en sale_payments
+      payments: { create: [{ method: 'CASH', amount: total, tendered: total }] },
+    },
   });
   await sale('2026-10-30T01:30:00Z', '100.00'); // 29/10 22:30 en Buenos Aires
   await sale('2026-10-30T03:30:00Z', '50.00');  // 30/10 00:30 en Buenos Aires

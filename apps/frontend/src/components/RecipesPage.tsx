@@ -61,12 +61,14 @@ interface FormState {
   profitPct: string;
   vatPct: string;
   notes: string;
+  /** Elaborado con stock propio: el insumo que suma al producirla */
+  stockItemId: string;
   ingredients: IngredientRow[];
 }
 
 const EMPTY_ROW: IngredientRow = { source: '', quantity: '', unit: '', waste: '' };
 const EMPTY_FORM: FormState = {
-  name: '', menuItemId: '', yield: '1', yieldQty: '', yieldUnit: 'g', profitPct: '50', vatPct: '21', notes: '',
+  name: '', menuItemId: '', yield: '1', yieldQty: '', yieldUnit: 'g', profitPct: '50', vatPct: '21', notes: '', stockItemId: '',
   ingredients: [{ ...EMPTY_ROW }],
 };
 
@@ -97,6 +99,7 @@ export function RecipesPage() {
       profitPct: String(recipe.profitPct * 100),
       vatPct: String(recipe.vatPct * 100),
       notes: recipe.notes ?? '',
+      stockItemId: recipe.stockItemId ? String(recipe.stockItemId) : '',
       ingredients: recipe.ingredients.map(i => ({
         source: i.subRecipeId ? `r:${i.subRecipeId}` : `i:${i.inventoryItemId}`,
         quantity: String(i.quantity), unit: i.unit,
@@ -158,6 +161,7 @@ export function RecipesPage() {
         profitPct: profitPct / 100,
         vatPct: vatPct / 100,
         notes: form.notes.trim() || null,
+        stockItemId: form.stockItemId ? Number(form.stockItemId) : null,
         ingredients,
       };
       if (editing) {
@@ -368,6 +372,17 @@ export function RecipesPage() {
               </div>
               <p className="text-xs text-muted-foreground">
                 Para usarla dentro de otras recetas (ej. chimichurri: rinde 500 cc). Se costea por su costo por unidad, nunca por su precio.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="rStockItem">Produce el insumo (stock)</Label>
+              <Select id="rStockItem" value={form.stockItemId} onChange={e => setForm(f => ({ ...f, stockItemId: e.target.value }))} disabled={submitting}>
+                <option value="">— No se guarda en stock —</option>
+                {availableInventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Para elaborados que se preparan antes y se guardan (salsas, pastas, porciones). En "Stock y compras → Producción" se registra lo elaborado: descuenta estos ingredientes y suma ese insumo.
               </p>
             </div>
 

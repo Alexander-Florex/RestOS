@@ -17,6 +17,18 @@ import { currentContext } from '../../lib/request-context.js';
 import { convertUnits, FAMILY_LABEL, normalizeUnit, unitFamily, UnitError, UNIT_LIST } from '../../shared/units.js';
 import { applyMovement, lockItem } from '../../lib/stock.js';
 
+/** El proveedor escrito en el insumo se vincula a la lista de proveedores (se crea si no existe). */
+async function supplierIdFor(db: Prisma.TransactionClient, restaurantId: number, name: string | null | undefined): Promise<number | null> {
+  const n = (name ?? '').trim().split(' ').filter(Boolean).join(' ').slice(0, 120);
+  if (!n) return null;
+  const s = await db.supplier.upsert({
+    where: { restaurantId_name: { restaurantId, name: n } },
+    update: {},
+    create: { restaurantId, name: n },
+  });
+  return s.id;
+}
+
 function emitChanged(restaurantId: number, item: InventoryItem) { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_CHANGED, item); }
 function emitCreated(restaurantId: number, item: InventoryItem) { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_CREATED, item); }
 function emitDeleted(restaurantId: number, id: number)          { ioRestaurant(restaurantId).emit(SocketEvents.INVENTORY_ITEM_DELETED, { id }); }
@@ -228,6 +240,7 @@ export const inventoryService = {
           minStock: data.minStock ?? 0,
           costPerUnit,
           supplier: data.supplier ?? null,
+          supplierId: await supplierIdFor(tx, restaurantId, data.supplier),
           lastRestocked: data.quantity > 0 ? new Date() : null,
         },
       });
@@ -289,7 +302,7 @@ export const inventoryService = {
           ...(data.unit !== undefined ? { unit } : {}),
           ...(data.minStock !== undefined ? { minStock: data.minStock } : {}),
           ...(costPerUnit !== undefined ? { costPerUnit } : {}),
-          ...(data.supplier !== undefined ? { supplier: data.supplier } : {}),
+          ...(data.supplier !== undefined ? { supplier: data.supplier, supplierId: await supplierIdFor(tx, restaurantId, data.supplier) } : {}),
         },
       });
       await recordPrice(tx, updated, current.costPerUnit, source);

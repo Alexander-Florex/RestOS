@@ -15,10 +15,19 @@ const createSchema = z.object({
   tableId: z.number().int().positive(),
   // Mesas unidas: cobrar todas juntas en una venta
   wholeGroup: z.boolean().optional(),
-  paymentMethod: paymentEnum,
+  // Un solo medio (paymentMethod + amount) o varios (payments) — tarea 5.2
+  paymentMethod: paymentEnum.optional(),
   // A cuenta (tarea 5.9): de qué cliente de cuenta corriente
   customerId: z.number().int().positive().optional(),
-  amount: z.coerce.number().nonnegative(),
+  amount: z.coerce.number().nonnegative().optional(),
+  payments: z.array(z.object({
+    method: paymentEnum,
+    amount: z.coerce.number().nonnegative(),
+  })).min(1).max(20).optional(),
+  // Descuento con motivo (permiso sales.discount)
+  discountPct: z.coerce.number().min(0).max(100).optional().nullable(),
+  discountAmount: z.coerce.number().min(0).optional().nullable(),
+  discountReason: z.string().trim().max(200).optional().nullable(),
   notes: z.string().trim().max(1000).optional(),
   imageBase64: z.string().max(15_000_000).optional(),
 });
@@ -62,10 +71,17 @@ export const salesController = {
   async create(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);
-    // Dejar a cuenta: solo quien tiene "Cuentas corrientes" (Caja y Administrador por defecto)
-    if (data.paymentMethod === PaymentMethod.ACCOUNT) {
+    if (!data.paymentMethod && !data.payments) throw HttpError.badRequest('Indicá cómo se paga');
+    const wantsDiscount = (data.discountPct ?? 0) > 0 || (data.discountAmount ?? 0) > 0;
+    if (data.paymentMethod === PaymentMethod.ACCOUNT || wantsDiscount) {
       const access = await rolesService.getAccess(req.user.userId, req.user.restaurantId);
-      if (!access.permissions.includes('accounts.manage')) throw HttpError.forbidden('Tu rol no puede dejar mesas a cuenta');
+      // Dejar a cuenta: solo quien tiene "Cuentas corrientes" (Caja y Administrador por defecto)
+      if (data.paymentMethod === PaymentMethod.ACCOUNT && !access.permissions.includes('accounts.manage')) {
+        throw HttpError.forbidden('Tu rol no puede dejar mesas a cuenta');
+      }
+      if (wantsDiscount && !access.permissions.includes('sales.discount')) {
+        throw HttpError.forbidden('Tu rol no puede hacer descuentos');
+      }
     }
     const sale = await salesService.create(req.user.restaurantId, {
       ...data,
