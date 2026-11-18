@@ -49,6 +49,7 @@ export const AUDIT_ACTIONS = [
   'cash.open',          // apertura de caja (monto inicial)
   'cash.movement',      // ingreso o egreso de efectivo (con motivo)
   'cash.close',         // cierre de caja con arqueo y diferencia
+  'printing.settings',  // ancho de papel de la comandera
 ] as const;
 
 export type AuditAction = typeof AUDIT_ACTIONS[number];

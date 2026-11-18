@@ -1,6 +1,7 @@
 // ──────────────────────────────────────────────
 // api.ts — Cliente HTTP con auto-token y tipos
 // ──────────────────────────────────────────────
+import type { PaperWidth, TicketDoc } from '@shared/ticket';
 import type { Permission } from './permissions';
 
 // Base de URL: si está vacía, usa el proxy de Vite (recomendado en dev)
@@ -1315,30 +1316,46 @@ export const reportsApi = {
 // ──────────────────────────────────────────────
 // Imprime el agente local (no se elige impresora desde el navegador).
 // Los tickets se arman en el backend con los datos guardados.
+export interface PrintJob {
+  id: number;
+  kind: 'kitchen' | 'cash';
+  title: string;
+  status: 'PENDING' | 'PRINTED' | 'FAILED';
+  error: string | null;
+  reprintOfId: number | null;
+  createdAt: string;
+  printedAt: string | null;
+  doc: TicketDoc;
+}
+
+type PrintResult = { ok: boolean; message: string; job: PrintJob };
+
 export const printingApi = {
   // Comanda de cocina de un pedido de mesa
   printOrder: (orderId: number) =>
-    request<{ ok: boolean; message: string }>(`/printing/orders/${orderId}`, {
-      method: 'POST', body: {},
-    }),
+    request<PrintResult>(`/printing/orders/${orderId}`, { method: 'POST', body: {} }),
 
   // Comanda de cocina de un pedido para llevar
   printTakeawayOrder: (takeawayId: number) =>
-    request<{ ok: boolean; message: string }>(`/printing/takeaway/${takeawayId}`, {
-      method: 'POST', body: {},
-    }),
+    request<PrintResult>(`/printing/takeaway/${takeawayId}`, { method: 'POST', body: {} }),
 
   // Ticket de caja de una venta de mesa ya registrada
   printSale: (saleId: number) =>
-    request<{ ok: boolean; message: string }>(`/printing/sales/${saleId}`, {
-      method: 'POST', body: {},
-    }),
+    request<PrintResult>(`/printing/sales/${saleId}`, { method: 'POST', body: {} }),
 
   // Ticket de caja de un pedido para llevar ya cobrado
   printTakeawayReceipt: (takeawayId: number) =>
-    request<{ ok: boolean; message: string }>(`/printing/takeaway/${takeawayId}/receipt`, {
-      method: 'POST', body: {},
-    }),
+    request<PrintResult>(`/printing/takeaway/${takeawayId}/receipt`, { method: 'POST', body: {} }),
+
+  // Comandera: lo que se mandó a imprimir y cómo se ve
+  jobs: (limit = 60) => request<PrintJob[]>(`/printing/jobs?limit=${limit}`),
+  reprint: (jobId: number) => request<PrintJob>(`/printing/jobs/${jobId}/reprint`, { method: 'POST', body: {} }),
+  sample: (kind: 'kitchen' | 'cash', width?: PaperWidth) =>
+    request<TicketDoc>(`/printing/sample/${kind}${width ? `?width=${width}` : ''}`),
+  printSample: (kind: 'kitchen' | 'cash') => request<PrintJob>(`/printing/sample/${kind}`, { method: 'POST', body: {} }),
+  settings: () => request<{ paperWidth: PaperWidth }>('/printing/settings'),
+  saveSettings: (paperWidth: PaperWidth) =>
+    request<{ paperWidth: PaperWidth }>('/printing/settings', { method: 'PUT', body: { paperWidth } }),
 };
 // ──────────────────────────────────────────────
 // Para llevar — tipos y API

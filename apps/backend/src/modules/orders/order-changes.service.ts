@@ -21,7 +21,8 @@ import { lockTable } from '../../lib/table-lock.js';
 import { fromCents, toCents } from '../../lib/money.js';
 import { audit } from '../../lib/audit.js';
 import { itemNotesForPrint, modifierLines, optionGroupsInclude, resolveItemOptions } from '../../lib/modifiers.js';
-import { emitPrintRequest, ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
+import { emitPrintRequest } from '../printing/print-jobs.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -212,12 +213,14 @@ export const orderChangesService = {
 
     emitPrintRequest(restaurantId, {
       type: 'kitchen',
+      heading: 'REHACER',
       tableNumber: result.item.order.table.number,
       orderNumber: result.item.orderId,
       items: [{
-        name: `REHACER: ${result.item.itemName}`,
+        name: result.item.itemName,
         quantity: input.quantity,
         notes: [itemNotesForPrint(result.item.modifiers, result.item.notes), `Motivo: ${reason}`].filter(Boolean).join(' · '),
+        note: [result.item.notes, `Motivo: ${reason}`].filter(Boolean).join(' · '),
         modifiers: modifierLines(result.item.modifiers),
       }],
     });
@@ -330,14 +333,16 @@ function printChange(
 ) {
   emitPrintRequest(restaurantId, {
     type: 'kitchen',
+    heading: 'CAMBIO',
     tableNumber: applied.tableNumber,
     orderNumber: applied.item.orderId,
     items: [
-      { name: `ANULAR: ${applied.item.itemName}`, quantity, notes: `Cambio · Motivo: ${reason}` },
+      { name: `ANULAR: ${applied.item.itemName}`, quantity, notes: `Cambio · Motivo: ${reason}`, note: `Motivo: ${reason}` },
       {
         name: `HACER: ${applied.created.itemName}`,
         quantity,
         notes: itemNotesForPrint(applied.created.modifiers, applied.created.notes),
+        note: applied.created.notes,
         modifiers: modifierLines(applied.created.modifiers),
       },
     ],

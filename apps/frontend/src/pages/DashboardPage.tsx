@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LogOut, Home, LayoutGrid, BookOpen, Receipt, Package, Users,
-  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace, ClipboardList, NotebookPen, Wallet, Truck, LineChart, Gauge,
+  CalendarDays, BarChart3, ShoppingBag, UserCog, Calculator, MoreHorizontal, X, ShieldCheck, ScrollText, Replace, ClipboardList, NotebookPen, Wallet, Truck, LineChart, Gauge, Printer,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import type { Permission } from '../lib/permissions';
@@ -28,6 +28,7 @@ import { CashPage } from '../components/CashPage';
 import { StockToolsPage } from '../components/StockToolsPage';
 import { AnalysisPage } from '../components/AnalysisPage';
 import { OwnerPanel } from '../components/OwnerPanel';
+import { PrinterPage } from '../components/PrinterPage';
 import { UsersPage } from '../components/UsersPage';
 import { ReservationsPage } from '../components/ReservationsPage';
 import { ReportsPage } from '../components/ReportsPage';
@@ -39,7 +40,7 @@ import { useChangeNotifications } from '../hooks/useChangeNotifications';
 import { BrandMark, EASE_OUT, PageTransition } from '../components/ui/motion';
 import { cn } from '../lib/utils';
 
-type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'stock-count' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes' | 'accounts' | 'cash' | 'stock-tools' | 'analysis' | 'owner';
+type View = 'dashboard' | 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'stock-count' | 'recipes' | 'staff' | 'users' | 'roles' | 'audit' | 'changes' | 'accounts' | 'cash' | 'stock-tools' | 'analysis' | 'owner' | 'printer';
 
 interface NavItem {
   id: View;
@@ -75,6 +76,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: 'Negocio',
     items: [
       { id: 'cash',    label: 'Caja',     icon: Wallet, perm: 'cash.manage' },
+      { id: 'printer', label: 'Comandera', icon: Printer, perm: 'sales.charge' },
       { id: 'sales',   label: 'Ventas',   icon: Receipt, perm: 'sales.view' },
       { id: 'owner',   label: 'Panel del dueño', icon: Gauge, perm: 'reports.view' },
       { id: 'reports', label: 'Reportes', icon: BarChart3, perm: 'reports.view' },
@@ -239,6 +241,7 @@ export function DashboardPage() {
                 {shown === 'changes'      && <ChangesPage />}
                 {shown === 'accounts'     && <AccountsPage />}
                 {shown === 'cash'         && <CashPage />}
+                {shown === 'printer'      && <PrinterPage />}
                 {shown === 'stock-tools'  && <StockToolsPage />}
                 {shown === 'analysis'     && <AnalysisPage />}
                 {shown === 'owner'        && <OwnerPanel />}

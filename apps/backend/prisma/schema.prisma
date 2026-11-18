@@ -29,6 +29,8 @@ model Restaurant {
   /// Descontar insumos al vender según la receta (tarea 3.4). Apagado hasta que carguen
   /// recetas y hagan el primer conteo (decisión del cliente, 2026-11-14).
   autoStockOnSale Boolean        @default(false)
+  /// Ancho del papel de la comandera en mm (80 o 58): define los caracteres por línea
+  printPaperWidth Int            @default(80)
   suppliers       Supplier[]
   createdAt       DateTime       @default(now())
   // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
@@ -58,6 +60,7 @@ model Restaurant {
   storageAreas     StorageArea[]
   stockMovements   StockMovement[]
   stockCounts      StockCount[]
+  printJobs        PrintJob[]
 
   @@map("restaurants")
 }
@@ -1093,4 +1096,35 @@ model Supplier {
 
   @@unique([restaurantId, name])
   @@map("suppliers")
+}
+
+enum PrintJobStatus {
+  PENDING
+  PRINTED
+  FAILED
+}
+
+/// Cada ticket mandado a imprimir (tarea 1.1): qué se mandó, cómo se ve y si salió.
+/// La pantalla "Comandera" los muestra; el agente confirma con PRINTED o FAILED.
+model PrintJob {
+  id           Int            @id @default(autoincrement())
+  restaurantId Int
+  restaurant   Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  /// kitchen | cash
+  kind         String         @db.VarChar(20)
+  title        String         @db.VarChar(160)
+  /// Lo que recibe el agente (PrintPayload)
+  payload      Json
+  /// El ticket armado línea por línea (TicketDoc), tal como se imprime
+  doc          Json
+  status       PrintJobStatus @default(PENDING)
+  error        String?        @db.VarChar(500)
+  /// Reimpresión de otro trabajo
+  reprintOfId  Int?
+  createdById  Int?
+  createdAt    DateTime       @default(now())
+  printedAt    DateTime?
+
+  @@index([restaurantId, createdAt])
+  @@map("print_jobs")
 }

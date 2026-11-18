@@ -6,15 +6,20 @@ import { asyncHandler } from '../../lib/async-handler.js';
 const router = Router();
 router.use(authenticate);
 
-router.get('/printers',           asyncHandler(printingController.listPrinters));
 // Comandas: quien puede tomar pedidos
-router.post('/orders/:id',        requirePermission('orders.create'), asyncHandler(printingController.printOrder));
-router.post('/takeaway/:id',      requirePermission('orders.create'), asyncHandler(printingController.printTakeawayOrder));
-// Ticket de caja de una venta ya registrada: se arma desde la base, no con datos del navegador
-router.post('/sales/:id',         requirePermission('sales.charge'), asyncHandler(printingController.printSale));
-// Ticket de caja de un pedido para llevar ya cobrado (también desde la base)
+router.post('/orders/:id',           requirePermission('orders.create'), asyncHandler(printingController.printOrder));
+router.post('/takeaway/:id',         requirePermission('orders.create'), asyncHandler(printingController.printTakeawayOrder));
+// Tickets de caja de ventas ya registradas: se arman desde la base, no con datos del navegador
+router.post('/sales/:id',            requirePermission('sales.charge'), asyncHandler(printingController.printSale));
 router.post('/takeaway/:id/receipt', requirePermission('sales.charge'), asyncHandler(printingController.printTakeawayReceipt));
-// Ticket de caja buscando en BD (solo antes de cerrar)
-router.post('/tables/:id/account', requirePermission('sales.charge'), asyncHandler(printingController.printTableAccount));
+
+// Comandera: lo que se mandó a imprimir, cómo se ve y si salió
+router.get('/jobs',                  requirePermission('sales.charge'), asyncHandler(printingController.listJobs));
+router.post('/jobs/:id/reprint',     requirePermission('sales.charge'), asyncHandler(printingController.reprint));
+router.post('/jobs/:id/status',      requirePermission('sales.charge'), asyncHandler(printingController.markJob));
+router.get('/sample/:kind',          requirePermission('sales.charge'), asyncHandler(printingController.sample));
+router.post('/sample/:kind',         requirePermission('sales.charge'), asyncHandler(printingController.printSample));
+router.get('/settings',              requirePermission('sales.charge'), asyncHandler(printingController.getSettings));
+router.put('/settings',              requirePermission('tables.manage'), asyncHandler(printingController.setSettings));
 
 export { router as printingRouter };
