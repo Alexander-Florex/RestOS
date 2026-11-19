@@ -31,6 +31,9 @@ model Restaurant {
   autoStockOnSale Boolean        @default(false)
   /// Ancho del papel de la comandera en mm (80 o 58): define los caracteres por línea
   printPaperWidth Int            @default(80)
+  /// Impresora de la comandera: nombre en Windows (USB) o IP de red ("192.168.1.50" o "192.168.1.50:9100").
+  /// Vacío = no se imprime en papel (solo se ve en la pantalla Comandera).
+  printerName     String?        @db.VarChar(120)
   suppliers       Supplier[]
   createdAt       DateTime       @default(now())
   // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
@@ -1102,6 +1105,8 @@ enum PrintJobStatus {
   PENDING
   PRINTED
   FAILED
+  /// Alguien lo dio por resuelto sin imprimirlo
+  DISCARDED
 }
 
 /// Cada ticket mandado a imprimir (tarea 1.1): qué se mandó, cómo se ve y si salió.
@@ -1124,7 +1129,12 @@ model PrintJob {
   createdById  Int?
   createdAt    DateTime       @default(now())
   printedAt    DateTime?
+  /// Intentos fallidos (se reintenta solo hasta 3 veces)
+  attempts     Int            @default(0)
+  /// Desde cuándo espera en la cola (al reintentar se renueva)
+  queuedAt     DateTime       @default(now())
 
   @@index([restaurantId, createdAt])
+  @@index([status, queuedAt])
   @@map("print_jobs")
 }

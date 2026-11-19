@@ -4,8 +4,8 @@
 // Todo lo que se manda a imprimir pasa por acá:
 //   1. se arma el ticket línea por línea (src/shared/ticket.ts) con el ancho de papel del local;
 //   2. se guarda como trabajo (print_jobs, estado PENDING) para verlo en la pantalla "Comandera";
-//   3. se emite por socket: el agente de impresión recibe los datos, el ticket armado y
-//      los bytes ESC/POS listos (`escpos`, base64), y la pantalla lo muestra al instante.
+//   3. se emite por socket (la pantalla lo muestra al instante) y se avisa a la cola de
+//      impresión (printer-worker.ts), que lo manda a la impresora configurada del local.
 // Los trabajos de más de 30 días se borran solos.
 // ──────────────────────────────────────────────
 import type { PrintJob, Prisma } from '@prisma/client';
@@ -20,6 +20,34 @@ import { buildTicket, ticketTitle, type PaperWidth, type PrintPayload, type Tick
 
 const RETENTION_DAYS = 30;
 let lastPrune = 0;
+let onQueued: (() => void) | null = null;
+
+/** La cola de impresión se anota acá para enterarse al instante de cada ticket nuevo */
+export function onPrintQueued(fn: () => void) {
+  onQueued = fn;
+}
+
+/** Cómo se ve un trabajo en la API y en el socket */
+export function jobView(job: PrintJob) {
+  return {
+    id: job.id,
+    kind: job.kind,
+    title: job.title,
+    status: job.status,
+    error: job.error,
+    attempts: job.attempts,
+    reprintOfId: job.reprintOfId,
+    createdAt: job.createdAt,
+    queuedAt: job.queuedAt,
+    printedAt: job.printedAt,
+    doc: job.doc as unknown as TicketDoc,
+  };
+}
+
+/** Avisa a las pantallas que un trabajo cambió de estado */
+export function emitJobUpdated(job: PrintJob) {
+  ioRestaurant(job.restaurantId).emit(SocketEvents.PRINT_JOB_UPDATED, jobView(job));
+}
 
 export function paperWidthOf(value: number | null | undefined): PaperWidth {
   return value === 58 ? 58 : 80;
@@ -89,6 +117,7 @@ export async function enqueuePrint(
   });
   ioRestaurant(restaurantId).emit(SocketEvents.PRINT_REQUEST, socketJob(job));
   logger.info('print_requested', { kind: payload.type, restaurantId, jobId: job.id });
+  onQueued?.();
   void prune();
   return job;
 }

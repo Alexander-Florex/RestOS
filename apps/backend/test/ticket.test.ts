@@ -113,19 +113,20 @@ test('ticket a cuenta: de quién es la deuda y lugar para la firma', () => {
 test('printable: lo que la comandera no tiene sale como "?"; comillas y guiones se simplifican', () => {
   assert.equal(printable('Ñoquis ¡ricos! · 1°'), 'Ñoquis ¡ricos! · 1°');
   assert.equal(printable('Pizza 🍕'), 'Pizza ?');
+  assert.equal(printable('10 €'), '10 ?'); // PC850 no tiene el euro
   assert.equal(printable('“Especial” – x2'), '"Especial" - x2');
 });
 
-test('ESC/POS: inicia, elige CP858, acentos en la tabla, negrita/tamaño y corte al final', () => {
+test('ESC/POS: inicia, apaga el modo chino, elige PC850 (2), acentos en la tabla, negrita/tamaño y corte al final', () => {
   const doc: TicketDoc = { paperWidth: 80, columns: 48, lines: [
     { text: 'Ñoquis', bold: true, size: 'double', align: 'center' },
     { text: 'Puré' },
   ] };
   const b = toEscPos(doc);
-  assert.deepEqual([...b.subarray(0, 5)], [0x1b, 0x40, 0x1b, 0x74, 19]);
+  assert.deepEqual([...b.subarray(0, 7)], [0x1b, 0x40, 0x1c, 0x2e, 0x1b, 0x74, 2]);
   // Primera línea: centrado, ESC ! (negrita + alto + ancho), ESC E 1, "Ñoquis" con Ñ = 0xA5
-  assert.deepEqual([...b.subarray(5, 14)], [0x1b, 0x61, 1, 0x1b, 0x21, 0x38, 0x1b, 0x45, 1]);
-  assert.equal(b[14], 0xa5);
+  assert.deepEqual([...b.subarray(7, 16)], [0x1b, 0x61, 1, 0x1b, 0x21, 0x38, 0x1b, 0x45, 1]);
+  assert.equal(b[16], 0xa5);
   assert.ok(b.includes(Buffer.from([0x50, 0x75, 0x72, 0x82]))); // "Pur" + é
   assert.deepEqual([...b.subarray(-3)], [0x1d, 0x56, 0x01]);
   assert.equal(toEscPos(doc, { cut: false }).at(-1), 4); // sin corte: termina en el avance de papel

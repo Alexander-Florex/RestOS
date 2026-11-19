@@ -25,6 +25,9 @@ const schema = z.object({
   // Puertos viejos que solo redirigen al PORT actual (ej. "3000" al pasar el sistema al 80),
   // para que no se queden afuera los celulares que guardaron la dirección anterior.
   REDIRECT_PORTS: z.string().optional(),
+  // Cola de impresión (tarea 1.1): manda los tickets a la impresora elegida en la Comandera.
+  // "off" la apaga (por ejemplo, en una PC de desarrollo que no tiene la impresora del local).
+  PRINTER_WORKER: z.enum(['on', 'off']).default('on'),
 });
 
 const parsed = schema.safeParse(process.env);

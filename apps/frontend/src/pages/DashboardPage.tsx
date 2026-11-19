@@ -29,6 +29,7 @@ import { StockToolsPage } from '../components/StockToolsPage';
 import { AnalysisPage } from '../components/AnalysisPage';
 import { OwnerPanel } from '../components/OwnerPanel';
 import { PrinterPage } from '../components/PrinterPage';
+import { PrintAlerts } from '../components/PrintAlerts';
 import { UsersPage } from '../components/UsersPage';
 import { ReservationsPage } from '../components/ReservationsPage';
 import { ReportsPage } from '../components/ReportsPage';
@@ -222,6 +223,8 @@ export function DashboardPage() {
 
         <main className="flex-1 px-4 pb-28 pt-6 sm:px-6 md:px-10 md:pb-10 md:pt-10">
           <div className="mx-auto w-full max-w-[1400px]">
+            {/* Ticket que no salió por la comandera: visible en cualquier pantalla para quien cobra */}
+            {can('sales.charge') && <PrintAlerts onOpen={shown === 'printer' ? undefined : () => go('printer')} />}
             <AnimatePresence mode="wait">
               <PageTransition key={shown}>
                 {shown === 'dashboard'    && <DashboardHome onNavigate={go} />}

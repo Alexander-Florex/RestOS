@@ -1318,17 +1318,43 @@ export const reportsApi = {
 // Los tickets se arman en el backend con los datos guardados.
 export interface PrintJob {
   id: number;
-  kind: 'kitchen' | 'cash';
+  kind: 'kitchen' | 'cash' | 'test';
   title: string;
-  status: 'PENDING' | 'PRINTED' | 'FAILED';
+  status: 'PENDING' | 'PRINTED' | 'FAILED' | 'DISCARDED';
   error: string | null;
+  attempts: number;
   reprintOfId: number | null;
   createdAt: string;
+  queuedAt: string;
   printedAt: string | null;
   doc: TicketDoc;
 }
 
 type PrintResult = { ok: boolean; message: string; job: PrintJob };
+export type SampleKind = 'kitchen' | 'cash' | 'test';
+
+export interface PrinterStatus {
+  printerName: string | null;
+  /** Hay impresora elegida y la cola está prendida: los tickets salen en papel */
+  active: boolean;
+  workerOn: boolean;
+  lastOkAt: string | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  pending: number;
+  /** Tickets que no salieron (últimas 12 h) */
+  failed: PrintJob[];
+}
+
+export interface WindowsPrinter {
+  name: string;
+  offline: boolean;
+  port: string | null;
+  driver: string | null;
+  isDefault: boolean;
+}
+
+export interface PrintSettings { paperWidth: PaperWidth; printerName: string | null }
 
 export const printingApi = {
   // Comanda de cocina de un pedido de mesa
@@ -1350,12 +1376,16 @@ export const printingApi = {
   // Comandera: lo que se mandó a imprimir y cómo se ve
   jobs: (limit = 60) => request<PrintJob[]>(`/printing/jobs?limit=${limit}`),
   reprint: (jobId: number) => request<PrintJob>(`/printing/jobs/${jobId}/reprint`, { method: 'POST', body: {} }),
-  sample: (kind: 'kitchen' | 'cash', width?: PaperWidth) =>
+  retry: (jobId: number) => request<PrintJob>(`/printing/jobs/${jobId}/retry`, { method: 'POST', body: {} }),
+  discard: (jobId: number) => request<PrintJob>(`/printing/jobs/${jobId}/discard`, { method: 'POST', body: {} }),
+  status: () => request<PrinterStatus>('/printing/status'),
+  printers: () => request<{ supported: boolean; printers: WindowsPrinter[]; suggested: string | null }>('/printing/printers'),
+  sample: (kind: SampleKind, width?: PaperWidth) =>
     request<TicketDoc>(`/printing/sample/${kind}${width ? `?width=${width}` : ''}`),
-  printSample: (kind: 'kitchen' | 'cash') => request<PrintJob>(`/printing/sample/${kind}`, { method: 'POST', body: {} }),
-  settings: () => request<{ paperWidth: PaperWidth }>('/printing/settings'),
-  saveSettings: (paperWidth: PaperWidth) =>
-    request<{ paperWidth: PaperWidth }>('/printing/settings', { method: 'PUT', body: { paperWidth } }),
+  printSample: (kind: SampleKind) => request<PrintJob>(`/printing/sample/${kind}`, { method: 'POST', body: {} }),
+  settings: () => request<PrintSettings>('/printing/settings'),
+  saveSettings: (changes: Partial<PrintSettings>) =>
+    request<PrintSettings>('/printing/settings', { method: 'PUT', body: changes }),
 };
 // ──────────────────────────────────────────────
 // Para llevar — tipos y API

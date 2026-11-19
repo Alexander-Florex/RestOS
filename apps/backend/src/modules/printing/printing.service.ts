@@ -5,28 +5,23 @@
 // y pasan por la cola de impresión (print-jobs.ts): quedan registrados, se ven en
 // la pantalla "Comandera" y el agente del local los imprime.
 // ──────────────────────────────────────────────
-import { SaleChannel, type PrintJob } from '@prisma/client';
+import { SaleChannel } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { itemNotesForPrint, modifierLines } from '../../lib/modifiers.js';
 import { tableLabel } from '../../shared/table-label.js';
 import { buildTicket, sampleTicket, type PaperWidth, type PrintPayload, type TicketDoc } from '../../shared/ticket.js';
-import { enqueuePrint, socketJob, ticketHeader } from './print-jobs.js';
+import { env } from '../../config/env.js';
+import { listWindowsPrinters } from '../../lib/printers/windows.js';
+import { emitJobUpdated, enqueuePrint, jobView, socketJob, ticketHeader } from './print-jobs.js';
+import { kickPrinter, printerState } from './printer-worker.js';
 
-function jobView(job: PrintJob) {
-  return {
-    id: job.id,
-    kind: job.kind,
-    title: job.title,
-    status: job.status,
-    error: job.error,
-    reprintOfId: job.reprintOfId,
-    createdAt: job.createdAt,
-    printedAt: job.printedAt,
-    doc: job.doc as unknown as TicketDoc,
-  };
-}
+type SampleKind = 'kitchen' | 'cash' | 'test';
+/** Cuántas horas hacia atrás se muestran los tickets que no salieron */
+const ALERT_HOURS = 12;
+/** Nombres típicos de impresoras térmicas, para sugerir la comandera */
+const THERMAL = /xprinter|xp-|pos-?80|80c|80 ?mm|thermal|receipt|t[eé]rmica/i;
 
 export const printingService = {
   /** Comanda de cocina de un pedido de mesa (solo lo que sigue en pie) */
@@ -158,45 +153,115 @@ export const printingService = {
     return jobView(again);
   },
 
-  /** El agente avisa si imprimió o no */
-  async markJob(restaurantId: number, jobId: number, ok: boolean, error?: string | null) {
+  /** Volver a intentar un ticket que no salió (el mismo trabajo, desde cero) */
+  async retry(restaurantId: number, jobId: number) {
     const res = await prisma.printJob.updateMany({
-      where: { id: jobId, restaurantId },
-      data: ok
-        ? { status: 'PRINTED', printedAt: new Date(), error: null }
-        : { status: 'FAILED', error: (error || 'La impresora no respondió').slice(0, 500) },
+      where: { id: jobId, restaurantId, status: { in: ['FAILED', 'PENDING'] } },
+      data: { status: 'PENDING', error: null, attempts: 0, queuedAt: new Date() },
     });
-    if (res.count !== 1) throw HttpError.notFound('Trabajo de impresión no encontrado');
+    if (res.count !== 1) throw HttpError.notFound('No hay un ticket para reintentar con ese número');
     const job = await prisma.printJob.findUniqueOrThrow({ where: { id: jobId } });
+    emitJobUpdated(job);
+    void kickPrinter(restaurantId);
     return jobView(job);
   },
 
+  /** "Ya está": se resolvió sin imprimir (por ejemplo, se lo dijeron a cocina de palabra) */
+  async discard(restaurantId: number, jobId: number) {
+    const res = await prisma.printJob.updateMany({
+      where: { id: jobId, restaurantId, status: { in: ['FAILED', 'PENDING'] } },
+      data: { status: 'DISCARDED' },
+    });
+    if (res.count !== 1) throw HttpError.notFound('No hay un ticket pendiente con ese número');
+    const job = await prisma.printJob.findUniqueOrThrow({ where: { id: jobId } });
+    emitJobUpdated(job);
+    return jobView(job);
+  },
+
+  /** Estado de la impresora y tickets que no salieron (para la alerta de Caja y la Comandera) */
+  async status(restaurantId: number) {
+    const r = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { printerName: true } });
+    const since = new Date(Date.now() - ALERT_HOURS * 3600_000);
+    const [failed, pending] = await Promise.all([
+      prisma.printJob.findMany({
+        where: { restaurantId, status: 'FAILED', queuedAt: { gte: since } },
+        orderBy: { id: 'desc' },
+        take: 20,
+      }),
+      prisma.printJob.count({ where: { restaurantId, status: 'PENDING' } }),
+    ]);
+    const st = printerState(restaurantId);
+    return {
+      printerName: r?.printerName ?? null,
+      active: env.PRINTER_WORKER === 'on' && !!r?.printerName,
+      workerOn: env.PRINTER_WORKER === 'on',
+      lastOkAt: st.lastOkAt,
+      lastError: st.lastError,
+      lastErrorAt: st.lastErrorAt,
+      pending,
+      failed: failed.map(jobView),
+    };
+  },
+
+  /** Impresoras instaladas en la PC del servidor (para elegir la comandera) */
+  async printers() {
+    if (process.platform !== 'win32') return { supported: false, printers: [], suggested: null };
+    try {
+      const printers = await listWindowsPrinters();
+      const suggested = printers.find(p => THERMAL.test(`${p.name} ${p.driver ?? ''}`))?.name ?? null;
+      return { supported: true, printers, suggested };
+    } catch (err) {
+      throw new HttpError(503, `No se pudo leer la lista de impresoras de Windows: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  },
+
   /** Ticket de ejemplo con el nombre y el ancho de papel del local (no se guarda ni se imprime) */
-  async sample(restaurantId: number, kind: 'kitchen' | 'cash', paperWidth?: PaperWidth) {
+  async sample(restaurantId: number, kind: SampleKind, paperWidth?: PaperWidth) {
     const { header } = await ticketHeader(restaurantId);
     return buildTicket(sampleTicket(kind), paperWidth ? { ...header, paperWidth } : header);
   },
 
-  /** Imprimir el ejemplo (para probar la comandera) */
-  async printSample(restaurantId: number, kind: 'kitchen' | 'cash') {
+  /** Imprimir el ejemplo o la hoja de prueba (para probar la comandera) */
+  async printSample(restaurantId: number, kind: SampleKind) {
     return jobView(await enqueuePrint(restaurantId, sampleTicket(kind)));
   },
 
   async getSettings(restaurantId: number) {
-    const r = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { printPaperWidth: true } });
-    return { paperWidth: (r?.printPaperWidth === 58 ? 58 : 80) as PaperWidth };
+    const r = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { printPaperWidth: true, printerName: true } });
+    return { paperWidth: (r?.printPaperWidth === 58 ? 58 : 80) as PaperWidth, printerName: r?.printerName ?? null };
   },
 
-  async setSettings(restaurantId: number, paperWidth: PaperWidth, userId: number | null) {
+  async setSettings(
+    restaurantId: number,
+    changes: { paperWidth?: PaperWidth; printerName?: string | null },
+    userId: number | null,
+  ) {
+    const printerName = changes.printerName === undefined ? undefined : (changes.printerName?.trim() || null);
+    let printerChanged = false;
     await prisma.$transaction(async (tx) => {
-      const before = await tx.restaurant.findUniqueOrThrow({ where: { id: restaurantId }, select: { printPaperWidth: true } });
-      await tx.restaurant.update({ where: { id: restaurantId }, data: { printPaperWidth: paperWidth } });
+      const before = await tx.restaurant.findUniqueOrThrow({ where: { id: restaurantId }, select: { printPaperWidth: true, printerName: true } });
+      const data: { printPaperWidth?: number; printerName?: string | null } = {};
+      if (changes.paperWidth !== undefined) data.printPaperWidth = changes.paperWidth;
+      if (printerName !== undefined) data.printerName = printerName;
+      printerChanged = printerName !== undefined && printerName !== before.printerName;
+      await tx.restaurant.update({ where: { id: restaurantId }, data });
+      if (printerChanged && printerName) {
+        // Lo que quedó esperando de antes de tener impresora no sale de golpe: se descarta
+        // (lo de los últimos minutos sí se imprime, por si la estaban configurando en pleno servicio)
+        await tx.printJob.updateMany({
+          where: { restaurantId, status: 'PENDING', queuedAt: { lt: new Date(Date.now() - 5 * 60_000) } },
+          data: { status: 'DISCARDED', error: 'Quedó de antes de elegir la impresora' },
+        });
+      }
       await audit(tx, {
         restaurantId, action: 'printing.settings', entity: 'Restaurant', entityId: restaurantId,
-        userId: userId ?? undefined, before: { paperWidth: before.printPaperWidth }, after: { paperWidth },
+        userId: userId ?? undefined,
+        before: { paperWidth: before.printPaperWidth, printerName: before.printerName },
+        after: { paperWidth: data.printPaperWidth ?? before.printPaperWidth, printerName: data.printerName === undefined ? before.printerName : data.printerName },
       });
     });
-    return { paperWidth };
+    if (printerChanged) void kickPrinter(restaurantId);
+    return this.getSettings(restaurantId);
   },
 };
 

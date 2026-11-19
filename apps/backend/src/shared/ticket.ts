@@ -35,7 +35,8 @@ export interface TicketDoc {
 
 /** Lo que se manda a imprimir (es también lo que recibe el agente por socket). */
 export interface PrintPayload {
-  type: 'kitchen' | 'cash';
+  /** test: hoja de prueba de la impresora (acentos, tamaños, ancho y corte) */
+  type: 'kitchen' | 'cash' | 'test';
   /** Título grande opcional de la comanda: "REHACER", "CAMBIO" (sin esto: COCINA / PARA LLEVAR) */
   heading?: string;
   tableNumber?: number;
@@ -82,16 +83,16 @@ export interface TicketHeader {
 }
 
 /**
- * Tabla de caracteres CP858 (la de las impresoras térmicas comunes): letras con tilde,
+ * Tabla de caracteres PC850 (multilingüe, ESC t 2: el mismo número en Xprinter y Epson): letras con tilde,
  * ñ, ¿¡, punto medio. Lo que no está en la tabla sale como "?", y la pantalla lo
  * muestra igual, para que se note antes de imprimir.
  */
-export const CP858: Record<string, number> = {
+export const CP850: Record<string, number> = {
   'Ç': 0x80, 'ü': 0x81, 'é': 0x82, 'â': 0x83, 'ä': 0x84, 'à': 0x85, 'ç': 0x87, 'ê': 0x88, 'ë': 0x89, 'è': 0x8a,
   'ï': 0x8b, 'î': 0x8c, 'ì': 0x8d, 'Ä': 0x8e, 'É': 0x90, 'ô': 0x93, 'ö': 0x94, 'ò': 0x95, 'û': 0x96, 'ù': 0x97,
   'Ö': 0x99, 'Ü': 0x9a, 'á': 0xa0, 'í': 0xa1, 'ó': 0xa2, 'ú': 0xa3, 'ñ': 0xa4, 'Ñ': 0xa5, 'ª': 0xa6, 'º': 0xa7,
   '¿': 0xa8, '½': 0xab, '¼': 0xac, '¡': 0xad, 'Á': 0xb5, 'Â': 0xb6, 'À': 0xb7, 'Ê': 0xd2, 'Ë': 0xd3, 'È': 0xd4,
-  '€': 0xd5, 'Í': 0xd6, 'Î': 0xd7, 'Ï': 0xd8, 'Ó': 0xe0, 'Ô': 0xe2, 'Ò': 0xe3, 'Ú': 0xe9, 'Û': 0xea, 'Ù': 0xeb,
+  'Í': 0xd6, 'Î': 0xd7, 'Ï': 0xd8, 'Ó': 0xe0, 'Ô': 0xe2, 'Ò': 0xe3, 'Ú': 0xe9, 'Û': 0xea, 'Ù': 0xeb,
   '°': 0xf8, '·': 0xfa,
 };
 
@@ -99,14 +100,14 @@ const REPLACE: Record<string, string> = {
   '“': '"', '”': '"', '‘': "'", '’': "'", '–': '-', '—': '-', '…': '...', '×': 'x', '\u00a0': ' ', '\t': ' ',
 };
 
-/** El texto tal como lo puede imprimir la comandera (lo que no existe en CP858 queda "?"). */
+/** El texto tal como lo puede imprimir la comandera (lo que no existe en CP850 queda "?"). */
 export function printable(text: string): string {
   let out = '';
   for (const ch of text) {
     const r = REPLACE[ch];
     if (r !== undefined) { out += r; continue; }
     const c = ch.codePointAt(0)!;
-    out += (c >= 0x20 && c < 0x7f) || CP858[ch] !== undefined ? ch : '?';
+    out += (c >= 0x20 && c < 0x7f) || CP850[ch] !== undefined ? ch : '?';
   }
   return out;
 }
@@ -305,12 +306,42 @@ export function cashTicket(p: PrintPayload, h: TicketHeader): TicketDoc {
   return { paperWidth: h.paperWidth, columns: b.columns, lines: b.lines };
 }
 
+// ──────────────────────────────────────────────
+// Hoja de prueba: para ver de un vistazo que la impresora anda bien
+// ──────────────────────────────────────────────
+export function testTicket(h: TicketHeader): TicketDoc {
+  const b = new Builder(columnsFor(h.paperWidth));
+  b.add(h.restaurantName, { align: 'center', bold: true });
+  b.add('PRUEBA', { align: 'center', bold: true, size: 'double' });
+  b.add(`${day(h.printedAt, h.timeZone)} ${clock(h.printedAt, h.timeZone)}`, { align: 'center' });
+  b.rule('=');
+  b.add('Acentos y eñes:', { bold: true });
+  b.add('áéíóú ÁÉÍÓÚ ñÑ ü ¿? ¡! ° ½ ª º');
+  b.add('Ñoquis con puré · Jamón y morrón');
+  b.blank();
+  b.add('Tamaños:', { bold: true });
+  b.add('Normal');
+  b.add('Negrita', { bold: true });
+  b.add('Alta', { bold: true, size: 'tall' });
+  b.add('Doble', { bold: true, size: 'double' });
+  b.blank();
+  b.add(`Ancho: ${b.columns} caracteres (papel de ${h.paperWidth} mm)`, { bold: true });
+  b.raw('1234567890'.repeat(Math.ceil(b.columns / 10)).slice(0, b.columns));
+  b.raw('<' + '-'.repeat(b.columns - 2) + '>');
+  b.rule('=');
+  b.add('Si ves bien la ñ, los acentos y la regla entera, la comandera está lista.', { align: 'center' });
+  b.add('Si sale cortado o con símbolos raros, avisá.', { align: 'center' });
+  return { paperWidth: h.paperWidth, columns: b.columns, lines: b.lines };
+}
+
 export function buildTicket(p: PrintPayload, h: TicketHeader): TicketDoc {
+  if (p.type === 'test') return testTicket(h);
   return p.type === 'cash' ? cashTicket(p, h) : kitchenTicket(p, h);
 }
 
 /** Título corto para listar el trabajo: "Comanda · Ventana · #12" */
 export function ticketTitle(p: PrintPayload): string {
+  if (p.type === 'test') return 'Prueba de impresora';
   const kind = p.type === 'cash' ? 'Ticket de caja' : p.heading ? `Comanda (${p.heading.toLowerCase()})` : 'Comanda';
   const where = placeLabel(p);
   const num = p.type === 'cash' ? (p.saleNumber ? `Venta #${p.saleNumber}` : '') : (p.orderNumber ? `#${p.orderNumber}` : '');
@@ -318,7 +349,8 @@ export function ticketTitle(p: PrintPayload): string {
 }
 
 /** Ejemplos para ver cómo queda sin cargar un pedido */
-export function sampleTicket(kind: 'kitchen' | 'cash'): PrintPayload {
+export function sampleTicket(kind: 'kitchen' | 'cash' | 'test'): PrintPayload {
+  if (kind === 'test') return { type: 'test', items: [] };
   if (kind === 'kitchen') {
     return {
       type: 'kitchen', tableNumber: 5, tableLabel: 'Ventana', orderNumber: 1234, waiterName: 'Juan',

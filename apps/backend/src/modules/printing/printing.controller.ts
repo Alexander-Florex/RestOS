@@ -4,7 +4,7 @@ import { printingService } from './printing.service.js';
 import { HttpError } from '../../lib/http-error.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
-const kindParam = z.object({ kind: z.enum(['kitchen', 'cash']) });
+const kindParam = z.object({ kind: z.enum(['kitchen', 'cash', 'test']) });
 const widthSchema = z.union([z.literal(58), z.literal(80)]);
 
 function user(req: Request) {
@@ -51,11 +51,25 @@ export const printingController = {
     res.json(await printingService.reprint(user(req).restaurantId, id));
   },
 
-  // El agente confirma: { ok: true } o { ok: false, error }
-  async markJob(req: Request, res: Response) {
+  // Un ticket que no salió: volver a intentar o darlo por resuelto
+  async retry(req: Request, res: Response) {
     const { id } = idParam.parse(req.params);
-    const body = z.object({ ok: z.boolean(), error: z.string().max(500).optional().nullable() }).parse(req.body);
-    res.json(await printingService.markJob(user(req).restaurantId, id, body.ok, body.error));
+    res.json(await printingService.retry(user(req).restaurantId, id));
+  },
+
+  async discard(req: Request, res: Response) {
+    const { id } = idParam.parse(req.params);
+    res.json(await printingService.discard(user(req).restaurantId, id));
+  },
+
+  // Estado de la impresora y tickets que no salieron
+  async status(req: Request, res: Response) {
+    res.json(await printingService.status(user(req).restaurantId));
+  },
+
+  // Impresoras instaladas en Windows (para elegir la comandera)
+  async printers(_req: Request, res: Response) {
+    res.json(await printingService.printers());
   },
 
   async sample(req: Request, res: Response) {
@@ -75,7 +89,11 @@ export const printingController = {
 
   async setSettings(req: Request, res: Response) {
     const u = user(req);
-    const { paperWidth } = z.object({ paperWidth: widthSchema }).parse(req.body);
-    res.json(await printingService.setSettings(u.restaurantId, paperWidth, u.userId ?? null));
+    const body = z.object({
+      paperWidth: widthSchema.optional(),
+      // Nombre de la impresora en Windows o IP de red; null = sin impresora (solo pantalla)
+      printerName: z.string().trim().max(120).nullable().optional(),
+    }).refine(b => b.paperWidth !== undefined || b.printerName !== undefined, 'Nada para cambiar').parse(req.body);
+    res.json(await printingService.setSettings(u.restaurantId, body, u.userId ?? null));
   },
 };
