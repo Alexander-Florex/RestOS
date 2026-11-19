@@ -63,8 +63,10 @@ export const SocketEvents = {
   TAKEAWAY_CREATED:        'takeaway:created',
   TAKEAWAY_UPDATED:        'takeaway:updated',
   TAKEAWAY_DELETED:        'takeaway:deleted',
-  // Impresión (lo escucha el agente local, no el navegador)
+  // Impresión: un ticket nuevo en la cola (lo muestra la pantalla Comandera)
   PRINT_REQUEST:           'print:request',
+  // Un ticket cambió de estado: se imprimió, falló, se reintenta o se descartó
+  PRINT_JOB_UPDATED:       'print-job:updated',
 } as const;
 
 export type SocketEventName = typeof SocketEvents[keyof typeof SocketEvents];

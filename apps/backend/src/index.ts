@@ -7,6 +7,8 @@ import { initSocket } from './sockets/index.js';
 import { env } from './config/env.js';
 import { prisma } from './lib/prisma.js';
 import { logger, LOG_DIR, accessLogStream } from './lib/logger.js';
+import { startPrinterWorker, stopPrinterWorker } from './modules/printing/printer-worker.js';
+import { stopWindowsPrinterHelper } from './lib/printers/windows.js';
 
 // Errores que se escaparon de todo manejo: quedan en el log.
 // Una promesa rechazada sin catch se registra y el servidor sigue; una excepción
@@ -45,6 +47,9 @@ async function bootstrap() {
     }
   });
 
+  // Impresión: los tickets salen solos por la impresora elegida en la Comandera
+  if (env.PRINTER_WORKER === 'on') startPrinterWorker();
+
   // Puertos viejos: redirigen al actual con la misma ruta (si el puerto está ocupado, se avisa y sigue)
   for (const p of (env.REDIRECT_PORTS ?? '').split(',').map(s => Number(s.trim())).filter(n => n > 0 && n !== env.PORT)) {
     const redirect = createServer((req, res) => {
@@ -61,6 +66,8 @@ async function bootstrap() {
   const shutdown = async (signal: string) => {
     logger.info('server_stopping', { signal });
     httpServer.close();
+    stopPrinterWorker();
+    stopWindowsPrinterHelper();
     await prisma.$disconnect();
     logger.info('server_stopped', { signal });
     process.exit(0);

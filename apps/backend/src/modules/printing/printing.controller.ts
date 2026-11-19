@@ -4,64 +4,96 @@ import { printingService } from './printing.service.js';
 import { HttpError } from '../../lib/http-error.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
+const kindParam = z.object({ kind: z.enum(['kitchen', 'cash', 'test']) });
+const widthSchema = z.union([z.literal(58), z.literal(80)]);
 
-// printerName es opcional: imprime el agente local, que ya sabe cuál es su impresora.
-const printOrderSchema = z.object({
-  printerName:    z.string().optional(),
-  restaurantName: z.string().default('RestOS'),
-});
+function user(req: Request) {
+  if (!req.user) throw HttpError.unauthorized();
+  return req.user;
+}
 
 export const printingController = {
-  async listPrinters(_req: Request, res: Response) {
-    res.json(await printingService.listPrinters());
-  },
-
-  // Ticket de cocina — desde el ID del pedido
+  // Comanda de cocina de un pedido de mesa
   async printOrder(req: Request, res: Response) {
-    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const opts   = printOrderSchema.parse(req.body);
-    await printingService.printOrder({ restaurantId: req.user.restaurantId, orderId: id, ...opts });
-    res.json({ ok: true, message: `Comanda #${id} enviada` });
+    const job = await printingService.printOrder({ restaurantId: user(req).restaurantId, orderId: id });
+    res.json({ ok: true, message: `Comanda #${id} enviada`, job });
   },
 
-  // Ticket de cocina para TakeawayOrder
+  // Comanda de cocina de un pedido para llevar
   async printTakeawayOrder(req: Request, res: Response) {
-    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    const opts   = printOrderSchema.parse(req.body);
-    await printingService.printTakeawayKitchen({ restaurantId: req.user.restaurantId, takeawayId: id, ...opts });
-    res.json({ ok: true, message: `Comanda para llevar #${id} enviada` });
+    const job = await printingService.printTakeawayKitchen({ restaurantId: user(req).restaurantId, takeawayId: id });
+    res.json({ ok: true, message: `Comanda para llevar #${id} enviada`, job });
   },
 
   // Ticket de caja de una venta registrada — los datos salen de la base
   async printSale(req: Request, res: Response) {
-    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    await printingService.printSale({ restaurantId: req.user.restaurantId, saleId: id });
-    res.json({ ok: true, message: 'Ticket de caja enviado al agente' });
+    const job = await printingService.printSale({ restaurantId: user(req).restaurantId, saleId: id });
+    res.json({ ok: true, message: 'Ticket de caja enviado', job });
   },
 
-  // Ticket de caja de un pedido para llevar cobrado — los datos salen de la base
+  // Ticket de caja de un pedido para llevar cobrado
   async printTakeawayReceipt(req: Request, res: Response) {
-    if (!req.user) throw HttpError.unauthorized();
     const { id } = idParam.parse(req.params);
-    await printingService.printTakeawayReceipt({ restaurantId: req.user.restaurantId, takeawayId: id });
-    res.json({ ok: true, message: 'Ticket de caja enviado al agente' });
+    const job = await printingService.printTakeawayReceipt({ restaurantId: user(req).restaurantId, takeawayId: id });
+    res.json({ ok: true, message: 'Ticket de caja enviado', job });
   },
 
-  // Mantenido por compatibilidad (busca en BD — usar solo antes de cerrar)
-  async printTableAccount(req: Request, res: Response) {
-    if (!req.user) throw HttpError.unauthorized();
+  async listJobs(req: Request, res: Response) {
+    const { limit } = z.object({ limit: z.coerce.number().int().positive().max(200).default(50) }).parse(req.query);
+    res.json(await printingService.listJobs(user(req).restaurantId, limit));
+  },
+
+  async reprint(req: Request, res: Response) {
     const { id } = idParam.parse(req.params);
-    const opts   = z.object({
-      printerName: z.string().optional(),
-      restaurantName: z.string().default('RestOS'),
-      paymentMethod: z.string().optional(),
-      amountPaid: z.coerce.number().optional(),
-      notes: z.string().optional().nullable(),
-    }).parse(req.body);
-    await printingService.printTableOrders({ restaurantId: req.user.restaurantId, tableId: id, ...opts });
-    res.json({ ok: true, message: 'Ticket de caja impreso' });
+    res.json(await printingService.reprint(user(req).restaurantId, id));
+  },
+
+  // Un ticket que no salió: volver a intentar o darlo por resuelto
+  async retry(req: Request, res: Response) {
+    const { id } = idParam.parse(req.params);
+    res.json(await printingService.retry(user(req).restaurantId, id));
+  },
+
+  async discard(req: Request, res: Response) {
+    const { id } = idParam.parse(req.params);
+    res.json(await printingService.discard(user(req).restaurantId, id));
+  },
+
+  // Estado de la impresora y tickets que no salieron
+  async status(req: Request, res: Response) {
+    res.json(await printingService.status(user(req).restaurantId));
+  },
+
+  // Impresoras instaladas en Windows (para elegir la comandera)
+  async printers(_req: Request, res: Response) {
+    res.json(await printingService.printers());
+  },
+
+  async sample(req: Request, res: Response) {
+    const { kind } = kindParam.parse(req.params);
+    const { width } = z.object({ width: z.coerce.number().pipe(widthSchema).optional() }).parse(req.query);
+    res.json(await printingService.sample(user(req).restaurantId, kind, width));
+  },
+
+  async printSample(req: Request, res: Response) {
+    const { kind } = kindParam.parse(req.params);
+    res.json(await printingService.printSample(user(req).restaurantId, kind));
+  },
+
+  async getSettings(req: Request, res: Response) {
+    res.json(await printingService.getSettings(user(req).restaurantId));
+  },
+
+  async setSettings(req: Request, res: Response) {
+    const u = user(req);
+    const body = z.object({
+      paperWidth: widthSchema.optional(),
+      // Nombre de la impresora en Windows o IP de red; null = sin impresora (solo pantalla)
+      printerName: z.string().trim().max(120).nullable().optional(),
+    }).refine(b => b.paperWidth !== undefined || b.printerName !== undefined, 'Nada para cambiar').parse(req.body);
+    res.json(await printingService.setSettings(u.restaurantId, body, u.userId ?? null));
   },
 };

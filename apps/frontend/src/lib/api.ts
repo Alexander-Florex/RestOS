@@ -1,6 +1,7 @@
 // ──────────────────────────────────────────────
 // api.ts — Cliente HTTP con auto-token y tipos
 // ──────────────────────────────────────────────
+import type { PaperWidth, TicketDoc } from '@shared/ticket';
 import type { Permission } from './permissions';
 
 // Base de URL: si está vacía, usa el proxy de Vite (recomendado en dev)
@@ -1315,30 +1316,76 @@ export const reportsApi = {
 // ──────────────────────────────────────────────
 // Imprime el agente local (no se elige impresora desde el navegador).
 // Los tickets se arman en el backend con los datos guardados.
+export interface PrintJob {
+  id: number;
+  kind: 'kitchen' | 'cash' | 'test';
+  title: string;
+  status: 'PENDING' | 'PRINTED' | 'FAILED' | 'DISCARDED';
+  error: string | null;
+  attempts: number;
+  reprintOfId: number | null;
+  createdAt: string;
+  queuedAt: string;
+  printedAt: string | null;
+  doc: TicketDoc;
+}
+
+type PrintResult = { ok: boolean; message: string; job: PrintJob };
+export type SampleKind = 'kitchen' | 'cash' | 'test';
+
+export interface PrinterStatus {
+  printerName: string | null;
+  /** Hay impresora elegida y la cola está prendida: los tickets salen en papel */
+  active: boolean;
+  workerOn: boolean;
+  lastOkAt: string | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  pending: number;
+  /** Tickets que no salieron (últimas 12 h) */
+  failed: PrintJob[];
+}
+
+export interface WindowsPrinter {
+  name: string;
+  offline: boolean;
+  port: string | null;
+  driver: string | null;
+  isDefault: boolean;
+}
+
+export interface PrintSettings { paperWidth: PaperWidth; printerName: string | null }
+
 export const printingApi = {
   // Comanda de cocina de un pedido de mesa
   printOrder: (orderId: number) =>
-    request<{ ok: boolean; message: string }>(`/printing/orders/${orderId}`, {
-      method: 'POST', body: {},
-    }),
+    request<PrintResult>(`/printing/orders/${orderId}`, { method: 'POST', body: {} }),
 
   // Comanda de cocina de un pedido para llevar
   printTakeawayOrder: (takeawayId: number) =>
-    request<{ ok: boolean; message: string }>(`/printing/takeaway/${takeawayId}`, {
-      method: 'POST', body: {},
-    }),
+    request<PrintResult>(`/printing/takeaway/${takeawayId}`, { method: 'POST', body: {} }),
 
   // Ticket de caja de una venta de mesa ya registrada
   printSale: (saleId: number) =>
-    request<{ ok: boolean; message: string }>(`/printing/sales/${saleId}`, {
-      method: 'POST', body: {},
-    }),
+    request<PrintResult>(`/printing/sales/${saleId}`, { method: 'POST', body: {} }),
 
   // Ticket de caja de un pedido para llevar ya cobrado
   printTakeawayReceipt: (takeawayId: number) =>
-    request<{ ok: boolean; message: string }>(`/printing/takeaway/${takeawayId}/receipt`, {
-      method: 'POST', body: {},
-    }),
+    request<PrintResult>(`/printing/takeaway/${takeawayId}/receipt`, { method: 'POST', body: {} }),
+
+  // Comandera: lo que se mandó a imprimir y cómo se ve
+  jobs: (limit = 60) => request<PrintJob[]>(`/printing/jobs?limit=${limit}`),
+  reprint: (jobId: number) => request<PrintJob>(`/printing/jobs/${jobId}/reprint`, { method: 'POST', body: {} }),
+  retry: (jobId: number) => request<PrintJob>(`/printing/jobs/${jobId}/retry`, { method: 'POST', body: {} }),
+  discard: (jobId: number) => request<PrintJob>(`/printing/jobs/${jobId}/discard`, { method: 'POST', body: {} }),
+  status: () => request<PrinterStatus>('/printing/status'),
+  printers: () => request<{ supported: boolean; printers: WindowsPrinter[]; suggested: string | null }>('/printing/printers'),
+  sample: (kind: SampleKind, width?: PaperWidth) =>
+    request<TicketDoc>(`/printing/sample/${kind}${width ? `?width=${width}` : ''}`),
+  printSample: (kind: SampleKind) => request<PrintJob>(`/printing/sample/${kind}`, { method: 'POST', body: {} }),
+  settings: () => request<PrintSettings>('/printing/settings'),
+  saveSettings: (changes: Partial<PrintSettings>) =>
+    request<PrintSettings>('/printing/settings', { method: 'PUT', body: changes }),
 };
 // ──────────────────────────────────────────────
 // Para llevar — tipos y API
