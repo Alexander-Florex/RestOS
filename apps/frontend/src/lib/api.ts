@@ -365,6 +365,8 @@ export interface MenuCategory {
   order: number;
   /** Margen objetivo sobre el precio sin IVA (0–0,95) */
   targetMargin: number | null;
+  /** Si sus platos salen en la comanda de cocina */
+  sendToKitchen: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -374,6 +376,7 @@ export interface CreateMenuCategoryBody {
   color?: string;
   order?: number;
   targetMargin?: number | null;
+  sendToKitchen?: boolean;
 }
 
 export const menuCategoriesApi = {
@@ -1331,6 +1334,8 @@ export interface PrintJob {
 }
 
 type PrintResult = { ok: boolean; message: string; job: PrintJob };
+/** Comanda: job null = el pedido solo tiene bebidas y no se imprime nada */
+export type KitchenPrintResult = { ok: boolean; message: string; job: PrintJob | null };
 export type SampleKind = 'kitchen' | 'cash' | 'test';
 
 export interface PrinterStatus {
@@ -1359,11 +1364,11 @@ export interface PrintSettings { paperWidth: PaperWidth; printerName: string | n
 export const printingApi = {
   // Comanda de cocina de un pedido de mesa
   printOrder: (orderId: number) =>
-    request<PrintResult>(`/printing/orders/${orderId}`, { method: 'POST', body: {} }),
+    request<KitchenPrintResult>(`/printing/orders/${orderId}`, { method: 'POST', body: {} }),
 
   // Comanda de cocina de un pedido para llevar
   printTakeawayOrder: (takeawayId: number) =>
-    request<PrintResult>(`/printing/takeaway/${takeawayId}`, { method: 'POST', body: {} }),
+    request<KitchenPrintResult>(`/printing/takeaway/${takeawayId}`, { method: 'POST', body: {} }),
 
   // Ticket de caja de una venta de mesa ya registrada
   printSale: (saleId: number) =>

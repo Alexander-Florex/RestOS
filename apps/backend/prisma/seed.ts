@@ -153,7 +153,7 @@ async function main() {
     { name: 'Entradas',    color: '#f59e0b' },
     { name: 'Principales', color: '#f97316' },
     { name: 'Postres',     color: '#ec4899' },
-    { name: 'Bebidas',     color: '#0ea5e9' },
+    { name: 'Bebidas',     color: '#0ea5e9', sendToKitchen: false },
   ];
   await prisma.menuCategory.createMany({ data: menuCategories.map((c, order) => ({ ...c, order, restaurantId })) });
   await prisma.menuItem.createMany({ data: menuData.map(m => ({ ...m, restaurantId })) });

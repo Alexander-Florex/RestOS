@@ -477,7 +477,7 @@ function TakeawayCard({ order, onPay }: { order: TakeawayOrder; onPay: () => voi
               variant="outline"
               label="Imprimir comanda"
               className="h-8 w-8 shrink-0"
-              onPrint={() => printingApi.printTakeawayOrder(order.id).then(() => {})}
+              onPrint={() => printingApi.printTakeawayOrder(order.id)}
             />
             {order.status === 'OPEN' && (
               <Button variant="outline" size="sm" className="flex-1 text-xs h-8" onClick={handleReady} disabled={acting}>

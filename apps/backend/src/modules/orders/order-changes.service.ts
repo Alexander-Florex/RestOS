@@ -20,6 +20,7 @@ import { HttpError } from '../../lib/http-error.js';
 import { lockTable } from '../../lib/table-lock.js';
 import { fromCents, toCents } from '../../lib/money.js';
 import { audit } from '../../lib/audit.js';
+import { kitchenFilter } from '../../lib/kitchen-routing.js';
 import { itemNotesForPrint, modifierLines, optionGroupsInclude, resolveItemOptions } from '../../lib/modifiers.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 import { emitPrintRequest } from '../printing/print-jobs.js';
@@ -211,19 +212,22 @@ export const orderChangesService = {
       return { change, item };
     });
 
-    emitPrintRequest(restaurantId, {
-      type: 'kitchen',
-      heading: 'REHACER',
-      tableNumber: result.item.order.table.number,
-      orderNumber: result.item.orderId,
-      items: [{
-        name: result.item.itemName,
-        quantity: input.quantity,
-        notes: [itemNotesForPrint(result.item.modifiers, result.item.notes), `Motivo: ${reason}`].filter(Boolean).join(' · '),
-        note: [result.item.notes, `Motivo: ${reason}`].filter(Boolean).join(' · '),
-        modifiers: modifierLines(result.item.modifiers),
-      }],
-    });
+    const goesToKitchen = await kitchenFilter(restaurantId, [result.item.menuItemId]);
+    if (goesToKitchen(result.item.menuItemId)) {
+      emitPrintRequest(restaurantId, {
+        type: 'kitchen',
+        heading: 'REHACER',
+        tableNumber: result.item.order.table.number,
+        orderNumber: result.item.orderId,
+        items: [{
+          name: result.item.itemName,
+          quantity: input.quantity,
+          notes: [itemNotesForPrint(result.item.modifiers, result.item.notes), `Motivo: ${reason}`].filter(Boolean).join(' · '),
+          note: [result.item.notes, `Motivo: ${reason}`].filter(Boolean).join(' · '),
+          modifiers: modifierLines(result.item.modifiers),
+        }],
+      });
+    }
     const full = await loadChange(result.change.id);
     ioRestaurant(restaurantId).emit(SocketEvents.ORDER_CHANGE_RESOLVED, full);
     return full;
@@ -259,7 +263,7 @@ export const orderChangesService = {
 
     const full = await loadChange(result.change.id);
     if (result.applied) {
-      printChange(restaurantId, result.applied, input.quantity, reason);
+      await printChange(restaurantId, result.applied, input.quantity, reason);
       await emitOrder(restaurantId, result.applied.item.orderId);
       ioRestaurant(restaurantId).emit(SocketEvents.ORDER_CHANGE_RESOLVED, full);
     } else {
@@ -276,7 +280,7 @@ export const orderChangesService = {
       if (change.status !== ItemChangeStatus.PENDING) throw HttpError.conflict('Ese pedido de cambio ya fue resuelto');
       return { change, result: await applyReplace(tx, restaurantId, change, approverId) };
     });
-    printChange(restaurantId, applied.result, applied.change.quantity, applied.change.reason);
+    await printChange(restaurantId, applied.result, applied.change.quantity, applied.change.reason);
     await emitOrder(restaurantId, applied.change.orderId);
     const full = await loadChange(changeId);
     ioRestaurant(restaurantId).emit(SocketEvents.ORDER_CHANGE_RESOLVED, full);
@@ -324,28 +328,35 @@ export const orderChangesService = {
   },
 };
 
-/** Ticket a cocina: qué anular y qué hacer. */
-function printChange(
+/** Ticket a cocina: qué anular y qué hacer (las bebidas no figuran; solo bebidas = sin ticket). */
+async function printChange(
   restaurantId: number,
   applied: Awaited<ReturnType<typeof applyReplace>>,
   quantity: number,
   reason: string,
 ) {
+  const goesToKitchen = await kitchenFilter(restaurantId, [applied.item.menuItemId, applied.created.menuItemId]);
+  const items = [
+    ...(goesToKitchen(applied.item.menuItemId)
+      ? [{ name: `ANULAR: ${applied.item.itemName}`, quantity, notes: `Cambio · Motivo: ${reason}`, note: `Motivo: ${reason}` }]
+      : []),
+    ...(goesToKitchen(applied.created.menuItemId)
+      ? [{
+          name: `HACER: ${applied.created.itemName}`,
+          quantity,
+          notes: itemNotesForPrint(applied.created.modifiers, applied.created.notes),
+          note: applied.created.notes,
+          modifiers: modifierLines(applied.created.modifiers),
+        }]
+      : []),
+  ];
+  if (items.length === 0) return;
   emitPrintRequest(restaurantId, {
     type: 'kitchen',
     heading: 'CAMBIO',
     tableNumber: applied.tableNumber,
     orderNumber: applied.item.orderId,
-    items: [
-      { name: `ANULAR: ${applied.item.itemName}`, quantity, notes: `Cambio · Motivo: ${reason}`, note: `Motivo: ${reason}` },
-      {
-        name: `HACER: ${applied.created.itemName}`,
-        quantity,
-        notes: itemNotesForPrint(applied.created.modifiers, applied.created.notes),
-        note: applied.created.notes,
-        modifiers: modifierLines(applied.created.modifiers),
-      },
-    ],
+    items,
   });
 }
 

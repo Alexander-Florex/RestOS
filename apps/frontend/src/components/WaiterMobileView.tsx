@@ -322,7 +322,7 @@ export function WaiterMobileView() {
                 <PrintButton
                   label="Imprimir"
                   size="sm"
-                  onPrint={() => printingApi.printOrder(lastOrderId).then(() => {})}
+                  onPrint={() => printingApi.printOrder(lastOrderId)}
                 />
                 <button onClick={() => setLastOrderId(null)} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
                   <X className="h-4 w-4" />
