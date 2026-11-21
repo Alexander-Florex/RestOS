@@ -12,6 +12,7 @@ const createSchema = z.object({
   order: z.coerce.number().int().optional(),
   // Margen objetivo sobre el precio sin IVA (tarea 2.6)
   targetMargin: z.coerce.number().min(0).max(0.95, 'El margen tiene que ser menor a 95 %').optional().nullable(),
+  sendToKitchen: z.boolean().optional(),
 });
 
 const updateSchema = createSchema.partial();

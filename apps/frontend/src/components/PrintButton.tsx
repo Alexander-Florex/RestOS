@@ -8,13 +8,13 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Printer, Loader2 } from 'lucide-react';
-import { ApiError } from '../lib/api';
+import { ApiError, type KitchenPrintResult } from '../lib/api';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 
 interface PrintButtonProps {
   /** Qué imprimir */
-  onPrint: () => Promise<void>;
+  onPrint: () => Promise<KitchenPrintResult | void>;
   variant?: 'default' | 'outline' | 'ghost';
   size?: 'default' | 'sm' | 'icon';
   label?: string;
@@ -33,8 +33,9 @@ export function PrintButton({
   async function handleClick() {
     setPrinting(true);
     try {
-      await onPrint();
-      toast.success('Comanda enviada a imprimir');
+      const result = await onPrint();
+      if (result && result.job === null) toast.info(result.message);
+      else toast.success('Comanda enviada a imprimir');
     } catch (err) {
       toast.error(`No se pudo imprimir: ${err instanceof ApiError ? err.message : 'revisá la impresora'}`);
     } finally {

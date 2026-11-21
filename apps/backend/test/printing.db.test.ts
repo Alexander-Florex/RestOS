@@ -14,6 +14,7 @@ import { HttpError } from '../src/lib/http-error.js';
 import { ordersService } from '../src/modules/orders/orders.service.js';
 import { salesService } from '../src/modules/sales/sales.service.js';
 import { printingService } from '../src/modules/printing/printing.service.js';
+import { orderChangesService } from '../src/modules/orders/order-changes.service.js';
 import { kickPrinter, resetPrinterStates, startPrinterWorker, stopPrinterWorker, MAX_ATTEMPTS } from '../src/modules/printing/printer-worker.js';
 import { parsePrinterTarget, printNetwork } from '../src/lib/printers/index.js';
 
@@ -34,6 +35,12 @@ beforeEach(async () => { await prisma.restaurant.deleteMany(); sent.length = 0; 
 
 const isHttp = (status: number) => (err: unknown) => err instanceof HttpError && err.statusCode === status;
 const texts = (job: { doc: { lines: { text: string }[] } }) => job.doc.lines.map(l => l.text);
+/** Comanda que sí tiene que salir (los pedidos de estos tests llevan platos) */
+async function printedOrder(opts: { restaurantId: number; orderId: number }) {
+  const job = await printingService.printOrder(opts);
+  assert.ok(job);
+  return job;
+}
 
 async function setup(name = 'El Molino') {
   const r = (await prisma.restaurant.create({ data: { name } })).id;
@@ -45,7 +52,7 @@ async function setup(name = 'El Molino') {
 
 test('la comanda queda como trabajo pendiente, con el nombre del local, la mesa por nombre y la nota', async () => {
   const { r, order } = await setup();
-  const job = await printingService.printOrder({ restaurantId: r, orderId: order.id });
+  const job = await printedOrder({ restaurantId: r, orderId: order.id });
   assert.equal(job.status, 'PENDING');
   assert.equal(job.kind, 'kitchen');
   assert.equal(job.title, `Comanda · Ventana · #${order.id}`);
@@ -59,11 +66,79 @@ test('la comanda queda como trabajo pendiente, con el nombre del local, la mesa 
   assert.equal(saved.restaurantId, r);
 });
 
+test('la comanda no lleva bebidas, en mesa y para llevar; solo bebidas no genera ticket', async () => {
+  const { r, dish, table } = await setup();
+  await prisma.menuCategory.create({ data: { restaurantId: r, name: 'Vinos', sendToKitchen: false } });
+  const vino = await prisma.menuItem.create({ data: { restaurantId: r, name: 'Malbec', category: 'Vinos', price: '9000.00' } });
+  // Categoría sin fila propia: las bebidas se reconocen por nombre
+  const agua = await prisma.menuItem.create({ data: { restaurantId: r, name: 'Agua', category: 'drinks', price: '1000.00' } });
+
+  const mixed = await ordersService.create(r, { tableId: table.id, items: [
+    { menuItemId: dish.id, quantity: 1 }, { menuItemId: vino.id, quantity: 1 }, { menuItemId: agua.id, quantity: 1 },
+  ] });
+  const job = await printedOrder({ restaurantId: r, orderId: mixed.id });
+  assert.ok(job);
+  const t = texts(job);
+  assert.ok(t.includes('1x Milanesa'));
+  assert.ok(!t.some(l => l.includes('Malbec') || l.includes('Agua')));
+
+  // Las bebidas siguen en el pedido: se cobran aunque no se impriman
+  assert.equal((await prisma.orderItem.count({ where: { orderId: mixed.id, status: 'ACTIVE' } })), 3);
+
+  const before = await prisma.printJob.count({ where: { restaurantId: r } });
+  const onlyDrinks = await ordersService.create(r, { tableId: table.id, items: [{ menuItemId: vino.id, quantity: 2 }] });
+  assert.equal(await printingService.printOrder({ restaurantId: r, orderId: onlyDrinks.id }), null);
+  assert.equal(await prisma.printJob.count({ where: { restaurantId: r } }), before);
+
+  const takeaway = await prisma.takeawayOrder.create({ data: {
+    restaurantId: r, customerName: 'Ana', total: '14000.00',
+    items: { create: [
+      { menuItemId: dish.id, itemName: 'Milanesa', quantity: 1, price: '5000.00' },
+      { menuItemId: vino.id, itemName: 'Malbec', quantity: 1, price: '9000.00' },
+    ] },
+  } });
+  const tJob = await printingService.printTakeawayKitchen({ restaurantId: r, takeawayId: takeaway.id });
+  assert.ok(tJob);
+  assert.ok(texts(tJob).includes('1x Milanesa'));
+  assert.ok(!texts(tJob).some(l => l.includes('Malbec')));
+
+  // Si la categoría vuelve a marcarse, la bebida sale
+  await prisma.menuCategory.updateMany({ where: { restaurantId: r, name: 'Vinos' }, data: { sendToKitchen: true } });
+  const back = await printedOrder({ restaurantId: r, orderId: onlyDrinks.id });
+  assert.ok(back && texts(back).includes('2x Malbec'));
+});
+
+test('rehacer y cambiar: las bebidas no generan ticket ni figuran en el de cocina', async () => {
+  const { r, table, order } = await setup();
+  await prisma.menuCategory.create({ data: { restaurantId: r, name: 'Bebidas', sendToKitchen: false } });
+  const vino = await prisma.menuItem.create({ data: { restaurantId: r, name: 'Malbec', category: 'Bebidas', price: '9000.00' } });
+  const soda = await prisma.menuItem.create({ data: { restaurantId: r, name: 'Soda', category: 'Bebidas', price: '1000.00' } });
+  const drinks = await ordersService.create(r, { tableId: table.id, items: [{ menuItemId: vino.id, quantity: 2 }] });
+  const change = { reason: 'Prueba de cambio', wasPrepared: false };
+
+  // Las impresiones de cambios no se esperan: se da tiempo a que aparezcan
+  const settle = () => new Promise(res => setTimeout(res, 300));
+  const jobs = () => prisma.printJob.findMany({ where: { restaurantId: r }, orderBy: { id: 'asc' } });
+
+  await orderChangesService.remake(r, drinks.items[0].id, { quantity: 1, reason: 'Se cayó la copa' });
+  await orderChangesService.replace(r, drinks.items[0].id, { ...change, quantity: 1, replacement: { menuItemId: soda.id } }, true);
+  await settle();
+  assert.equal((await jobs()).length, 0);
+
+  // Plato → bebida: cocina solo tiene que anular
+  await orderChangesService.replace(r, order.items[0].id, { ...change, quantity: 1, replacement: { menuItemId: vino.id } }, true);
+  await settle();
+  const [cambio] = await jobs();
+  const lines = (cambio.doc as unknown as { lines: { text: string }[] }).lines.map(l => l.text);
+  assert.ok(lines.some(l => l.includes('ANULAR: Milanesa')));
+  assert.ok(!lines.some(l => l.includes('HACER')));
+});
+
 test('ancho de papel de 58 mm: 32 caracteres; el ejemplo usa el del local', async () => {
   const { r, order } = await setup();
   await printingService.setSettings(r, { paperWidth: 58 }, null);
   assert.deepEqual(await printingService.getSettings(r), { paperWidth: 58, printerName: null });
-  const job = await printingService.printOrder({ restaurantId: r, orderId: order.id });
+  const job = await printedOrder({ restaurantId: r, orderId: order.id });
   assert.equal(job.doc.columns, 32);
   assert.equal((await printingService.sample(r, 'cash')).columns, 32);
   assert.equal((await printingService.sample(r, 'cash', 80)).columns, 48);
@@ -87,8 +162,8 @@ test('ticket de caja desde la venta: descuento, pagos y vuelto como quedaron gua
 test('cada local ve solo sus trabajos; reimprimir crea otro vinculado; reintentar y descartar solo en el propio', async () => {
   const a = await setup('Local A');
   const b = await setup('Local B');
-  const jobA = await printingService.printOrder({ restaurantId: a.r, orderId: a.order.id });
-  await printingService.printOrder({ restaurantId: b.r, orderId: b.order.id });
+  const jobA = await printedOrder({ restaurantId: a.r, orderId: a.order.id });
+  await printedOrder({ restaurantId: b.r, orderId: b.order.id });
 
   assert.deepEqual((await printingService.listJobs(a.r)).map(j => j.id), [jobA.id]);
   await assert.rejects(printingService.printOrder({ restaurantId: a.r, orderId: b.order.id }), isHttp(404));
@@ -119,9 +194,9 @@ test('con impresora elegida: imprime en orden, con los bytes ESC/POS, y solo lo 
   const a = await setup('Local A');
   const b = await setup('Local B');
   await printingService.setSettings(a.r, { printerName: 'XP-80C' }, null);
-  const first = await printingService.printOrder({ restaurantId: a.r, orderId: a.order.id });
+  const first = await printedOrder({ restaurantId: a.r, orderId: a.order.id });
   const second = await printingService.printSample(a.r, 'test');
-  const other = await printingService.printOrder({ restaurantId: b.r, orderId: b.order.id });
+  const other = await printedOrder({ restaurantId: b.r, orderId: b.order.id });
   await kickPrinter();
 
   assert.deepEqual(sent.map(s => s.title), [first.title, 'Prueba de impresora']);
@@ -144,7 +219,7 @@ test('si la impresora falla: reintenta hasta 3 veces, queda como alerta y "Reint
   const { r, order } = await setup();
   await printingService.setSettings(r, { printerName: '192.168.1.50' }, null);
   failWith = 'No se pudo imprimir en 192.168.1.50: no está en la red';
-  const job = await printingService.printOrder({ restaurantId: r, orderId: order.id });
+  const job = await printedOrder({ restaurantId: r, orderId: order.id });
   await kickPrinter();
 
   let saved = await prisma.printJob.findUniqueOrThrow({ where: { id: job.id } });
@@ -176,8 +251,8 @@ test('si la impresora falla: reintenta hasta 3 veces, queda como alerta y "Reint
 
 test('lo que esperó más de 30 minutos no se imprime tarde; al elegir impresora se descarta lo viejo', async () => {
   const { r, order } = await setup();
-  const old = await printingService.printOrder({ restaurantId: r, orderId: order.id });
-  const recent = await printingService.printOrder({ restaurantId: r, orderId: order.id });
+  const old = await printedOrder({ restaurantId: r, orderId: order.id });
+  const recent = await printedOrder({ restaurantId: r, orderId: order.id });
   await prisma.printJob.update({ where: { id: old.id }, data: { queuedAt: new Date(Date.now() - 60 * 60_000) } });
 
   // Al elegir la impresora: lo de hace una hora se descarta, lo reciente sale
@@ -188,7 +263,7 @@ test('lo que esperó más de 30 minutos no se imprime tarde; al elegir impresora
 
   // Con la impresora ya elegida, uno que quedó esperando 31 minutos pasa a alerta sin imprimirse
   failWith = 'apagada';
-  const late = await printingService.printOrder({ restaurantId: r, orderId: order.id });
+  const late = await printedOrder({ restaurantId: r, orderId: order.id });
   await kickPrinter();
   failWith = null;
   await prisma.printJob.update({ where: { id: late.id }, data: { queuedAt: new Date(Date.now() - 31 * 60_000) } });

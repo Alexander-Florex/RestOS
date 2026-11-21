@@ -17,14 +17,14 @@ export const printingController = {
   async printOrder(req: Request, res: Response) {
     const { id } = idParam.parse(req.params);
     const job = await printingService.printOrder({ restaurantId: user(req).restaurantId, orderId: id });
-    res.json({ ok: true, message: `Comanda #${id} enviada`, job });
+    res.json({ ok: true, message: job ? `Comanda #${id} enviada` : 'Solo tiene bebidas: no lleva comanda', job });
   },
 
   // Comanda de cocina de un pedido para llevar
   async printTakeawayOrder(req: Request, res: Response) {
     const { id } = idParam.parse(req.params);
     const job = await printingService.printTakeawayKitchen({ restaurantId: user(req).restaurantId, takeawayId: id });
-    res.json({ ok: true, message: `Comanda para llevar #${id} enviada`, job });
+    res.json({ ok: true, message: job ? `Comanda para llevar #${id} enviada` : 'Solo tiene bebidas: no lleva comanda', job });
   },
 
   // Ticket de caja de una venta registrada — los datos salen de la base

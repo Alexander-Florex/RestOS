@@ -10,6 +10,7 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { itemNotesForPrint, modifierLines } from '../../lib/modifiers.js';
+import { kitchenFilter } from '../../lib/kitchen-routing.js';
 import { tableLabel } from '../../shared/table-label.js';
 import { buildTicket, sampleTicket, type PaperWidth, type PrintPayload, type TicketDoc } from '../../shared/ticket.js';
 import { env } from '../../config/env.js';
@@ -24,7 +25,7 @@ const ALERT_HOURS = 12;
 const THERMAL = /xprinter|xp-|pos-?80|80c|80 ?mm|thermal|receipt|t[eé]rmica/i;
 
 export const printingService = {
-  /** Comanda de cocina de un pedido de mesa (solo lo que sigue en pie) */
+  /** Comanda de cocina de un pedido de mesa: lo que sigue en pie, sin bebidas. null = no lleva comanda. */
   async printOrder(opts: { restaurantId: number; orderId: number }) {
     const order = await prisma.order.findFirst({
       where: { id: opts.orderId, restaurantId: opts.restaurantId },
@@ -32,6 +33,9 @@ export const printingService = {
     });
     if (!order) throw HttpError.notFound('Pedido no encontrado');
     if (order.items.length === 0) throw HttpError.badRequest('El pedido no tiene platos para imprimir');
+    const goesToKitchen = await kitchenFilter(opts.restaurantId, order.items.map(i => i.menuItemId));
+    const kitchenItems = order.items.filter(i => goesToKitchen(i.menuItemId));
+    if (kitchenItems.length === 0) return null;
 
     const isTakeaway = typeof order.notes === 'string' && order.notes.startsWith('PARA LLEVAR:');
     const job = await enqueuePrint(opts.restaurantId, {
@@ -42,7 +46,7 @@ export const printingService = {
       takeawayName: isTakeaway ? order.notes!.replace('PARA LLEVAR:', '').trim() : null,
       waiterName: order.createdBy?.name ?? null,
       notes: isTakeaway ? null : order.notes,
-      items: order.items.map(i => ({
+      items: kitchenItems.map(i => ({
         name: i.itemName,
         quantity: i.quantity,
         notes: itemNotesForPrint(i.modifiers, i.notes),
@@ -53,13 +57,16 @@ export const printingService = {
     return jobView(job);
   },
 
-  /** Comanda de cocina de un pedido para llevar */
+  /** Comanda de cocina de un pedido para llevar, sin bebidas. null = no lleva comanda. */
   async printTakeawayKitchen(opts: { restaurantId: number; takeawayId: number }) {
     const order = await prisma.takeawayOrder.findFirst({
       where: { id: opts.takeawayId, restaurantId: opts.restaurantId },
       include: { items: { orderBy: { id: 'asc' } } },
     });
     if (!order) throw HttpError.notFound('Pedido para llevar no encontrado');
+    const goesToKitchen = await kitchenFilter(opts.restaurantId, order.items.map(i => i.menuItemId));
+    const kitchenItems = order.items.filter(i => goesToKitchen(i.menuItemId));
+    if (order.items.length > 0 && kitchenItems.length === 0) return null;
     const job = await enqueuePrint(opts.restaurantId, {
       type: 'kitchen',
       tableNumber: 0,
@@ -67,7 +74,7 @@ export const printingService = {
       isTakeaway: true,
       takeawayName: order.customerName,
       notes: order.notes,
-      items: order.items.map(i => ({
+      items: kitchenItems.map(i => ({
         name: i.itemName,
         quantity: i.quantity,
         notes: itemNotesForPrint(i.modifiers, i.notes),

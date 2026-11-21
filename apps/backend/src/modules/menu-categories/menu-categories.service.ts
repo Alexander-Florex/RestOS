@@ -4,6 +4,7 @@
 import type { MenuCategory } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
+import { isDrinkCategoryName } from '../../lib/kitchen-routing.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 
 function emitChanged(restaurantId: number, category: MenuCategory) {
@@ -22,6 +23,8 @@ export interface CreateMenuCategoryData {
   order?: number;
   /** Margen objetivo (0–0,95) sobre el precio sin IVA; null = sin objetivo */
   targetMargin?: number | null;
+  /** Si sus platos salen en la comanda de cocina (por defecto sí, salvo bebidas) */
+  sendToKitchen?: boolean;
 }
 
 export interface UpdateMenuCategoryData extends Partial<CreateMenuCategoryData> {}
@@ -51,6 +54,7 @@ export const menuCategoriesService = {
         color: data.color ?? '#10b981',
         order: data.order ?? 0,
         targetMargin: data.targetMargin ?? null,
+        sendToKitchen: data.sendToKitchen ?? !isDrinkCategoryName(data.name),
       },
     });
     emitCreated(restaurantId, category);
@@ -72,6 +76,7 @@ export const menuCategoriesService = {
         ...(data.color !== undefined ? { color: data.color } : {}),
         ...(data.order !== undefined ? { order: data.order } : {}),
         ...(data.targetMargin !== undefined ? { targetMargin: data.targetMargin } : {}),
+        ...(data.sendToKitchen !== undefined ? { sendToKitchen: data.sendToKitchen } : {}),
       },
     });
 
