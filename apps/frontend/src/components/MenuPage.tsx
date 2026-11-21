@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Plus, Edit, Trash2, Loader2, ToggleLeft, ToggleRight,
-  Tag, BookOpen, ArrowUp, ArrowDown, SlidersHorizontal,
+  Tag, BookOpen, ArrowUp, ArrowDown, SlidersHorizontal, ChefHat,
 } from 'lucide-react';
 import { useMenu } from '../hooks/useMenu';
 import { useMenuCategories } from '../hooks/useMenuCategories';
@@ -230,6 +230,15 @@ export function MenuPage() {
     }
   }
 
+  async function handleToggleKitchen(id: number, name: string, sendToKitchen: boolean) {
+    try {
+      await menuCategoriesApi.update(id, { sendToKitchen });
+      toast.success(sendToKitchen ? `"${name}" sale en la comanda de cocina` : `"${name}" ya no sale en la comanda de cocina`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error al actualizar');
+    }
+  }
+
   async function handleReorderCategory(index: number, delta: number) {
     const target = index + delta;
     if (target < 0 || target >= categoryEntities.length) return;
@@ -335,6 +344,21 @@ export function MenuPage() {
                         <p className="text-sm font-medium">{cat.name}</p>
                         <p className="text-xs text-muted-foreground">{count} {count === 1 ? 'ítem' : 'ítems'}</p>
                       </div>
+                    )}
+                    {!isEditing && (
+                      <button
+                        onClick={() => handleToggleKitchen(cat.id, cat.name, !cat.sendToKitchen)}
+                        aria-pressed={cat.sendToKitchen}
+                        title={cat.sendToKitchen ? 'Sus platos salen en la comanda. Tocá para que no salgan.' : 'Sus platos no salen en la comanda. Tocá para que salgan.'}
+                        className={cn(
+                          'flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors',
+                          cat.sendToKitchen
+                            ? 'border-brand-500/40 bg-brand-500/10 text-brand-300'
+                            : 'border-border bg-white/[0.03] text-muted-foreground',
+                        )}>
+                        <ChefHat className="h-3.5 w-3.5" />
+                        {cat.sendToKitchen ? 'Va a cocina' : 'No va a cocina'}
+                      </button>
                     )}
                     {!isEditing && canSeeCosts && <CategoryMarginInput category={cat} />}
                     <div className="flex items-center gap-1">

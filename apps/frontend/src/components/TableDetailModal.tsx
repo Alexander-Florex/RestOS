@@ -348,7 +348,7 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
                               <button
                                 onClick={() => {
                                   printingApi.printOrder(order.id)
-                                    .then(() => toast.success(`Pedido #${order.id} enviado a cocina`))
+                                    .then(r => r.job ? toast.success(`Pedido #${order.id} enviado a cocina`) : toast.info(r.message))
                                     .catch(err => toast.error(err?.message ?? 'Error al imprimir'));
                                 }}
                                 className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-brand-500/40 hover:text-brand-400"
@@ -495,7 +495,7 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
                           onPrint={() => {
                             const lastOrder = orders[orders.length - 1];
                             if (!lastOrder) return Promise.reject(new Error('No hay pedidos'));
-                            return printingApi.printOrder(lastOrder.id).then(() => {});
+                            return printingApi.printOrder(lastOrder.id);
                           }}
                         />
                       )}
@@ -534,7 +534,7 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
                           onPrint={() => {
                             const lastOrder = orders[orders.length - 1];
                             if (!lastOrder) return Promise.reject(new Error('No hay pedidos'));
-                            return printingApi.printOrder(lastOrder.id).then(() => {});
+                            return printingApi.printOrder(lastOrder.id);
                           }}
                         />
                       )}

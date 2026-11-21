@@ -75,11 +75,14 @@ Por socket:
 - `print:request`: un ticket nuevo, con `jobId`, `doc` y `escpos` en base64.
 - `print-job:updated`: un ticket cambió de estado.
 
+## Qué sale en la comanda de cocina
+
+Salen los platos de mesa y para llevar, **sin bebidas**. Lo decide cada categoría en **Menú → Categorías** con el botón "Va a cocina / No va a cocina" (la categoría Bebidas viene apagada). Vale también para los tickets de rehacer y cambiar plato. Un pedido solo de bebidas no genera ticket, pero sigue en la cuenta. Si no se puede saber la categoría de un plato, se imprime.
+
 ## Pendiente
 
 - Decidir con el local:
   - si la comanda sale **sola** al mandar el pedido o, como hoy, con el botón;
   - si el ticket de caja sale solo al cobrar;
-  - si las bebidas van en la comanda;
   - si hay un cajón de dinero enchufado a la impresora.
 - Avisarle también al mozo cuando su comanda no salió (hoy la alerta la ven Caja y el Administrador).
