@@ -10,7 +10,7 @@ import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { itemNotesForPrint, modifierLines } from '../../lib/modifiers.js';
-import { kitchenRoutes, splitBySector } from '../../lib/kitchen-routing.js';
+import { kitchenItems, kitchenRoutes } from '../../lib/kitchen-routing.js';
 import { tableLabel } from '../../shared/table-label.js';
 import { buildTicket, sampleTicket, type PaperWidth, type PrintPayload, type TicketDoc } from '../../shared/ticket.js';
 import { env } from '../../config/env.js';
@@ -43,7 +43,7 @@ function kitchenLine(i: {
 }
 
 export const printingService = {
-  /** Comandas de un pedido de mesa, una por sector, sin bebidas. Lista vacía = no lleva comanda. */
+  /** Comanda de cocina de un pedido de mesa: lo que sigue en pie, sin bebidas. null = no lleva comanda. */
   async printOrder(opts: { restaurantId: number; orderId: number }) {
     const order = await prisma.order.findFirst({
       where: { id: opts.orderId, restaurantId: opts.restaurantId },
@@ -52,25 +52,24 @@ export const printingService = {
     if (!order) throw HttpError.notFound('Pedido no encontrado');
     if (order.items.length === 0) throw HttpError.badRequest('El pedido no tiene platos para imprimir');
     const route = await kitchenRoutes(opts.restaurantId, order.items.map(i => i.menuItemId));
+    const items = kitchenItems(order.items, route);
+    if (items.length === 0) return null;
+
     const isTakeaway = typeof order.notes === 'string' && order.notes.startsWith('PARA LLEVAR:');
-    const jobs = [];
-    for (const ticket of splitBySector(order.items, route)) {
-      jobs.push(jobView(await enqueuePrint(opts.restaurantId, {
-        type: 'kitchen',
-        sector: ticket.sector,
-        tableNumber: order.table.number,
-        orderNumber: order.id,
-        isTakeaway,
-        takeawayName: isTakeaway ? order.notes!.replace('PARA LLEVAR:', '').trim() : null,
-        waiterName: order.createdBy?.name ?? null,
-        notes: isTakeaway ? null : order.notes,
-        items: ticket.items.map(kitchenLine),
-      })));
-    }
-    return jobs;
+    const job = await enqueuePrint(opts.restaurantId, {
+      type: 'kitchen',
+      tableNumber: order.table.number,
+      orderNumber: order.id,
+      isTakeaway,
+      takeawayName: isTakeaway ? order.notes!.replace('PARA LLEVAR:', '').trim() : null,
+      waiterName: order.createdBy?.name ?? null,
+      notes: isTakeaway ? null : order.notes,
+      items: items.map(kitchenLine),
+    });
+    return jobView(job);
   },
 
-  /** Comandas de un pedido para llevar, una por sector, sin bebidas. Lista vacía = no lleva comanda. */
+  /** Comanda de cocina de un pedido para llevar, sin bebidas. null = no lleva comanda. */
   async printTakeawayKitchen(opts: { restaurantId: number; takeawayId: number }) {
     const order = await prisma.takeawayOrder.findFirst({
       where: { id: opts.takeawayId, restaurantId: opts.restaurantId },
@@ -78,20 +77,18 @@ export const printingService = {
     });
     if (!order) throw HttpError.notFound('Pedido para llevar no encontrado');
     const route = await kitchenRoutes(opts.restaurantId, order.items.map(i => i.menuItemId));
-    const jobs = [];
-    for (const ticket of splitBySector(order.items, route)) {
-      jobs.push(jobView(await enqueuePrint(opts.restaurantId, {
-        type: 'kitchen',
-        sector: ticket.sector,
-        tableNumber: 0,
-        orderNumber: order.id,
-        isTakeaway: true,
-        takeawayName: order.customerName,
-        notes: order.notes,
-        items: ticket.items.map(kitchenLine),
-      })));
-    }
-    return jobs;
+    const items = kitchenItems(order.items, route);
+    if (items.length === 0) return null;
+    const job = await enqueuePrint(opts.restaurantId, {
+      type: 'kitchen',
+      tableNumber: 0,
+      orderNumber: order.id,
+      isTakeaway: true,
+      takeawayName: order.customerName,
+      notes: order.notes,
+      items: items.map(kitchenLine),
+    });
+    return jobView(job);
   },
 
   /** Ticket de caja de una venta: sale de lo guardado, así coincide siempre con la venta */

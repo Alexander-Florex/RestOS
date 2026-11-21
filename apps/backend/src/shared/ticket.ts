@@ -33,17 +33,12 @@ export interface TicketDoc {
   lines: TicketLine[];
 }
 
-export type KitchenSector = 'HOT' | 'COLD';
-export const KITCHEN_SECTOR_LABEL: Record<KitchenSector, string> = { HOT: 'Caliente', COLD: 'Frío' };
-
 /** Lo que se manda a imprimir (es también lo que recibe el agente por socket). */
 export interface PrintPayload {
   /** test: hoja de prueba de la impresora (acentos, tamaños, ancho y corte) */
   type: 'kitchen' | 'cash' | 'test';
   /** Título grande opcional de la comanda: "REHACER", "CAMBIO" (sin esto: COCINA / PARA LLEVAR) */
   heading?: string;
-  /** Sector de cocina de esta comanda (cada sector sale en su papel) */
-  sector?: KitchenSector;
   tableNumber?: number;
   tableName?: string | null;
   /** Cómo se llama la mesa en el local: "Ventana", "Ventana + Patio" o "Mesa 5" */
@@ -221,7 +216,6 @@ export function kitchenTicket(p: PrintPayload, h: TicketHeader): TicketDoc {
   const b = new Builder(columnsFor(h.paperWidth));
   b.add(h.restaurantName, { align: 'center', bold: true });
   b.add(p.heading ?? (p.isTakeaway ? 'PARA LLEVAR' : 'COCINA'), { align: 'center', bold: true, size: 'double' });
-  if (p.sector) b.add(`SECTOR ${KITCHEN_SECTOR_LABEL[p.sector].toUpperCase()}`, { align: 'center', bold: true, size: 'double' });
   b.rule('=');
   const where = p.isTakeaway ? (p.takeawayName || 'Para llevar') : placeLabel(p);
   if (where) b.add(where.toUpperCase(), { bold: true, size: 'double' });
@@ -364,8 +358,7 @@ export function ticketTitle(p: PrintPayload): string {
   const kind = p.type === 'cash' ? 'Ticket de caja' : p.heading ? `Comanda (${p.heading.toLowerCase()})` : 'Comanda';
   const where = placeLabel(p);
   const num = p.type === 'cash' ? (p.saleNumber ? `Venta #${p.saleNumber}` : '') : (p.orderNumber ? `#${p.orderNumber}` : '');
-  const sector = p.type === 'kitchen' && p.sector ? `Sector ${KITCHEN_SECTOR_LABEL[p.sector].toLowerCase()}` : '';
-  return [kind, sector, where, num].filter(Boolean).join(' · ');
+  return [kind, where, num].filter(Boolean).join(' · ');
 }
 
 /** Ejemplos para ver cómo queda sin cargar un pedido */
@@ -373,7 +366,7 @@ export function sampleTicket(kind: 'kitchen' | 'cash' | 'test'): PrintPayload {
   if (kind === 'test') return { type: 'test', items: [] };
   if (kind === 'kitchen') {
     return {
-      type: 'kitchen', sector: 'HOT', tableNumber: 5, tableLabel: 'Ventana', orderNumber: 1234, waiterName: 'Juan',
+      type: 'kitchen', tableNumber: 5, tableLabel: 'Ventana', orderNumber: 1234, waiterName: 'Juan',
       items: [
         { name: 'Empanadas de carne', quantity: 2, course: 'Entradas' },
         { name: 'Tequeños', quantity: 1, course: 'Entradas', note: 'Sin sal, alérgico' },

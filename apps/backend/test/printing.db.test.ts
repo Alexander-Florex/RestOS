@@ -37,7 +37,7 @@ const isHttp = (status: number) => (err: unknown) => err instanceof HttpError &&
 const texts = (job: { doc: { lines: { text: string }[] } }) => job.doc.lines.map(l => l.text);
 /** Comanda que sí tiene que salir (los pedidos de estos tests llevan platos) */
 async function printedOrder(opts: { restaurantId: number; orderId: number }) {
-  const [job] = await printingService.printOrder(opts);
+  const job = await printingService.printOrder(opts);
   assert.ok(job);
   return job;
 }
@@ -55,7 +55,7 @@ test('la comanda queda como trabajo pendiente, con el nombre del local, la mesa 
   const job = await printedOrder({ restaurantId: r, orderId: order.id });
   assert.equal(job.status, 'PENDING');
   assert.equal(job.kind, 'kitchen');
-  assert.equal(job.title, `Comanda · Sector caliente · Ventana · #${order.id}`);
+  assert.equal(job.title, `Comanda · Ventana · #${order.id}`);
   assert.equal(job.doc.paperWidth, 80);
   const t = texts(job);
   assert.equal(t[0], 'El Molino');
@@ -87,7 +87,7 @@ test('la comanda no lleva bebidas, en mesa y para llevar; solo bebidas no genera
 
   const before = await prisma.printJob.count({ where: { restaurantId: r } });
   const onlyDrinks = await ordersService.create(r, { tableId: table.id, items: [{ menuItemId: vino.id, quantity: 2 }] });
-  assert.deepEqual(await printingService.printOrder({ restaurantId: r, orderId: onlyDrinks.id }), []);
+  assert.equal(await printingService.printOrder({ restaurantId: r, orderId: onlyDrinks.id }), null);
   assert.equal(await prisma.printJob.count({ where: { restaurantId: r } }), before);
 
   const takeaway = await prisma.takeawayOrder.create({ data: {
@@ -97,7 +97,7 @@ test('la comanda no lleva bebidas, en mesa y para llevar; solo bebidas no genera
       { menuItemId: vino.id, itemName: 'Malbec', quantity: 1, price: '9000.00' },
     ] },
   } });
-  const [tJob] = await printingService.printTakeawayKitchen({ restaurantId: r, takeawayId: takeaway.id });
+  const tJob = await printingService.printTakeawayKitchen({ restaurantId: r, takeawayId: takeaway.id });
   assert.ok(tJob);
   assert.ok(texts(tJob).includes('1x Milanesa'));
   assert.ok(!texts(tJob).some(l => l.includes('Malbec')));
@@ -134,59 +134,47 @@ test('rehacer y cambiar: las bebidas no generan ticket ni figuran en el de cocin
   assert.ok(!lines.some(l => l.includes('HACER')));
 });
 
-test('la comanda sale por sector, con títulos en el orden de la carta y excepción por plato', async () => {
+test('la comanda sale en un solo papel, con títulos en el orden de la carta y sin bebidas', async () => {
   const { r, table } = await setup();
   await prisma.menuCategory.createMany({ data: [
-    { restaurantId: r, name: 'Entradas', order: 0, kitchenSector: 'HOT' },
-    { restaurantId: r, name: 'Principal', order: 1, kitchenSector: 'HOT' },
-    { restaurantId: r, name: 'Ensaladas', order: 2, kitchenSector: 'COLD' },
-    { restaurantId: r, name: 'Bebidas', order: 3, sendToKitchen: false, kitchenSector: 'COLD' },
+    { restaurantId: r, name: 'Entradas', order: 0 },
+    { restaurantId: r, name: 'Principal', order: 1 },
+    { restaurantId: r, name: 'Postres', order: 2 },
+    { restaurantId: r, name: 'Bebidas', order: 3, sendToKitchen: false },
   ] });
+  // Aunque en la base haya quedado un sector marcado, ya no separa la comanda
   const add = (name: string, category: string, kitchenSector?: 'HOT' | 'COLD') =>
     prisma.menuItem.create({ data: { restaurantId: r, name, category, price: '1000.00', kitchenSector } });
   const bife = await add('Bife', 'Principal');
   const vitel = await add('Vitel', 'Entradas', 'COLD');
   const empanada = await add('Empanada', 'Entradas');
-  const cesar = await add('Cesar', 'Ensaladas');
+  const flan = await add('Flan', 'Postres', 'COLD');
   const agua = await add('Agua', 'Bebidas');
 
   const order = await ordersService.create(r, { tableId: table.id, items: [
-    { menuItemId: bife.id, quantity: 1 }, { menuItemId: agua.id, quantity: 2 }, { menuItemId: cesar.id, quantity: 1 },
+    { menuItemId: bife.id, quantity: 1 }, { menuItemId: agua.id, quantity: 2 }, { menuItemId: flan.id, quantity: 1 },
     { menuItemId: vitel.id, quantity: 1 }, { menuItemId: empanada.id, quantity: 2 },
   ] });
-  const jobs = await printingService.printOrder({ restaurantId: r, orderId: order.id });
-  assert.equal(jobs.length, 2);
-  // Sale primero el sector del primer plato en el orden de la carta (la entrada fría)
-  const [cold, hot] = jobs.map(texts);
-  assert.ok(hot.includes('SECTOR CALIENTE') && cold.includes('SECTOR FRÍO'));
-  assert.ok(hot.indexOf('ENTRADAS') < hot.indexOf('2x Empanada'));
-  assert.ok(hot.indexOf('2x Empanada') < hot.indexOf('PRINCIPAL'));
-  assert.ok(hot.indexOf('PRINCIPAL') < hot.indexOf('1x Bife'));
-  assert.ok(cold.indexOf('ENTRADAS') < cold.indexOf('1x Vitel'));
-  assert.ok(cold.indexOf('1x Vitel') < cold.indexOf('ENSALADAS'));
-  assert.ok(cold.indexOf('ENSALADAS') < cold.indexOf('1x Cesar'));
-  assert.ok(![...hot, ...cold].some(l => l.includes('Agua') || l.includes('BEBIDAS')));
-  assert.ok(!hot.some(l => l.includes('Vitel') || l.includes('Cesar')));
-  assert.ok(!cold.some(l => l.includes('Bife') || l.includes('Empanada')));
+  const job = await printedOrder({ restaurantId: r, orderId: order.id });
+  assert.equal(await prisma.printJob.count({ where: { restaurantId: r } }), 1);
+  const t = texts(job);
+  assert.ok(!t.some(l => l.includes('SECTOR') || l.includes('Agua') || l.includes('BEBIDAS')));
+  assert.ok(t.indexOf('ENTRADAS') < t.indexOf('1x Vitel'));
+  assert.ok(t.indexOf('1x Vitel') < t.indexOf('2x Empanada'));
+  assert.ok(t.indexOf('2x Empanada') < t.indexOf('PRINCIPAL'));
+  assert.ok(t.indexOf('PRINCIPAL') < t.indexOf('1x Bife'));
+  assert.ok(t.indexOf('1x Bife') < t.indexOf('POSTRES'));
+  assert.ok(t.indexOf('POSTRES') < t.indexOf('1x Flan'));
 
-  // Un solo sector: un solo papel
-  const onlyCold = await ordersService.create(r, { tableId: table.id, items: [{ menuItemId: cesar.id, quantity: 1 }] });
-  const single = await printingService.printOrder({ restaurantId: r, orderId: onlyCold.id });
-  assert.equal(single.length, 1);
-  assert.ok(texts(single[0]).includes('SECTOR FRÍO'));
-
-  // Cambiar un plato caliente por uno frío: cada sector recibe lo suyo
-  const before = await prisma.printJob.count({ where: { restaurantId: r } });
+  // Un cambio también sale en un solo papel
   const bifeLine = order.items.find(i => i.menuItemId === bife.id)!;
-  await orderChangesService.replace(r, bifeLine.id, { reason: 'Prueba', wasPrepared: false, quantity: 1, replacement: { menuItemId: cesar.id } }, true);
+  await orderChangesService.replace(r, bifeLine.id, { reason: 'Prueba', wasPrepared: false, quantity: 1, replacement: { menuItemId: flan.id } }, true);
   await new Promise(res => setTimeout(res, 300));
-  const changes = await prisma.printJob.findMany({ where: { restaurantId: r }, orderBy: { id: 'asc' }, skip: before });
-  assert.equal(changes.length, 2);
-  const changeText = changes.map(j => (j.doc as unknown as { lines: { text: string }[] }).lines.map(l => l.text));
-  const hotChange = changeText.find(l => l.includes('SECTOR CALIENTE'))!;
-  const coldChange = changeText.find(l => l.includes('SECTOR FRÍO'))!;
-  assert.ok(hotChange.some(l => l.includes('ANULAR: Bife')) && !hotChange.some(l => l.includes('HACER')));
-  assert.ok(coldChange.some(l => l.includes('HACER: Cesar')) && !coldChange.some(l => l.includes('ANULAR')));
+  const changes = await prisma.printJob.findMany({ where: { restaurantId: r }, orderBy: { id: 'asc' }, skip: 1 });
+  assert.equal(changes.length, 1);
+  const lines = (changes[0].doc as unknown as { lines: { text: string }[] }).lines.map(l => l.text);
+  assert.ok(lines.some(l => l.includes('ANULAR: Bife')) && lines.some(l => l.includes('HACER: Flan')));
+  assert.ok(!lines.some(l => l.includes('SECTOR')));
 });
 
 test('ancho de papel de 58 mm: 32 caracteres; el ejemplo usa el del local', async () => {
