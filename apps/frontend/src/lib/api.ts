@@ -256,6 +256,7 @@ export const tablesApi = {
 // Menú — tipos y API
 // ──────────────────────────────────────────────
 export type StockStatus = 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
+export type KitchenSector = 'HOT' | 'COLD';
 
 export interface MenuItem {
   id: number;
@@ -267,6 +268,8 @@ export interface MenuItem {
   /** El estado sale del stock de los insumos (tarea 3.8); portionsLeft = porciones que alcanzan */
   stockAuto?: boolean;
   portionsLeft?: number | null;
+  /** Sector de cocina propio del plato; null = el de su categoría */
+  kitchenSector?: KitchenSector | null;
   enabled: boolean;
   imageUrl: string | null;
   /** Opciones para personalizar el plato al pedir (las carga el Administrador). */
@@ -323,6 +326,7 @@ export interface CreateMenuItemBody {
   stock?: StockStatus;
   /** El estado sale del stock de los insumos de su receta (tarea 3.8) */
   stockAuto?: boolean;
+  kitchenSector?: KitchenSector | null;
   enabled?: boolean;
 }
 
@@ -367,6 +371,8 @@ export interface MenuCategory {
   targetMargin: number | null;
   /** Si sus platos salen en la comanda de cocina */
   sendToKitchen: boolean;
+  /** Sector de cocina de sus platos (cada plato puede cambiarlo) */
+  kitchenSector: KitchenSector;
   createdAt: string;
   updatedAt: string;
 }
@@ -377,6 +383,7 @@ export interface CreateMenuCategoryBody {
   order?: number;
   targetMargin?: number | null;
   sendToKitchen?: boolean;
+  kitchenSector?: KitchenSector;
 }
 
 export const menuCategoriesApi = {

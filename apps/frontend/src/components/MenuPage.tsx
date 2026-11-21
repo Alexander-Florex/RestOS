@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useMenu } from '../hooks/useMenu';
 import { useMenuCategories } from '../hooks/useMenuCategories';
-import { menuApi, menuCategoriesApi, type MenuItem, type StockStatus, ApiError } from '../lib/api';
+import { menuApi, menuCategoriesApi, type KitchenSector, type MenuItem, type StockStatus, ApiError } from '../lib/api';
 import { STOCK_LABEL, STOCK_STYLE } from '../lib/menu-helpers';
 import { formatMoney } from '../lib/format';
 import { Button } from './ui/button';
@@ -35,12 +35,16 @@ interface ItemForm {
   stock: StockStatus;
   /** El estado sale del stock de los insumos de su receta (tarea 3.8) */
   stockAuto: boolean;
+  /** '' = el sector de su categoría */
+  kitchenSector: KitchenSector | '';
   enabled: boolean;
 }
 
 const EMPTY_ITEM: ItemForm = {
-  name: '', category: '', price: '', description: '', stock: 'IN_STOCK', stockAuto: false, enabled: true,
+  name: '', category: '', price: '', description: '', stock: 'IN_STOCK', stockAuto: false, kitchenSector: '', enabled: true,
 };
+
+const SECTOR_NAME: Record<KitchenSector, string> = { HOT: 'caliente', COLD: 'frío' };
 
 export function MenuPage() {
   const { user, can } = useAuth();
@@ -85,6 +89,7 @@ export function MenuPage() {
     () => filterCat === 'ALL' ? items : items.filter(i => i.category === filterCat),
     [items, filterCat]
   );
+  const itemCategory = categoryEntities.find(c => c.name === itemForm.category);
 
   // ── Handlers de ítem ──
   function openCreateItem() {
@@ -101,6 +106,7 @@ export function MenuPage() {
       description: item.description ?? '',
       stock:       item.stock as StockStatus,
       stockAuto:   !!item.stockAuto,
+      kitchenSector: item.kitchenSector ?? '',
       enabled:     item.enabled,
     });
     setEditingItem(item);
@@ -125,6 +131,7 @@ export function MenuPage() {
         // Con "según el stock" el estado lo calcula el sistema: no se pisa el manual
         ...(itemForm.stockAuto ? {} : { stock: itemForm.stock as StockStatus }),
         stockAuto:   itemForm.stockAuto,
+        kitchenSector: itemForm.kitchenSector || null,
         enabled:     itemForm.enabled,
       };
       if (editingItem) {
@@ -230,10 +237,10 @@ export function MenuPage() {
     }
   }
 
-  async function handleToggleKitchen(id: number, name: string, sendToKitchen: boolean) {
+  async function handleKitchenRoute(id: number, name: string, value: KitchenSector | 'NONE') {
     try {
-      await menuCategoriesApi.update(id, { sendToKitchen });
-      toast.success(sendToKitchen ? `"${name}" sale en la comanda de cocina` : `"${name}" ya no sale en la comanda de cocina`);
+      await menuCategoriesApi.update(id, value === 'NONE' ? { sendToKitchen: false } : { sendToKitchen: true, kitchenSector: value });
+      toast.success(value === 'NONE' ? `"${name}" ya no sale en la comanda de cocina` : `"${name}" va a cocina, sector ${SECTOR_NAME[value]}`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error al actualizar');
     }
@@ -346,19 +353,18 @@ export function MenuPage() {
                       </div>
                     )}
                     {!isEditing && (
-                      <button
-                        onClick={() => handleToggleKitchen(cat.id, cat.name, !cat.sendToKitchen)}
-                        aria-pressed={cat.sendToKitchen}
-                        title={cat.sendToKitchen ? 'Sus platos salen en la comanda. Tocá para que no salgan.' : 'Sus platos no salen en la comanda. Tocá para que salgan.'}
-                        className={cn(
-                          'flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors',
-                          cat.sendToKitchen
-                            ? 'border-brand-500/40 bg-brand-500/10 text-brand-300'
-                            : 'border-border bg-white/[0.03] text-muted-foreground',
-                        )}>
+                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground" title="A qué sector de cocina van sus platos">
                         <ChefHat className="h-3.5 w-3.5" />
-                        {cat.sendToKitchen ? 'Va a cocina' : 'No va a cocina'}
-                      </button>
+                        <span className="sr-only">Destino en cocina de {cat.name}</span>
+                        <Select
+                          value={cat.sendToKitchen ? cat.kitchenSector : 'NONE'}
+                          onChange={e => handleKitchenRoute(cat.id, cat.name, e.target.value as KitchenSector | 'NONE')}
+                          className="h-8 w-auto text-xs">
+                          <option value="HOT">Cocina: sector caliente</option>
+                          <option value="COLD">Cocina: sector frío</option>
+                          <option value="NONE">No va a cocina</option>
+                        </Select>
+                      </label>
                     )}
                     {!isEditing && canSeeCosts && <CategoryMarginInput category={cat} />}
                     <div className="flex items-center gap-1">
@@ -529,6 +535,18 @@ export function MenuPage() {
                 onChange={e => setItemForm(f => ({ ...f, description: e.target.value }))}
                 disabled={submitting} placeholder="Descripción opcional..." />
             </div>
+            {itemCategory?.sendToKitchen !== false && (
+              <div className="space-y-2">
+                <Label htmlFor="iSector">Sector de cocina</Label>
+                <Select id="iSector" value={itemForm.kitchenSector}
+                  onChange={e => setItemForm(f => ({ ...f, kitchenSector: e.target.value as KitchenSector | '' }))}
+                  disabled={submitting}>
+                  <option value="">Como su categoría ({SECTOR_NAME[itemCategory?.kitchenSector ?? 'HOT']})</option>
+                  <option value="HOT">Sector caliente</option>
+                  <option value="COLD">Sector frío</option>
+                </Select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="iStock">Stock</Label>

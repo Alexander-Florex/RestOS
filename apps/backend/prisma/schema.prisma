@@ -214,6 +214,8 @@ model MenuItem {
   stock         StockStatus           @default(IN_STOCK)
   /// Tarea 3.8: el estado sale del stock de los insumos de su receta (si no, el manual de arriba)
   stockAuto     Boolean               @default(false)
+  /// Sector de cocina propio del plato; null = el de su categoría
+  kitchenSector KitchenSector?
   enabled       Boolean               @default(true)
   imageUrl      String?
   orderItems    OrderItem[]
@@ -284,6 +286,12 @@ enum StockStatus {
   OUT_OF_STOCK
 }
 
+/// Sector de la cocina: cada uno recibe su propia comanda
+enum KitchenSector {
+  HOT
+  COLD
+}
+
 // ──────────────────────────────────────────────
 // CATEGORÍAS DEL MENÚ
 // (entidad propia con orden y color; MenuItem.category sigue siendo texto libre)
@@ -300,6 +308,8 @@ model MenuCategory {
   targetMargin Float?
   /// Si sus platos salen en la comanda de cocina (las bebidas no)
   sendToKitchen Boolean   @default(true)
+  /// En qué sector de cocina se preparan sus platos (cada plato puede cambiarlo)
+  kitchenSector KitchenSector @default(HOT)
   createdAt    DateTime   @default(now())
   // La base tiene DEFAULT CURRENT_TIMESTAMP (migraciones multitenant y menu_categories): se declara para que esquema y base coincidan (tarea 0.8)
   updatedAt    DateTime   @default(now()) @updatedAt
