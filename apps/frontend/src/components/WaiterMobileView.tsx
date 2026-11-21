@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import {
   LogOut, ArrowLeft, Send, Loader2, Minus, Plus,
   Users, Clock, ShoppingBag, X, Printer, MessageSquare, CreditCard,
-  UtensilsCrossed, Package, ChevronRight, AlertTriangle, SlidersHorizontal, Pencil,
+  UtensilsCrossed, Package, ChevronRight, AlertTriangle, SlidersHorizontal, Pencil, Search,
 } from 'lucide-react';
 import { BrandMark, EASE_OUT, AnimatedMoney } from './ui/motion';
 import { initials } from '../lib/admin-helpers';
@@ -36,6 +36,17 @@ import { useOrderedCategories } from '../hooks/useMenuCategories';
 type Step = 'tables' | 'type' | 'takeaway-name' | 'guests' | 'menu';
 type OrderType = 'dine-in' | 'takeaway';
 
+/** Minúsculas y sin tildes: "noquis" encuentra "Ñoquis". */
+function normalizeText(text: string) {
+  return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+/** Todas las palabras buscadas tienen que estar en el nombre: "bife chorizo" → "Bife de Chorizo". */
+function matchesSearch(name: string, search: string) {
+  const target = normalizeText(name);
+  return normalizeText(search).split(/\s+/).filter(Boolean).every(word => target.includes(word));
+}
+
 export function WaiterMobileView() {
   useTableLabelMode(); // re-render si el administrador cambia "por nombre / por número"
   const { user, logout, can } = useAuth();
@@ -50,6 +61,7 @@ export function WaiterMobileView() {
   const cart = useOrderCart();
   const [submitting, setSubmitting] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('');
+  const [search, setSearch] = useState('');
   const [lastOrderId, setLastOrderId] = useState<number | null>(null);
   // Selector de opciones/nota: plato nuevo (line undefined) o una línea ya cargada para editar
   const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine } | null>(null);
@@ -77,9 +89,19 @@ export function WaiterMobileView() {
     return activeCategory;
   }, [activeCategory, categories]);
 
+  // Al buscar se mira toda la carta, sin importar la categoría elegida
+  const searching = search.trim().length > 0;
   const filteredMenu = useMemo(
-    () => menu.filter(m => m.category === effectiveCategory && m.stock !== 'OUT_OF_STOCK'),
-    [menu, effectiveCategory]
+    () => menu.filter(m =>
+      m.stock !== 'OUT_OF_STOCK' &&
+      (searching ? matchesSearch(m.name, search) : m.category === effectiveCategory)
+    ),
+    [menu, effectiveCategory, search, searching]
+  );
+  // Para decirle al mozo que el plato existe pero está agotado, en vez de "no se encontró"
+  const soldOutMatches = useMemo(
+    () => searching ? menu.filter(m => m.stock === 'OUT_OF_STOCK' && matchesSearch(m.name, search)) : [],
+    [menu, search, searching]
   );
 
   const cartTotal = cart.total;
@@ -122,6 +144,7 @@ export function WaiterMobileView() {
     setCustomerName('');
     setOrderType('dine-in');
     setStandaloneTakeaway(false);
+    setSearch('');
   }
 
   /** "+" en un plato: si tiene algo obligatorio sin elegir, abre el selector; si no, suma uno. */
@@ -381,6 +404,9 @@ export function WaiterMobileView() {
             categories={categories}
             activeCategory={effectiveCategory}
             onCategoryChange={setActiveCategory}
+            search={search}
+            onSearchChange={setSearch}
+            soldOutMatches={soldOutMatches}
             cart={cart}
             onQuickAdd={quickAdd}
             onCustomize={(item, line) => setCustomizing({ item, line })}
@@ -602,13 +628,16 @@ function GuestStep({ table, guestCount, onChange, onConfirm }: {
 }
 
 function MenuStep({
-  menu, categories, activeCategory, onCategoryChange,
+  menu, categories, activeCategory, onCategoryChange, search, onSearchChange, soldOutMatches,
   cart, onQuickAdd, onCustomize, loading, previousItemsCount, onShowTableOrder, orderType, customerName,
 }: {
   menu: MenuItem[];
   categories: string[];
   activeCategory: string;
   onCategoryChange: (c: string) => void;
+  search: string;
+  onSearchChange: (s: string) => void;
+  soldOutMatches: MenuItem[];
   cart: ReturnType<typeof useOrderCart>;
   onQuickAdd: (item: MenuItem) => void;
   onCustomize: (item: MenuItem, line?: CartLine) => void;
@@ -618,6 +647,7 @@ function MenuStep({
   orderType: OrderType;
   customerName: string;
 }) {
+  const searching = search.trim().length > 0;
   if (loading) return (
     <div className="space-y-2.5">
       {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton h-20 rounded-2xl" />)}
@@ -642,35 +672,70 @@ function MenuStep({
         </button>
       )}
 
-      {/* Tabs de categorías */}
+      {/* Buscador y tabs de categorías */}
       {/* Scrollea la ventana: queda fija justo debajo del header (64px + borde) */}
-      <div className="sticky top-[65px] z-10 -mx-4 mb-4 overflow-x-auto bg-background/80 px-4 py-2 backdrop-blur-xl">
-        <LayoutGroup id="waiter-categories">
-          <div className="flex gap-1.5 whitespace-nowrap">
-            {categories.map(cat => {
-              const active = activeCategory === cat;
-              return (
-                <button key={cat} onClick={() => onCategoryChange(cat)}
-                  className={cn(
-                    'relative rounded-full px-4 py-2 text-xs font-semibold transition-colors',
-                    active ? 'text-white' : 'bg-white/[0.04] text-muted-foreground'
-                  )}>
-                  {active && (
-                    <motion.span layoutId="waiter-cat-pill" transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                      className="absolute inset-0 rounded-full bg-gradient-to-b from-brand-400 to-brand-600 shadow-glow-sm" />
-                  )}
-                  <span className="relative">{cat}</span>
-                </button>
-              );
-            })}
+      <div className="sticky top-[65px] z-10 -mx-4 mb-4 space-y-2 bg-background/80 px-4 py-2 backdrop-blur-xl">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          {/* text-base (16px): con menos, el iPhone hace zoom al tocar el campo */}
+          <input
+            type="text"
+            value={search}
+            onChange={e => onSearchChange(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            placeholder="Buscar plato..."
+            aria-label="Buscar plato"
+            autoComplete="off"
+            enterKeyHint="search"
+            className="h-11 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] pl-10 pr-11 text-base transition-all focus:border-brand-400/60 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+          />
+          {search && (
+            <button onClick={() => onSearchChange('')} aria-label="Borrar búsqueda"
+              className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center text-muted-foreground active:scale-90">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {!searching && (
+          <div className="-mx-4 overflow-x-auto px-4">
+            <LayoutGroup id="waiter-categories">
+              <div className="flex gap-1.5 whitespace-nowrap">
+                {categories.map(cat => {
+                  const active = activeCategory === cat;
+                  return (
+                    <button key={cat} onClick={() => onCategoryChange(cat)}
+                      className={cn(
+                        'relative rounded-full px-4 py-2 text-xs font-semibold transition-colors',
+                        active ? 'text-white' : 'bg-white/[0.04] text-muted-foreground'
+                      )}>
+                      {active && (
+                        <motion.span layoutId="waiter-cat-pill" transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                          className="absolute inset-0 rounded-full bg-gradient-to-b from-brand-400 to-brand-600 shadow-glow-sm" />
+                      )}
+                      <span className="relative">{cat}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </LayoutGroup>
           </div>
-        </LayoutGroup>
+        )}
       </div>
 
       {/* Lista de ítems */}
       <div className="space-y-2.5 pb-28">
+        {searching && soldOutMatches.length > 0 && (
+          <p className="flex items-start gap-2 rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2.5 text-xs text-amber-200">
+            <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+            <span>Agotado: {soldOutMatches.map(m => m.name).join(', ')}</span>
+          </p>
+        )}
         {menu.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No hay items en {activeCategory}</p>
+          soldOutMatches.length > 0 ? null : (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {searching ? `No encontramos platos con "${search.trim()}"` : `No hay items en ${activeCategory}`}
+            </p>
+          )
         ) : (
           menu.map((item, idx) => {
             const itemLines = cart.linesOf(item.id);
