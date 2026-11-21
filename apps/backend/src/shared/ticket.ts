@@ -33,12 +33,17 @@ export interface TicketDoc {
   lines: TicketLine[];
 }
 
+export type KitchenSector = 'HOT' | 'COLD';
+export const KITCHEN_SECTOR_LABEL: Record<KitchenSector, string> = { HOT: 'Caliente', COLD: 'Frío' };
+
 /** Lo que se manda a imprimir (es también lo que recibe el agente por socket). */
 export interface PrintPayload {
   /** test: hoja de prueba de la impresora (acentos, tamaños, ancho y corte) */
   type: 'kitchen' | 'cash' | 'test';
   /** Título grande opcional de la comanda: "REHACER", "CAMBIO" (sin esto: COCINA / PARA LLEVAR) */
   heading?: string;
+  /** Sector de cocina de esta comanda (cada sector sale en su papel) */
+  sector?: KitchenSector;
   tableNumber?: number;
   tableName?: string | null;
   /** Cómo se llama la mesa en el local: "Ventana", "Ventana + Patio" o "Mesa 5" */
@@ -61,6 +66,8 @@ export interface PrintPayload {
     note?: string | null;
     /** Opciones del plato, una por línea: "SIN cebolla", "Término: A punto" */
     modifiers?: string[];
+    /** Título del grupo en la comanda: "Entradas", "Principal", "Postres" */
+    course?: string | null;
   }>;
   subtotal?: number;
   discount?: number;
@@ -214,6 +221,7 @@ export function kitchenTicket(p: PrintPayload, h: TicketHeader): TicketDoc {
   const b = new Builder(columnsFor(h.paperWidth));
   b.add(h.restaurantName, { align: 'center', bold: true });
   b.add(p.heading ?? (p.isTakeaway ? 'PARA LLEVAR' : 'COCINA'), { align: 'center', bold: true, size: 'double' });
+  if (p.sector) b.add(`SECTOR ${KITCHEN_SECTOR_LABEL[p.sector].toUpperCase()}`, { align: 'center', bold: true, size: 'double' });
   b.rule('=');
   const where = p.isTakeaway ? (p.takeawayName || 'Para llevar') : placeLabel(p);
   if (where) b.add(where.toUpperCase(), { bold: true, size: 'double' });
@@ -222,9 +230,20 @@ export function kitchenTicket(p: PrintPayload, h: TicketHeader): TicketDoc {
   b.rule('=');
 
   let count = 0;
+  const hasCourses = p.items.some(i => i.course);
+  let currentCourse: string | null = null;
   for (const item of p.items) {
     count += item.quantity;
-    b.blank();
+    const course = hasCourses ? (item.course || 'Otros') : null;
+    if (course && course !== currentCourse) {
+      if (currentCourse) b.blank();
+      b.blank();
+      b.add(course.toUpperCase(), { align: 'center', bold: true, size: 'tall' });
+      b.rule('-');
+      currentCourse = course;
+    } else {
+      b.blank();
+    }
     const qty = `${item.quantity}x `;
     b.add(qty + itemName(item), { bold: true, size: 'double' }, ' '.repeat(qty.length));
     const { options, note } = itemExtras(item);
@@ -345,7 +364,8 @@ export function ticketTitle(p: PrintPayload): string {
   const kind = p.type === 'cash' ? 'Ticket de caja' : p.heading ? `Comanda (${p.heading.toLowerCase()})` : 'Comanda';
   const where = placeLabel(p);
   const num = p.type === 'cash' ? (p.saleNumber ? `Venta #${p.saleNumber}` : '') : (p.orderNumber ? `#${p.orderNumber}` : '');
-  return [kind, where, num].filter(Boolean).join(' · ');
+  const sector = p.type === 'kitchen' && p.sector ? `Sector ${KITCHEN_SECTOR_LABEL[p.sector].toLowerCase()}` : '';
+  return [kind, sector, where, num].filter(Boolean).join(' · ');
 }
 
 /** Ejemplos para ver cómo queda sin cargar un pedido */
@@ -353,12 +373,12 @@ export function sampleTicket(kind: 'kitchen' | 'cash' | 'test'): PrintPayload {
   if (kind === 'test') return { type: 'test', items: [] };
   if (kind === 'kitchen') {
     return {
-      type: 'kitchen', tableNumber: 5, tableLabel: 'Ventana', orderNumber: 1234, waiterName: 'Juan',
+      type: 'kitchen', sector: 'HOT', tableNumber: 5, tableLabel: 'Ventana', orderNumber: 1234, waiterName: 'Juan',
       items: [
-        { name: 'Milanesa napolitana con papas fritas', quantity: 2, modifiers: ['SIN jamón', '+ Huevo frito'], note: 'Una bien cocida' },
-        { name: 'Bife de chorizo', quantity: 1, modifiers: ['Término: Jugoso', 'Guarnición: Puré de calabaza'] },
-        { name: 'Ensalada mixta', quantity: 1, note: 'Sin sal, alérgico' },
-        { name: 'Flan casero', quantity: 3 },
+        { name: 'Empanadas de carne', quantity: 2, course: 'Entradas' },
+        { name: 'Tequeños', quantity: 1, course: 'Entradas', note: 'Sin sal, alérgico' },
+        { name: 'Milanesa napolitana con papas fritas', quantity: 2, course: 'Principal', modifiers: ['SIN jamón', '+ Huevo frito'], note: 'Una bien cocida' },
+        { name: 'Bife de chorizo', quantity: 1, course: 'Principal', modifiers: ['Término: A punto', 'Guarnición: Puré de calabaza'] },
       ],
     };
   }

@@ -77,7 +77,13 @@ Por socket:
 
 ## Qué sale en la comanda de cocina
 
-Salen los platos de mesa y para llevar, **sin bebidas**. Lo decide cada categoría en **Menú → Categorías** con el botón "Va a cocina / No va a cocina" (la categoría Bebidas viene apagada). Vale también para los tickets de rehacer y cambiar plato. Un pedido solo de bebidas no genera ticket, pero sigue en la cuenta. Si no se puede saber la categoría de un plato, se imprime.
+Salen los platos de mesa y para llevar, **sin bebidas**, en **un papel por sector**: "COCINA / SECTOR CALIENTE" y "COCINA / SECTOR FRÍO". Si el pedido es de un solo sector, sale un solo papel. Primero sale el sector del primer plato según el orden de la carta.
+
+- **Dónde se elige:** en **Menú → Categorías**, cada categoría tiene "Cocina: sector caliente", "Cocina: sector frío" o "No va a cocina" (Bebidas viene en "No va a cocina").
+- **Excepción por plato:** en la ficha del plato, "Sector de cocina" permite cambiarlo. Por ejemplo, Entradas en caliente y una entrada fría marcada como frío.
+- **Títulos:** dentro de cada papel, los platos se agrupan bajo el nombre de su categoría (ENTRADAS, PRINCIPAL, POSTRES), en el orden de la carta.
+- **Rehacer y cambiar plato:** cada línea sale en el papel de su sector. Un cambio de un plato caliente por uno frío genera dos papeles.
+- Un pedido solo de bebidas no genera ticket, pero sigue en la cuenta. Si no se puede saber la categoría de un plato, se imprime en caliente.
 
 ## Pendiente
 

@@ -37,7 +37,7 @@ const isHttp = (status: number) => (err: unknown) => err instanceof HttpError &&
 const texts = (job: { doc: { lines: { text: string }[] } }) => job.doc.lines.map(l => l.text);
 /** Comanda que sí tiene que salir (los pedidos de estos tests llevan platos) */
 async function printedOrder(opts: { restaurantId: number; orderId: number }) {
-  const job = await printingService.printOrder(opts);
+  const [job] = await printingService.printOrder(opts);
   assert.ok(job);
   return job;
 }
@@ -55,7 +55,7 @@ test('la comanda queda como trabajo pendiente, con el nombre del local, la mesa 
   const job = await printedOrder({ restaurantId: r, orderId: order.id });
   assert.equal(job.status, 'PENDING');
   assert.equal(job.kind, 'kitchen');
-  assert.equal(job.title, `Comanda · Ventana · #${order.id}`);
+  assert.equal(job.title, `Comanda · Sector caliente · Ventana · #${order.id}`);
   assert.equal(job.doc.paperWidth, 80);
   const t = texts(job);
   assert.equal(t[0], 'El Molino');
@@ -87,7 +87,7 @@ test('la comanda no lleva bebidas, en mesa y para llevar; solo bebidas no genera
 
   const before = await prisma.printJob.count({ where: { restaurantId: r } });
   const onlyDrinks = await ordersService.create(r, { tableId: table.id, items: [{ menuItemId: vino.id, quantity: 2 }] });
-  assert.equal(await printingService.printOrder({ restaurantId: r, orderId: onlyDrinks.id }), null);
+  assert.deepEqual(await printingService.printOrder({ restaurantId: r, orderId: onlyDrinks.id }), []);
   assert.equal(await prisma.printJob.count({ where: { restaurantId: r } }), before);
 
   const takeaway = await prisma.takeawayOrder.create({ data: {
@@ -97,7 +97,7 @@ test('la comanda no lleva bebidas, en mesa y para llevar; solo bebidas no genera
       { menuItemId: vino.id, itemName: 'Malbec', quantity: 1, price: '9000.00' },
     ] },
   } });
-  const tJob = await printingService.printTakeawayKitchen({ restaurantId: r, takeawayId: takeaway.id });
+  const [tJob] = await printingService.printTakeawayKitchen({ restaurantId: r, takeawayId: takeaway.id });
   assert.ok(tJob);
   assert.ok(texts(tJob).includes('1x Milanesa'));
   assert.ok(!texts(tJob).some(l => l.includes('Malbec')));
@@ -132,6 +132,61 @@ test('rehacer y cambiar: las bebidas no generan ticket ni figuran en el de cocin
   const lines = (cambio.doc as unknown as { lines: { text: string }[] }).lines.map(l => l.text);
   assert.ok(lines.some(l => l.includes('ANULAR: Milanesa')));
   assert.ok(!lines.some(l => l.includes('HACER')));
+});
+
+test('la comanda sale por sector, con títulos en el orden de la carta y excepción por plato', async () => {
+  const { r, table } = await setup();
+  await prisma.menuCategory.createMany({ data: [
+    { restaurantId: r, name: 'Entradas', order: 0, kitchenSector: 'HOT' },
+    { restaurantId: r, name: 'Principal', order: 1, kitchenSector: 'HOT' },
+    { restaurantId: r, name: 'Ensaladas', order: 2, kitchenSector: 'COLD' },
+    { restaurantId: r, name: 'Bebidas', order: 3, sendToKitchen: false, kitchenSector: 'COLD' },
+  ] });
+  const add = (name: string, category: string, kitchenSector?: 'HOT' | 'COLD') =>
+    prisma.menuItem.create({ data: { restaurantId: r, name, category, price: '1000.00', kitchenSector } });
+  const bife = await add('Bife', 'Principal');
+  const vitel = await add('Vitel', 'Entradas', 'COLD');
+  const empanada = await add('Empanada', 'Entradas');
+  const cesar = await add('Cesar', 'Ensaladas');
+  const agua = await add('Agua', 'Bebidas');
+
+  const order = await ordersService.create(r, { tableId: table.id, items: [
+    { menuItemId: bife.id, quantity: 1 }, { menuItemId: agua.id, quantity: 2 }, { menuItemId: cesar.id, quantity: 1 },
+    { menuItemId: vitel.id, quantity: 1 }, { menuItemId: empanada.id, quantity: 2 },
+  ] });
+  const jobs = await printingService.printOrder({ restaurantId: r, orderId: order.id });
+  assert.equal(jobs.length, 2);
+  // Sale primero el sector del primer plato en el orden de la carta (la entrada fría)
+  const [cold, hot] = jobs.map(texts);
+  assert.ok(hot.includes('SECTOR CALIENTE') && cold.includes('SECTOR FRÍO'));
+  assert.ok(hot.indexOf('ENTRADAS') < hot.indexOf('2x Empanada'));
+  assert.ok(hot.indexOf('2x Empanada') < hot.indexOf('PRINCIPAL'));
+  assert.ok(hot.indexOf('PRINCIPAL') < hot.indexOf('1x Bife'));
+  assert.ok(cold.indexOf('ENTRADAS') < cold.indexOf('1x Vitel'));
+  assert.ok(cold.indexOf('1x Vitel') < cold.indexOf('ENSALADAS'));
+  assert.ok(cold.indexOf('ENSALADAS') < cold.indexOf('1x Cesar'));
+  assert.ok(![...hot, ...cold].some(l => l.includes('Agua') || l.includes('BEBIDAS')));
+  assert.ok(!hot.some(l => l.includes('Vitel') || l.includes('Cesar')));
+  assert.ok(!cold.some(l => l.includes('Bife') || l.includes('Empanada')));
+
+  // Un solo sector: un solo papel
+  const onlyCold = await ordersService.create(r, { tableId: table.id, items: [{ menuItemId: cesar.id, quantity: 1 }] });
+  const single = await printingService.printOrder({ restaurantId: r, orderId: onlyCold.id });
+  assert.equal(single.length, 1);
+  assert.ok(texts(single[0]).includes('SECTOR FRÍO'));
+
+  // Cambiar un plato caliente por uno frío: cada sector recibe lo suyo
+  const before = await prisma.printJob.count({ where: { restaurantId: r } });
+  const bifeLine = order.items.find(i => i.menuItemId === bife.id)!;
+  await orderChangesService.replace(r, bifeLine.id, { reason: 'Prueba', wasPrepared: false, quantity: 1, replacement: { menuItemId: cesar.id } }, true);
+  await new Promise(res => setTimeout(res, 300));
+  const changes = await prisma.printJob.findMany({ where: { restaurantId: r }, orderBy: { id: 'asc' }, skip: before });
+  assert.equal(changes.length, 2);
+  const changeText = changes.map(j => (j.doc as unknown as { lines: { text: string }[] }).lines.map(l => l.text));
+  const hotChange = changeText.find(l => l.includes('SECTOR CALIENTE'))!;
+  const coldChange = changeText.find(l => l.includes('SECTOR FRÍO'))!;
+  assert.ok(hotChange.some(l => l.includes('ANULAR: Bife')) && !hotChange.some(l => l.includes('HACER')));
+  assert.ok(coldChange.some(l => l.includes('HACER: Cesar')) && !coldChange.some(l => l.includes('ANULAR')));
 });
 
 test('ancho de papel de 58 mm: 32 caracteres; el ejemplo usa el del local', async () => {
