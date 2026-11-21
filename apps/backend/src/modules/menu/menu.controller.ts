@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { MenuOptionGroupType, StockStatus } from '@prisma/client';
+import { KitchenSector, MenuOptionGroupType, StockStatus } from '@prisma/client';
 import { menuService } from './menu.service.js';
 import { HttpError } from '../../lib/http-error.js';
 
@@ -17,6 +17,8 @@ const createSchema = z.object({
   stock: stockEnum.optional(),
   // El estado sale del stock de los insumos (tarea 3.8)
   stockAuto: z.boolean().optional(),
+  // Sector propio del plato; null = el de su categoría
+  kitchenSector: z.nativeEnum(KitchenSector).optional().nullable(),
   enabled: z.boolean().optional(),
   imageUrl: z.string().url().optional().nullable(),
 });

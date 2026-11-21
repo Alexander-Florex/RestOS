@@ -68,7 +68,9 @@ test('comanda: mesa por su nombre, hora local, platos grandes, opciones y nota a
   assert.equal(dish.size, 'double');
   assert.ok(t.includes('   SIN jamón'));
   assert.ok(t.includes('   >> Una bien cocida'));
-  assert.ok(t.some(l => l.includes('7 platos')));
+  assert.ok(t.includes('SECTOR CALIENTE'));
+  assert.ok(t.indexOf('ENTRADAS') < t.indexOf('PRINCIPAL'));
+  assert.ok(t.some(l => l.includes('6 platos')));
   assert.ok(!t.some(l => l.includes('$')));
 });
 

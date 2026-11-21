@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import type { Request, Response } from 'express';
 import { z } from 'zod';
+import { KitchenSector } from '@prisma/client';
 import { menuCategoriesService } from './menu-categories.service.js';
 import { HttpError } from '../../lib/http-error.js';
 
@@ -13,6 +14,7 @@ const createSchema = z.object({
   // Margen objetivo sobre el precio sin IVA (tarea 2.6)
   targetMargin: z.coerce.number().min(0).max(0.95, 'El margen tiene que ser menor a 95 %').optional().nullable(),
   sendToKitchen: z.boolean().optional(),
+  kitchenSector: z.nativeEnum(KitchenSector).optional(),
 });
 
 const updateSchema = createSchema.partial();
