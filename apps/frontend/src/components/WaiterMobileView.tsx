@@ -7,14 +7,14 @@ import { toast } from 'sonner';
 import {
   LogOut, ArrowLeft, Send, Loader2, Minus, Plus,
   Users, Clock, ShoppingBag, X, MessageSquare, CreditCard,
-  UtensilsCrossed, Package, ChevronRight, AlertTriangle, SlidersHorizontal, Pencil, Search,
+  UtensilsCrossed, Package, ChevronRight, AlertTriangle, SlidersHorizontal, Pencil, Search, ClipboardList,
 } from 'lucide-react';
 import { BrandMark, EASE_OUT, AnimatedMoney } from './ui/motion';
 import { initials } from '../lib/admin-helpers';
 import { useAuth } from '../context/AuthContext';
 import { useTables, useTick } from '../hooks/useTables';
 import { useMenu } from '../hooks/useMenu';
-import { useTableOrders } from '../hooks/useTableOrders';
+import { useGroupOrders, useTableOrders } from '../hooks/useTableOrders';
 import { ordersApi, salesApi, takeawayApi, type MenuItem, type Table, ApiError } from '../lib/api';
 import { TABLE_STATUS_LABEL, TABLE_STATUS_STYLE, elapsedSince } from '../lib/table-helpers';
 import { formatMoney } from '../lib/format';
@@ -79,6 +79,17 @@ export function WaiterMobileView() {
   const { orders: previousOrders } = useTableOrders(
     selectedTable && selectedTable.status !== 'AVAILABLE' ? selectedTable.id : null
   );
+
+  // Todo lo que pidió la mesa, en vivo: con mesas unidas, lo de todas
+  const liveTable = selectedTable ? tables.find(t => t.id === selectedTable.id) ?? selectedTable : null;
+  const liveGroup = liveTable ? groupOf(liveTable, tables) : [];
+  const accountTables = liveGroup.length > 0 ? liveGroup : liveTable ? [liveTable] : [];
+  const { orders: accountOrders, total: accountTotal } = useGroupOrders(
+    liveTable && liveTable.status !== 'AVAILABLE' ? accountTables.map(t => t.id) : [],
+  );
+  const accountCount = accountOrders.flatMap(o => o.items)
+    .filter(i => i.status !== 'VOIDED')
+    .reduce((s, i) => s + i.quantity, 0);
 
   // Categorías en el orden que eligió el administrador (Entradas, Principales, Postres…)
   const categories = useOrderedCategories(menu);
@@ -321,8 +332,25 @@ export function WaiterMobileView() {
           <div className="flex flex-col gap-4 py-2">
             <div className="mb-2 text-center">
               <p className="font-display text-3xl font-bold tracking-tight">{tableLabel(selectedTable)}</p>
-              <p className="mt-1 text-sm text-muted-foreground">¿Cómo es el pedido?</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {accountCount > 0 ? '¿Qué querés hacer?' : '¿Cómo es el pedido?'}
+              </p>
             </div>
+            {accountCount > 0 && (
+              <motion.button whileTap={{ scale: 0.97 }} onClick={() => setTableOrderOpen(true)}
+                className="flex items-center gap-4 rounded-3xl border border-sky-400/30 bg-gradient-to-br from-sky-500/20 to-transparent p-5 text-left">
+                <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-b from-sky-400 to-sky-600 text-white">
+                  <ClipboardList className="h-7 w-7" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-display text-xl font-bold text-sky-100">Ver pedido de la mesa</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {accountCount} {accountCount === 1 ? 'plato' : 'platos'} · {formatMoney(accountTotal)}
+                  </span>
+                </span>
+                <ChevronRight className="h-5 w-5 text-muted-foreground" />
+              </motion.button>
+            )}
             <ChoiceCard
               icon={<UtensilsCrossed className="h-7 w-7" />}
               title="Para comer acá"
@@ -399,7 +427,7 @@ export function WaiterMobileView() {
             }}
             largeOf={versions.largeOf}
             loading={loadingMenu}
-            previousItemsCount={previousOrders.flatMap(o => o.items).filter(i => i.status !== 'VOIDED').length}
+            previousItemsCount={accountCount}
             onShowTableOrder={() => setTableOrderOpen(true)}
             orderType={orderType}
             customerName={customerName}
@@ -460,10 +488,11 @@ export function WaiterMobileView() {
         onConfirm={confirmCustomize}
       />
 
-      {/* Lo que ya pidió la mesa: rehacer o cambiar platos */}
-      {selectedTable && (
+      {/* Todo lo que pidió la mesa; desde acá también se rehace o cambia un plato */}
+      {liveTable && (
         <TableOrderSheet open={tableOrderOpen} onClose={() => setTableOrderOpen(false)}
-          orders={previousOrders} tableId={selectedTable.id} tableLabel={tableLabel(selectedTable)} />
+          orders={accountOrders} tables={accountTables}
+          tableLabel={liveGroup.length > 0 ? tablesLabel(liveGroup) : tableLabel(liveTable)} />
       )}
 
       {/* Modal cobrar y cerrar (mesero — sin impresión) */}
@@ -659,8 +688,8 @@ function MenuStep({
         <button onClick={onShowTableOrder}
           className="mb-3 flex w-full items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/5 px-3 py-2.5 text-left text-xs text-sky-300">
           <ShoppingBag className="h-3.5 w-3.5 shrink-0" />
-          <span className="flex-1">Esta mesa ya tiene {previousItemsCount} ítems pedidos. Lo que sumés será un pedido nuevo.</span>
-          <span className="shrink-0 font-semibold underline underline-offset-2">Ver / cambiar</span>
+          <span className="flex-1">Esta mesa ya tiene {previousItemsCount} {previousItemsCount === 1 ? 'plato pedido' : 'platos pedidos'}. Lo que sumés será un pedido nuevo.</span>
+          <span className="shrink-0 font-semibold underline underline-offset-2">Ver pedido</span>
         </button>
       )}
 
