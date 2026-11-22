@@ -2,7 +2,7 @@
 // menu.service.ts — Lógica de items del menú
 // Cada plato viaja con sus grupos de opciones (personalización, tarea 5.7).
 // ──────────────────────────────────────────────
-import { MenuOptionGroupType, StockStatus } from '@prisma/client';
+import { MenuOptionGroupType, Prisma, StockStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { stockAutoService } from '../stock/stock-auto.service.js';
 import { HttpError } from '../../lib/http-error.js';
@@ -41,7 +41,22 @@ export interface CreateMenuItemData {
   imageUrl?: string;
 }
 
-export interface UpdateMenuItemData extends Partial<CreateMenuItemData> {}
+export interface UpdateMenuItemData extends Partial<CreateMenuItemData> {
+  /** Plato que es la versión grande de este; null = sin versión grande */
+  largeVersionId?: number | null;
+}
+
+/** Un plato tiene una sola versión grande, y una versión grande no tiene otra encima. */
+async function assertLargeVersion(tx: Prisma.TransactionClient, restaurantId: number, id: number, largeId: number) {
+  if (largeId === id) throw HttpError.badRequest('Un plato no puede ser su propia versión grande');
+  const large = await tx.menuItem.findFirst({ where: { id: largeId, restaurantId }, select: { largeVersionId: true } });
+  if (!large) throw HttpError.badRequest('La versión grande elegida no existe');
+  if (large.largeVersionId !== null) throw HttpError.badRequest('Ese plato ya tiene su propia versión grande');
+  const baseOfThis = await tx.menuItem.findFirst({ where: { restaurantId, largeVersionId: id }, select: { name: true } });
+  if (baseOfThis) throw HttpError.badRequest(`Este plato ya es la versión grande de "${baseOfThis.name}"`);
+  const taken = await tx.menuItem.findFirst({ where: { restaurantId, largeVersionId: largeId, id: { not: id } }, select: { name: true } });
+  if (taken) throw HttpError.conflict(`Ese plato ya es la versión grande de "${taken.name}"`);
+}
 
 /** Configuración de opciones de un plato tal como la edita el Administrador. */
 export interface OptionGroupInput {
@@ -117,10 +132,13 @@ export const menuService = {
 
   async update(restaurantId: number, id: number, data: UpdateMenuItemData): Promise<MenuItemWithOptions> {
     const current = await menuService.getById(restaurantId, id);
+    const linkChanged = data.largeVersionId !== undefined && data.largeVersionId !== current.largeVersionId;
     const item = await prisma.$transaction(async (tx) => {
+      if (linkChanged && data.largeVersionId) await assertLargeVersion(tx, restaurantId, id, data.largeVersionId);
       const updated = await tx.menuItem.update({
         where: { id },
         data: {
+          ...(linkChanged ? { largeVersionId: data.largeVersionId } : {}),
           ...(data.name !== undefined ? { name: data.name } : {}),
           ...(data.category !== undefined ? { category: data.category } : {}),
           ...(data.price !== undefined ? { price: data.price } : {}),
@@ -140,7 +158,20 @@ export const menuService = {
           after: { name: updated.name, price: updated.price },
         });
       }
+      if (linkChanged) {
+        await audit(tx, {
+          restaurantId, action: 'menu.large_version', entity: 'MenuItem', entityId: id,
+          before: { name: current.name, largeVersionId: current.largeVersionId },
+          after: { name: updated.name, largeVersionId: updated.largeVersionId },
+        });
+      }
       return updated;
+    }).catch((err: unknown) => {
+      // Dos administradores vinculando el mismo plato a la vez
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw HttpError.conflict('Ese plato ya es la versión grande de otro');
+      }
+      throw err;
     });
     emitChanged(restaurantId, item);
     return item;

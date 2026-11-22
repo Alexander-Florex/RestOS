@@ -21,7 +21,10 @@ const createSchema = z.object({
   imageUrl: z.string().url().optional().nullable(),
 });
 
-const updateSchema = createSchema.partial();
+const updateSchema = createSchema.partial().extend({
+  // Plato que es la versión grande de este; null = sin versión grande
+  largeVersionId: z.number().int().positive().nullable().optional(),
+});
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 

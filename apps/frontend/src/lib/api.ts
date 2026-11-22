@@ -269,6 +269,8 @@ export interface MenuItem {
   portionsLeft?: number | null;
   enabled: boolean;
   imageUrl: string | null;
+  /** Otro plato de la carta que es la versión grande de este */
+  largeVersionId?: number | null;
   /** Opciones para personalizar el plato al pedir (las carga el Administrador). */
   optionGroups?: MenuOptionGroup[];
   createdAt: string;
@@ -338,7 +340,7 @@ export const menuApi = {
   create: (data: CreateMenuItemBody) =>
     request<{ item: MenuItem }>('/menu', { method: 'POST', body: data }),
 
-  update: (id: number, data: Partial<CreateMenuItemBody>) =>
+  update: (id: number, data: Partial<CreateMenuItemBody> & { largeVersionId?: number | null }) =>
     request<{ item: MenuItem }>(`/menu/${id}`, { method: 'PATCH', body: data }),
 
   remove: (id: number) =>

@@ -25,6 +25,7 @@ export const AUDIT_ACTIONS = [
   'order.move',         // pedidos movidos a otra mesa (tarea 5.3)
   'menu.price',         // cambio de precio de un plato
   'menu.options',       // cambio de opciones/recargos de un plato
+  'menu.large_version', // plato vinculado o desvinculado de su versión grande
   'menu.delete',        // plato borrado
   'inventory.restock',  // reposición de stock
   'inventory.consume',  // consumo/baja de stock

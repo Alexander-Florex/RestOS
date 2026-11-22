@@ -218,6 +218,10 @@ model MenuItem {
   kitchenSector KitchenSector?
   enabled       Boolean               @default(true)
   imageUrl      String?
+  /// Versión grande de este plato (ej. César de entrada → César principal). Es otro plato, con su precio, categoría y receta.
+  largeVersionId Int?                 @unique
+  largeVersion  MenuItem?             @relation("MenuItemLargeVersion", fields: [largeVersionId], references: [id], onDelete: SetNull)
+  baseVersion   MenuItem?             @relation("MenuItemLargeVersion")
   orderItems    OrderItem[]
   saleItems     SaleItem[]
   takeawayItems TakeawayItem[]

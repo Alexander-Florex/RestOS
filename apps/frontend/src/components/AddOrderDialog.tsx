@@ -21,6 +21,9 @@ import { ItemModifiers } from './ItemModifiers';
 import { submitOrder } from '../lib/order-queue';
 import { tableLabel } from '../lib/table-label';
 import { useOrderedCategories } from '../hooks/useMenuCategories';
+import { useDishVersions } from '../hooks/useDishVersions';
+import { DishVersionDialog } from './DishVersionDialog';
+import { inOrderCategory, versionNames } from '@shared/dish-versions';
 
 interface AddOrderDialogProps {
   table: Table;
@@ -44,17 +47,24 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
   // En el orden que eligió el administrador en Menú
   const categories = useOrderedCategories(menu);
 
+  const versions = useDishVersions(menu);
+  const { dishes } = versions;
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return menu.filter(m =>
+    return dishes.filter(m =>
       m.stock !== 'OUT_OF_STOCK' &&
-      (q ? m.name.toLowerCase().includes(q) : !category || m.category === category),
+      (q
+        ? versionNames(m, menu).some(n => n.toLowerCase().includes(q))
+        : !category || inOrderCategory(m, category, menu)),
     );
-  }, [menu, category, search]);
+  }, [dishes, menu, category, search]);
 
   function quickAdd(item: MenuItem) {
-    if (needsChoice(item)) setCustomizing({ item });
-    else cart.add(item);
+    versions.choose(item, picked => {
+      if (needsChoice(picked)) setCustomizing({ item: picked });
+      else cart.add(picked);
+    });
   }
 
   function confirmCustomize(choice: DishChoice) {
@@ -85,7 +95,7 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && !submitting && !customizing && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && !submitting && !customizing && !versions.pending && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Agregar pedido · {tableLabel(table)}</DialogTitle>
@@ -127,7 +137,8 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
           ) : visible.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">No hay platos disponibles</p>
           ) : visible.map(item => {
-            const lines = cart.linesOf(item.id);
+            const large = versions.largeOf(item);
+            const lines = large ? [...cart.linesOf(item.id), ...cart.linesOf(large.id)] : cart.linesOf(item.id);
             const count = lines.reduce((s, l) => s + l.quantity, 0);
             return (
               <div key={item.id} className={cn(
@@ -145,7 +156,7 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
                     </p>
                   </div>
                   <Button size="sm" variant="outline" className="h-8 gap-1.5 px-2.5 text-xs"
-                    onClick={() => setCustomizing({ item })}>
+                    onClick={() => versions.choose(item, picked => setCustomizing({ item: picked }))}>
                     {hasOptions(item) ? <SlidersHorizontal className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
                     {hasOptions(item) ? 'Opciones' : 'Nota'}
                   </Button>
@@ -157,9 +168,10 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
                 {/* Líneas cargadas de este plato */}
                 {lines.map(line => (
                   <div key={line.key} className="mt-2 flex items-center gap-2 border-t border-white/[0.06] pt-2">
-                    <button className="min-w-0 flex-1 text-left" onClick={() => setCustomizing({ item, line })} title="Editar opciones y nota">
-                      <ItemModifiers modifiers={selectionModifiers(item, line.optionIds)} notes={line.notes} />
-                      {line.optionIds.length === 0 && !line.notes && (
+                    <button className="min-w-0 flex-1 text-left" onClick={() => setCustomizing({ item: line.menuItem, line })} title="Editar opciones y nota">
+                      {large && <span className="block truncate text-xs font-semibold">{line.menuItem.category} · {line.menuItem.name}</span>}
+                      <ItemModifiers modifiers={selectionModifiers(line.menuItem, line.optionIds)} notes={line.notes} />
+                      {!large && line.optionIds.length === 0 && !line.notes && (
                         <span className="text-xs text-muted-foreground">Sin cambios</span>
                       )}
                     </button>
@@ -188,7 +200,8 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
           </Button>
         </DialogFooter>
 
-        {/* Selector anidado: va dentro del contenido para que el diálogo padre no se cierre */}
+        {/* Selectores anidados: van dentro del contenido para que el diálogo padre no se cierre */}
+        <DishVersionDialog pending={versions.pending} onClose={versions.close} />
         <DishOptionsDialog
           item={customizing?.item ?? null}
           initial={customizing?.line && {
