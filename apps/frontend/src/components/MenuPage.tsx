@@ -36,10 +36,12 @@ interface ItemForm {
   /** El estado sale del stock de los insumos de su receta (tarea 3.8) */
   stockAuto: boolean;
   enabled: boolean;
+  /** Id del plato que es su versión grande; vacío = no tiene */
+  largeVersionId: string;
 }
 
 const EMPTY_ITEM: ItemForm = {
-  name: '', category: '', price: '', description: '', stock: 'IN_STOCK', stockAuto: false, enabled: true,
+  name: '', category: '', price: '', description: '', stock: 'IN_STOCK', stockAuto: false, enabled: true, largeVersionId: '',
 };
 
 export function MenuPage() {
@@ -86,6 +88,14 @@ export function MenuPage() {
     [items, filterCat]
   );
 
+  // Versión grande: si este plato ya es la grande de otro, no puede tener una propia
+  const baseOfEditing = editingItem ? items.find(i => i.largeVersionId === editingItem.id) ?? null : null;
+  const largeCandidates = useMemo(() => {
+    if (!editingItem) return [];
+    const taken = new Set(items.filter(i => i.id !== editingItem.id).map(i => i.largeVersionId));
+    return items.filter(i => i.id !== editingItem.id && !i.largeVersionId && !taken.has(i.id));
+  }, [items, editingItem]);
+
   // ── Handlers de ítem ──
   function openCreateItem() {
     setItemForm({ ...EMPTY_ITEM, category: categories[0] ?? '' });
@@ -102,6 +112,7 @@ export function MenuPage() {
       stock:       item.stock as StockStatus,
       stockAuto:   !!item.stockAuto,
       enabled:     item.enabled,
+      largeVersionId: item.largeVersionId ? String(item.largeVersionId) : '',
     });
     setEditingItem(item);
     setItemModalOpen(true);
@@ -128,7 +139,10 @@ export function MenuPage() {
         enabled:     itemForm.enabled,
       };
       if (editingItem) {
-        await menuApi.update(editingItem.id, data);
+        await menuApi.update(editingItem.id, {
+          ...data,
+          ...(baseOfEditing ? {} : { largeVersionId: itemForm.largeVersionId ? Number(itemForm.largeVersionId) : null }),
+        });
         toast.success(`"${data.name}" actualizado`);
       } else {
         await menuApi.create(data);
@@ -529,6 +543,28 @@ export function MenuPage() {
                 onChange={e => setItemForm(f => ({ ...f, description: e.target.value }))}
                 disabled={submitting} placeholder="Descripción opcional..." />
             </div>
+            {editingItem && (
+              <div className="space-y-2">
+                <Label htmlFor="iLarge">Versión grande</Label>
+                {baseOfEditing ? (
+                  <p className="text-xs text-muted-foreground">Este plato es la versión grande de "{baseOfEditing.name}".</p>
+                ) : (
+                  <>
+                    <Select id="iLarge" value={itemForm.largeVersionId}
+                      onChange={e => setItemForm(f => ({ ...f, largeVersionId: e.target.value }))}
+                      disabled={submitting}>
+                      <option value="">No tiene</option>
+                      {largeCandidates.map(i => (
+                        <option key={i.id} value={i.id}>{i.name} · {i.category} · {formatMoney(i.price)}</option>
+                      ))}
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Al pedir este plato, el mozo elige entre esta versión y la grande. Cada una usa su precio, categoría y receta.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="iStock">Stock</Label>

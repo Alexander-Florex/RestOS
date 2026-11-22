@@ -34,6 +34,7 @@ const ACTION_LABEL: Record<string, { label: string; tone: string }> = {
   'order.item.reject': { label: 'Cambio rechazado',     tone: 'bg-white/[0.08] text-foreground/80' },
   'menu.price':        { label: 'Cambio de precio',     tone: 'bg-amber-500/15 text-amber-300' },
   'menu.options':      { label: 'Opciones del plato',   tone: 'bg-amber-500/15 text-amber-300' },
+  'menu.large_version': { label: 'Versión grande',      tone: 'bg-amber-500/15 text-amber-300' },
   'menu.delete':       { label: 'Plato borrado',        tone: 'bg-rose-500/15 text-rose-300' },
   'inventory.restock': { label: 'Reposición',           tone: 'bg-sky-500/15 text-sky-300' },
   'inventory.consume': { label: 'Consumo de stock',     tone: 'bg-sky-500/15 text-sky-300' },
@@ -83,6 +84,8 @@ function summary(e: AuditEntry): string {
       return `${a.name}: ${formatMoney(b.price)} → ${formatMoney(a.price)}`;
     case 'menu.options':
       return `${a.name}: ${(a.groups ?? []).length} grupo(s) de opciones`;
+    case 'menu.large_version':
+      return `${a.name}: ${a.largeVersionId ? 'versión grande vinculada' : 'sin versión grande'}`;
     case 'menu.delete':
       return `${b.name} (${formatMoney(b.price)})`;
     case 'inventory.restock':

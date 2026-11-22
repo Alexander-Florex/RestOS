@@ -82,6 +82,7 @@ Salen los platos de mesa y para llevar, **sin bebidas**, en **un solo papel** pa
 - **Sale sola:** el servidor la manda a la cola apenas guarda un pedido nuevo, lo cargue quien lo cargue. Si un celular reenvía el mismo pedido, no sale otra copia. Un pedido tomado sin conexión se imprime cuando llega al servidor.
 - **Qué va a cocina:** lo decide cada categoría en **Menú → Categorías** con el botón "Va a cocina / No va a cocina" (la categoría Bebidas viene apagada).
 - **Títulos:** los platos se agrupan bajo el nombre de su categoría (ENTRADAS, PRINCIPAL, POSTRES), en el orden de la carta.
+- **Versión grande:** una entrada se puede vincular en Menú con su versión grande. Son dos platos, así que cada uno sale bajo el título de su categoría.
 - **Rehacer y cambiar plato:** siguen la misma regla.
 - Un pedido solo de bebidas no genera ticket, pero sigue en la cuenta. Si no se puede saber la categoría de un plato, se imprime.
 
