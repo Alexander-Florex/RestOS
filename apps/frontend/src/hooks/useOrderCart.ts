@@ -7,6 +7,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { MenuItem } from '../lib/api';
 import { defaultOptionIds, lineKey, unitPrice } from '../lib/modifiers';
+import { moveToLine } from '@shared/cart-lines';
 
 export interface CartLine {
   key: string;
@@ -68,6 +69,26 @@ export function useOrderCart() {
     });
   }, []);
 
+  /** La línea del plato tal cual viene (sin nota ni cambios), si ya está cargada. */
+  const plainLineOf = useCallback(
+    (menuItem: MenuItem) => lines.get(lineKey(menuItem.id, defaultOptionIds(menuItem), '')),
+    [lines],
+  );
+
+  /** Pone nota u opciones a unidades ya cargadas: no suma un plato nuevo. */
+  const customizeFrom = useCallback((sourceKey: string, menuItem: MenuItem, opts: Required<AddLineOptions>) => {
+    const notes = opts.notes.trim();
+    const target: CartLine = {
+      key: lineKey(menuItem.id, opts.optionIds, notes),
+      menuItem,
+      quantity: opts.quantity,
+      optionIds: opts.optionIds,
+      notes,
+      unitPrice: unitPrice(menuItem, opts.optionIds),
+    };
+    setLines(prev => moveToLine(prev, sourceKey, target));
+  }, []);
+
   const clear = useCallback(() => setLines(new Map()), []);
 
   const list = useMemo(() => [...lines.values()], [lines]);
@@ -88,5 +109,5 @@ export function useOrderCart() {
     optionIds: l.optionIds.length ? l.optionIds : undefined,
   })), [list]);
 
-  return { lines: list, count, total, add, adjust, replace, clear, linesOf, toRequestItems };
+  return { lines: list, count, total, add, adjust, replace, plainLineOf, customizeFrom, clear, linesOf, toRequestItems };
 }
