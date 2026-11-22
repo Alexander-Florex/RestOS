@@ -67,7 +67,7 @@ export function RolesPage() {
     setDraft({
       id: null,
       name: base ? `${base.name} (copia)` : '',
-      permissions: base ? base.permissions.filter(p => p !== 'users.manage') : ['orders.create'],
+      permissions: base ? base.permissions.filter(p => p !== 'users.manage') : ['orders.create', 'orders.table'],
     });
   }
 

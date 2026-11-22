@@ -9,6 +9,7 @@ import { UserRole } from '@prisma/client';
 export const PERMISSIONS = [
   { key: 'app.dashboard',       group: 'General',     label: 'Usar el panel completo',             description: 'Sin este permiso, la persona ve solo la vista móvil de toma de pedidos.' },
   { key: 'orders.create',       group: 'Servicio',    label: 'Tomar pedidos',                      description: 'Cargar pedidos en mesas y para llevar.' },
+  { key: 'orders.table',        group: 'Servicio',    label: 'Ver pedido de la mesa',              description: 'Ver todo lo que pidió la mesa, con precios y total. Sin esto, el mozo tampoco puede rehacer o cambiar platos desde el celular.' },
   { key: 'orders.view',         group: 'Servicio',    label: 'Ver todos los pedidos',              description: 'Listado general de pedidos.' },
   { key: 'orders.delete',       group: 'Servicio',    label: 'Anular pedidos',                     description: 'Anular pedidos de una mesa (con motivo; quedan en el historial).' },
   { key: 'tables.operate',      group: 'Servicio',    label: 'Operar mesas',                       description: 'Abrir, pedir cuenta, cerrar y reservar mesas.' },
@@ -16,11 +17,11 @@ export const PERMISSIONS = [
   { key: 'sales.charge',        group: 'Caja',        label: 'Cobrar',                             description: 'Cobrar mesas y pedidos para llevar, e imprimir la cuenta.' },
   { key: 'orders.change.approve', group: 'Caja',      label: 'Autorizar cambios de platos',        description: 'Aprobar o hacer directamente cambios de plato pedidos por el mozo.' },
   { key: 'takeaway.cancel',     group: 'Caja',        label: 'Cancelar pedidos para llevar',       description: 'Cancelar un pedido para llevar que no se cobró.' },
-  { key: 'sales.view',          group: 'Caja',        label: 'Ver ventas',                         description: 'Historial de ventas y totales del día.' },
+  { key: 'sales.view',          group: 'Caja',        label: 'Ver ventas',                         description: 'Página Inicio con lo facturado hoy, historial de ventas y totales del día.' },
   { key: 'sales.discount',      group: 'Caja',        label: 'Hacer descuentos',                   description: 'Aplicar un descuento al cobrar (con motivo), por ejemplo la promo de efectivo.' },
   { key: 'cash.manage',         group: 'Caja',        label: 'Abrir y cerrar caja',                description: 'Abrir la caja con el monto inicial, registrar ingresos y egresos de efectivo y cerrarla con el arqueo.' },
   { key: 'accounts.manage',     group: 'Caja',        label: 'Cuentas corrientes',                 description: 'Dejar una mesa "a cuenta" de un cliente (Municipalidad, cooperativa) y registrar sus cobros con recargo.' },
-  { key: 'reports.view',        group: 'Caja',        label: 'Ver reportes',                       description: 'Reportes de ventas, ranking de platos y exportación CSV.' },
+  { key: 'reports.view',        group: 'Caja',        label: 'Ver reportes',                       description: 'Página Inicio, Reportes, Análisis, Panel del dueño, ranking de platos y exportación CSV.' },
   { key: 'menu.availability',   group: 'Carta y stock', label: 'Cambiar disponibilidad de platos', description: 'Habilitar/deshabilitar platos y marcar stock bajo o agotado.' },
   { key: 'menu.manage',         group: 'Carta y stock', label: 'Editar la carta',                  description: 'Crear, editar y borrar platos y categorías.' },
   { key: 'inventory.view',      group: 'Carta y stock', label: 'Ver inventario',                   description: 'Consultar el stock de insumos.' },
@@ -50,13 +51,17 @@ export const SYSTEM_ROLES = {
   ADMIN: { name: 'Administrador', permissions: ALL_PERMISSIONS },
   WAITER: {
     name: 'Mesero',
-    permissions: ['orders.create'] as Permission[],
+    // orders.table: agregado por la migración 20261122120000_table_orders_permission_cashier_privacy
+    permissions: ['orders.create', 'orders.table'] as Permission[],
   },
   CASHIER: {
     name: 'Cajero',
     permissions: [
       'app.dashboard', 'orders.create', 'orders.view', 'orders.delete', 'tables.operate',
-      'reservations.manage', 'sales.charge', 'takeaway.cancel', 'sales.view', 'reports.view',
+      'reservations.manage', 'sales.charge', 'takeaway.cancel',
+      // Sin sales.view ni reports.view (pedido del cliente): la Caja no ve lo facturado.
+      // Migración 20261122120000_table_orders_permission_cashier_privacy, que también suma orders.table
+      'orders.table',
       // Agregado por la migración 20261102150000_order_item_changes (tarea 5.8)
       'orders.change.approve',
       // Agregado por la migración 20261114120000_account_customers (tarea 5.9)

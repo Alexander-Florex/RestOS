@@ -63,12 +63,13 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
   const tableId = table && (table.status === 'OCCUPIED' || table.status === 'BILL_REQUESTED')
     ? table.id
     : null;
-  const { orders, total, loading: loadingOrders } = useTableOrders(tableId);
+  const canSeeOrders = can('orders.table', 'orders.view', 'sales.charge');
+  const { orders, total, loading: loadingOrders } = useTableOrders(canSeeOrders ? tableId : null);
   const { changes: pendingChanges } = usePendingChanges(tableId);
   // Mesas unidas (tarea 5.3): la cuenta del grupo suma los pedidos de todas
   const members = table ? groupOf(table, allTables) : [];
   const partners = members.filter(t => t.id !== table?.id);
-  const group = useGroupOrders(members.map(t => t.id));
+  const group = useGroupOrders(canSeeOrders ? members.map(t => t.id) : []);
 
   useTick(30_000);
   useTableLabelMode();
@@ -279,7 +280,7 @@ export function TableDetailModal({ table, open, onClose, allTables = [] }: Table
                 </div>
               ) : !hasOrders ? (
                 <p className="py-3 text-center text-sm text-muted-foreground">
-                  Sin pedidos todavía
+                  {canSeeOrders ? 'Sin pedidos todavía' : 'Tu rol no puede ver el pedido de la mesa'}
                 </p>
               ) : (
                 <>
