@@ -68,7 +68,7 @@ export const ordersController = {
     }, {
       onCreated: async (created) => {
         kitchenPrintFailed = !(await autoPrintKitchen(restaurantId, () =>
-          printingService.printOrder({ restaurantId, orderId: created.id })));
+          printingService.printOrder({ restaurantId, orderId: created.id, auto: true })));
       },
     });
     res.status(201).json({ order, kitchenPrintFailed });

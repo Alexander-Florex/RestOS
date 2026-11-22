@@ -39,6 +39,8 @@ export interface PrintPayload {
   type: 'kitchen' | 'cash' | 'test';
   /** Título grande opcional de la comanda: "REHACER", "CAMBIO" (sin esto: COCINA / PARA LLEVAR) */
   heading?: string;
+  /** Cuántas veces sale este ticket, cada una con su corte (sin esto: 1) */
+  copies?: number;
   tableNumber?: number;
   tableName?: string | null;
   /** Cómo se llama la mesa en el local: "Ventana", "Ventana + Patio" o "Mesa 5" */
@@ -358,7 +360,14 @@ export function ticketTitle(p: PrintPayload): string {
   const kind = p.type === 'cash' ? 'Ticket de caja' : p.heading ? `Comanda (${p.heading.toLowerCase()})` : 'Comanda';
   const where = placeLabel(p);
   const num = p.type === 'cash' ? (p.saleNumber ? `Venta #${p.saleNumber}` : '') : (p.orderNumber ? `#${p.orderNumber}` : '');
-  return [kind, where, num].filter(Boolean).join(' · ');
+  const copies = printCopies(p);
+  return [kind, where, num, copies > 1 ? `x${copies}` : ''].filter(Boolean).join(' · ');
+}
+
+/** Copias de un ticket, siempre entre 1 y 3: un dato raro nunca gasta un rollo de papel */
+export function printCopies(p: Pick<PrintPayload, 'copies'>): number {
+  const n = Math.floor(Number(p.copies));
+  return Number.isFinite(n) ? Math.min(Math.max(n, 1), 3) : 1;
 }
 
 /** Ejemplos para ver cómo queda sin cargar un pedido */

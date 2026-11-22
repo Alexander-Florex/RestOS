@@ -11,7 +11,7 @@ import { HttpError } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { logger } from '../../lib/logger.js';
 import { itemNotesForPrint, modifierLines } from '../../lib/modifiers.js';
-import { kitchenItems, kitchenRoutes } from '../../lib/kitchen-routing.js';
+import { kitchenCopies, kitchenItems, kitchenRoutes } from '../../lib/kitchen-routing.js';
 import { tableLabel } from '../../shared/table-label.js';
 import { buildTicket, sampleTicket, type PaperWidth, type PrintPayload, type TicketDoc } from '../../shared/ticket.js';
 import { env } from '../../config/env.js';
@@ -58,8 +58,11 @@ export async function autoPrintKitchen(restaurantId: number, print: () => Promis
 }
 
 export const printingService = {
-  /** Comanda de cocina de un pedido de mesa: lo que sigue en pie, sin bebidas. null = no lleva comanda. */
-  async printOrder(opts: { restaurantId: number; orderId: number }) {
+  /**
+   * Comanda de cocina de un pedido de mesa: lo que sigue en pie, sin bebidas. null = no lleva comanda.
+   * `auto`: la que sale sola al tomar el pedido, con las copias según sus tiempos. A mano sale una.
+   */
+  async printOrder(opts: { restaurantId: number; orderId: number; auto?: boolean }) {
     const order = await prisma.order.findFirst({
       where: { id: opts.orderId, restaurantId: opts.restaurantId },
       include: { items: { where: { status: 'ACTIVE' }, orderBy: { id: 'asc' } }, table: true, createdBy: { select: { name: true } } },
@@ -73,6 +76,7 @@ export const printingService = {
     const isTakeaway = typeof order.notes === 'string' && order.notes.startsWith('PARA LLEVAR:');
     const job = await enqueuePrint(opts.restaurantId, {
       type: 'kitchen',
+      ...(opts.auto ? { copies: kitchenCopies(items.map(i => i.course)) } : {}),
       tableNumber: order.table.number,
       orderNumber: order.id,
       isTakeaway,
@@ -84,8 +88,8 @@ export const printingService = {
     return jobView(job);
   },
 
-  /** Comanda de cocina de un pedido para llevar, sin bebidas. null = no lleva comanda. */
-  async printTakeawayKitchen(opts: { restaurantId: number; takeawayId: number }) {
+  /** Comanda de cocina de un pedido para llevar, sin bebidas. null = no lleva comanda. `auto`: como en printOrder. */
+  async printTakeawayKitchen(opts: { restaurantId: number; takeawayId: number; auto?: boolean }) {
     const order = await prisma.takeawayOrder.findFirst({
       where: { id: opts.takeawayId, restaurantId: opts.restaurantId },
       include: { items: { orderBy: { id: 'asc' } } },
@@ -96,6 +100,7 @@ export const printingService = {
     if (items.length === 0) return null;
     const job = await enqueuePrint(opts.restaurantId, {
       type: 'kitchen',
+      ...(opts.auto ? { copies: kitchenCopies(items.map(i => i.course)) } : {}),
       tableNumber: 0,
       orderNumber: order.id,
       isTakeaway: true,
@@ -173,11 +178,12 @@ export const printingService = {
     return jobs.map(jobView);
   },
 
-  /** Volver a mandar un ticket tal cual (queda como trabajo nuevo, vinculado al original) */
+  /** Volver a mandar un ticket (trabajo nuevo, vinculado al original): una sola copia */
   async reprint(restaurantId: number, jobId: number) {
     const job = await prisma.printJob.findFirst({ where: { id: jobId, restaurantId } });
     if (!job) throw HttpError.notFound('Trabajo de impresión no encontrado');
-    const again = await enqueuePrint(restaurantId, job.payload as unknown as PrintPayload, { reprintOfId: job.id });
+    const { copies: _copies, ...payload } = job.payload as unknown as PrintPayload;
+    const again = await enqueuePrint(restaurantId, payload, { reprintOfId: job.id });
     return jobView(again);
   },
 
