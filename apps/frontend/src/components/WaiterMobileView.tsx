@@ -6,7 +6,7 @@ import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import { toast } from 'sonner';
 import {
   LogOut, ArrowLeft, Send, Loader2, Minus, Plus,
-  Users, Clock, ShoppingBag, X, Printer, MessageSquare, CreditCard,
+  Users, Clock, ShoppingBag, X, MessageSquare, CreditCard,
   UtensilsCrossed, Package, ChevronRight, AlertTriangle, SlidersHorizontal, Pencil, Search,
 } from 'lucide-react';
 import { BrandMark, EASE_OUT, AnimatedMoney } from './ui/motion';
@@ -15,11 +15,10 @@ import { useAuth } from '../context/AuthContext';
 import { useTables, useTick } from '../hooks/useTables';
 import { useMenu } from '../hooks/useMenu';
 import { useTableOrders } from '../hooks/useTableOrders';
-import { ordersApi, printingApi, salesApi, takeawayApi, type MenuItem, type Table, ApiError } from '../lib/api';
+import { ordersApi, salesApi, takeawayApi, type MenuItem, type Table, ApiError } from '../lib/api';
 import { TABLE_STATUS_LABEL, TABLE_STATUS_STYLE, elapsedSince } from '../lib/table-helpers';
 import { formatMoney } from '../lib/format';
 import { Button } from './ui/button';
-import { PrintButton } from './PrintButton';
 import { CloseTableModal } from './CloseTableModal';
 import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
 import { ItemModifiers } from './ItemModifiers';
@@ -62,7 +61,6 @@ export function WaiterMobileView() {
   const [submitting, setSubmitting] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [search, setSearch] = useState('');
-  const [lastOrderId, setLastOrderId] = useState<number | null>(null);
   // Selector de opciones/nota: plato nuevo (line undefined) o una línea ya cargada para editar
   const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine } | null>(null);
   // Ver lo que ya pidió la mesa (rehacer / cambiar platos, tarea 5.8)
@@ -171,10 +169,7 @@ export function WaiterMobileView() {
           items: cart.toRequestItems(),
         }, { label: `Para llevar · ${customerName.trim()}` });
         if (res.status === 'queued') toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
-        else {
-          setLastOrderId(res.order.id);
-          toast.success(`Pedido para llevar creado — ${customerName}`, { duration: 4000 });
-        }
+        else toast.success(`Pedido para llevar creado — ${customerName}`, { duration: 4000 });
         backToTables();
         return;
       }
@@ -193,15 +188,11 @@ export function WaiterMobileView() {
         backToTables();
         return;
       }
-      setLastOrderId(res.order.id);
       toast.success(
         orderType === 'takeaway'
           ? `Pedido para llevar (${customerName}) enviado`
           : `Pedido enviado a ${tableLabel(selectedTable)}`,
-        {
-          description: 'Podés imprimir la comanda abajo',
-          duration: 4000,
-        }
+        { duration: 4000 },
       );
       backToTables();
     } catch (err) {
@@ -312,23 +303,6 @@ export function WaiterMobileView() {
             </motion.button>
 
             <TablesList tables={tables} loading={loadingTables} onSelect={selectTable} />
-            {lastOrderId !== null && (
-              <div className="mt-4 flex items-center gap-3 rounded-2xl border border-brand-500/30 bg-brand-500/5 p-3">
-                <Printer className="h-5 w-5 shrink-0 text-brand-400" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">Pedido #{lastOrderId} enviado</p>
-                  <p className="text-xs text-muted-foreground">¿Querés imprimir la comanda?</p>
-                </div>
-                <PrintButton
-                  label="Imprimir"
-                  size="sm"
-                  onPrint={() => printingApi.printOrder(lastOrderId)}
-                />
-                <button onClick={() => setLastOrderId(null)} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            )}
           </>
         )}
 

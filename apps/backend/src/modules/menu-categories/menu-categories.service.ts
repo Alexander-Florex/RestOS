@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // menu-categories.service.ts — Categorías del menú (entidad propia)
 // ──────────────────────────────────────────────
-import type { KitchenSector, MenuCategory } from '@prisma/client';
+import type { MenuCategory } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { isDrinkCategoryName } from '../../lib/kitchen-routing.js';
@@ -25,8 +25,6 @@ export interface CreateMenuCategoryData {
   targetMargin?: number | null;
   /** Si sus platos salen en la comanda de cocina (por defecto sí, salvo bebidas) */
   sendToKitchen?: boolean;
-  /** Sector de cocina de sus platos (por defecto caliente) */
-  kitchenSector?: KitchenSector;
 }
 
 export interface UpdateMenuCategoryData extends Partial<CreateMenuCategoryData> {}
@@ -57,7 +55,6 @@ export const menuCategoriesService = {
         order: data.order ?? 0,
         targetMargin: data.targetMargin ?? null,
         sendToKitchen: data.sendToKitchen ?? !isDrinkCategoryName(data.name),
-        ...(data.kitchenSector !== undefined ? { kitchenSector: data.kitchenSector } : {}),
       },
     });
     emitCreated(restaurantId, category);
@@ -80,7 +77,6 @@ export const menuCategoriesService = {
         ...(data.order !== undefined ? { order: data.order } : {}),
         ...(data.targetMargin !== undefined ? { targetMargin: data.targetMargin } : {}),
         ...(data.sendToKitchen !== undefined ? { sendToKitchen: data.sendToKitchen } : {}),
-        ...(data.kitchenSector !== undefined ? { kitchenSector: data.kitchenSector } : {}),
       },
     });
 

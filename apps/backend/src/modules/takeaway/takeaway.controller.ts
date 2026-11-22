@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { TakeawayStatus, PaymentMethod } from '@prisma/client';
 import { takeawayService } from './takeaway.service.js';
+import { autoPrintKitchen, printingService } from '../printing/printing.service.js';
 import { HttpError } from '../../lib/http-error.js';
 
 const createSchema = z.object({
@@ -40,11 +41,18 @@ export const takeawayController = {
   async create(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
     const data = createSchema.parse(req.body);
-    const order = await takeawayService.create(req.user.restaurantId, {
+    const restaurantId = req.user.restaurantId;
+    let kitchenPrintFailed = false;
+    const order = await takeawayService.create(restaurantId, {
       ...data,
       createdById: req.user.userId,
+    }, {
+      onCreated: async (created) => {
+        kitchenPrintFailed = !(await autoPrintKitchen(restaurantId, () =>
+          printingService.printTakeawayKitchen({ restaurantId, takeawayId: created.id })));
+      },
     });
-    res.status(201).json({ order });
+    res.status(201).json({ order, kitchenPrintFailed });
   },
 
   async markReady(req: Request, res: Response) {

@@ -10,7 +10,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
-import { ordersApi, printingApi, ApiError, type MenuItem, type Table } from '../lib/api';
+import { ordersApi, ApiError, type MenuItem, type Table } from '../lib/api';
 import { useMenu } from '../hooks/useMenu';
 import { useOrderCart, type CartLine } from '../hooks/useOrderCart';
 import { hasOptions, needsChoice, selectionModifiers } from '../lib/modifiers';
@@ -33,7 +33,6 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
   const cart = useOrderCart();
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
-  const [printTicket, setPrintTicket] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine } | null>(null);
 
@@ -70,23 +69,13 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
     setSubmitting(true);
     try {
       const res = await submitOrder('table', { tableId: table.id, items: cart.toRequestItems() },
-        { label: `${tableLabel(table)} · ${cart.count} ${cart.count === 1 ? 'ítem' : 'ítems'}`, print: printTicket });
+        { label: `${tableLabel(table)} · ${cart.count} ${cart.count === 1 ? 'ítem' : 'ítems'}` });
       if (res.status === 'queued') {
         toast.warning('Sin conexión: el pedido quedó guardado en este dispositivo', { description: 'Se envía solo cuando vuelva la conexión. No hace falta cargarlo de nuevo.', duration: 8000 });
         onClose();
         return;
       }
       toast.success(`Pedido enviado a ${tableLabel(table)}`);
-      if (printTicket) {
-        try {
-          await printingApi.printOrder(res.order.id);
-        } catch (err) {
-          toast.error(
-            `El pedido quedó cargado, pero la comanda no se imprimió: ${err instanceof ApiError ? err.message : 'revisá la impresora'}`,
-            { duration: 10_000 },
-          );
-        }
-      }
       onClose();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error al enviar el pedido');
@@ -190,11 +179,6 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
             );
           })}
         </div>
-
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input type="checkbox" checked={printTicket} onChange={e => setPrintTicket(e.target.checked)} className="h-4 w-4 accent-orange-500" />
-          Imprimir la comanda en cocina
-        </label>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={submitting}>Cancelar</Button>

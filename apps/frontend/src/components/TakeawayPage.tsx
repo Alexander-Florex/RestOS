@@ -470,12 +470,12 @@ function TakeawayCard({ order, onPay }: { order: TakeawayOrder; onPay: () => voi
 
         {isActive && (
           <div className="flex gap-1.5">
-            {/* Imprimir comanda */}
+            {/* La comanda sale sola al crear el pedido: esto es para otra copia */}
             <PrintButton
               iconOnly
               size="icon"
               variant="outline"
-              label="Imprimir comanda"
+              label="Reimprimir comanda"
               className="h-8 w-8 shrink-0"
               onPrint={() => printingApi.printTakeawayOrder(order.id)}
             />

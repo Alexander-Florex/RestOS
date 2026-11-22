@@ -7,8 +7,9 @@
 // (se perdió solo la respuesta), devuelve el mismo pedido y no lo duplica.
 // SOLO pedidos: los cobros nunca se encolan.
 // ──────────────────────────────────────────────
+import { toast } from 'sonner';
 import {
-  ApiError, ordersApi, printingApi, takeawayApi, tokenStorage,
+  ApiError, ordersApi, takeawayApi, tokenStorage,
   type CreateOrderBody, type CreateTakeawayBody,
 } from './api';
 import { RESYNC_EVENT } from './connection';
@@ -25,8 +26,6 @@ export interface QueuedOrder {
   attempts: number;
   /** El servidor lo rechazó (ej. un plato se quedó sin stock): necesita revisión */
   error?: string;
-  /** Imprimir la comanda al enviarlo (panel) */
-  print?: boolean;
 }
 
 const KEY = 'restos_pending_orders';
@@ -75,9 +74,14 @@ function isRetryable(err: unknown): boolean {
 }
 
 async function send(kind: QueuedKind, body: QueuedOrder['body']) {
-  return kind === 'table'
-    ? (await ordersApi.create(body as CreateOrderBody)).order
-    : (await takeawayApi.create(body as CreateTakeawayBody)).order;
+  // La comanda la imprime el servidor al guardar un pedido nuevo
+  const res = kind === 'table'
+    ? await ordersApi.create(body as CreateOrderBody)
+    : await takeawayApi.create(body as CreateTakeawayBody);
+  if (res.kitchenPrintFailed) {
+    toast.error('El pedido quedó cargado, pero la comanda no se imprimió. Avisale a cocina.', { duration: 10_000 });
+  }
+  return res.order;
 }
 
 export type SubmitResult<T> = { status: 'sent'; order: T } | { status: 'queued' };
@@ -89,7 +93,7 @@ export type SubmitResult<T> = { status: 'sent'; order: T } | { status: 'queued' 
 export async function submitOrder<K extends QueuedKind>(
   kind: K,
   body: K extends 'table' ? CreateOrderBody : CreateTakeawayBody,
-  opts: { label: string; print?: boolean },
+  opts: { label: string },
 ): Promise<SubmitResult<{ id: number }>> {
   const withId = { ...body, clientRequestId: body.clientRequestId ?? newRequestId() } as QueuedOrder['body'];
   try {
@@ -98,7 +102,7 @@ export async function submitOrder<K extends QueuedKind>(
     if (!isRetryable(err)) throw err;
     save([...load(), {
       id: withId.clientRequestId, kind, body: withId, label: opts.label,
-      createdAt: Date.now(), attempts: 1, print: opts.print,
+      createdAt: Date.now(), attempts: 1,
     }]);
     scheduleRetry();
     return { status: 'queued' };
@@ -117,12 +121,9 @@ export async function flushQueue(): Promise<QueuedOrder[]> {
     for (const item of load()) {
       if (item.error) continue; // rechazados: esperan que alguien los revise
       try {
-        const order = await send(item.kind, item.body);
+        await send(item.kind, item.body);
         sent.push(item);
         save(load().filter(q => q.id !== item.id));
-        if (item.print && item.kind === 'table') {
-          printingApi.printOrder(order.id).catch(() => { /* la comanda se puede reimprimir desde la mesa */ });
-        }
       } catch (err) {
         if (isRetryable(err)) {
           save(load().map(q => (q.id === item.id ? { ...q, attempts: q.attempts + 1 } : q)));
