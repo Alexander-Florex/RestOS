@@ -19,6 +19,7 @@ import {
 } from './ui/dialog';
 import { cn } from '../lib/utils';
 import { tableLabel } from '../lib/table-label';
+import { SaleDetailDialog } from './SaleDetailDialog';
 
 const PAYMENT_ICON: Record<PaymentMethod, typeof Banknote> = {
   CASH: Banknote,
@@ -34,6 +35,7 @@ export function SalesHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<PaymentMethod | 'ALL'>('ALL');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);
 
   async function load() {
     setLoading(true);
@@ -180,12 +182,15 @@ export function SalesHistoryPage() {
               {filtered.map(sale => {
                 const Icon = PAYMENT_ICON[sale.paymentMethod];
                 return (
-                  <tr key={sale.id} className="text-sm hover:bg-white/[0.025]">
+                  <tr key={sale.id} onClick={() => setDetailId(sale.id)} className="cursor-pointer text-sm hover:bg-white/[0.04]">
                     <td className="px-3 py-3 text-muted-foreground tabular-nums">
                       {formatDateTime(sale.closedAt)}
                     </td>
                     <td className="px-3 py-3 font-medium tabular-nums">
-                      {sale.tableNumber !== null ? tableLabel({ number: sale.tableNumber, name: sale.tableName }) : 'Para llevar'}
+                      <button type="button" className="text-left hover:underline" title="Ver qué se pidió"
+                        onClick={(e) => { e.stopPropagation(); setDetailId(sale.id); }}>
+                        {sale.tableNumber !== null ? tableLabel({ number: sale.tableNumber, name: sale.tableName }) : 'Para llevar'}
+                      </button>
                     </td>
                     <td className="px-3 py-3">
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] px-2 py-0.5 text-xs">
@@ -205,7 +210,7 @@ export function SalesHistoryPage() {
                     <td className="px-3 py-3 text-center">
                       {sale.imageUrl ? (
                         <button
-                          onClick={() => openReceipt(sale.id)}
+                          onClick={(e) => { e.stopPropagation(); openReceipt(sale.id); }}
                           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-brand-400 hover:bg-brand-500/10"
                           title="Ver comprobante"
                         >
@@ -222,6 +227,8 @@ export function SalesHistoryPage() {
           </table>
         </div>
       )}
+
+      <SaleDetailDialog saleId={detailId} onClose={() => setDetailId(null)} />
 
       {/* Modal de preview de comprobante */}
       <Dialog open={previewImage !== null} onOpenChange={(v) => !v && closeReceipt()}>

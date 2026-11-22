@@ -510,13 +510,51 @@ export interface CreateSaleBody {
   customerId?: number;
   /** Varios medios o cuenta dividida (reemplaza paymentMethod/amount) */
   payments?: Array<{ method: PaymentMethod; amount: number }>;
-  /** Descuento con motivo (permiso sales.discount) */
+  /** Descuento con motivo (permiso sales.discount): por porcentaje o por monto, nunca los dos */
   discountPct?: number;
+  discountAmount?: number;
   discountReason?: string;
   paymentMethod?: PaymentMethod;
   amount?: number;
   notes?: string;
   imageBase64?: string;
+}
+
+/** Una venta ya cobrada, con lo que se pidió (se abre desde Inicio, Ventas y Reportes) */
+export interface SaleDetail {
+  id: number;
+  channel: SaleChannel;
+  tableNumber: number | null;
+  tableName: string | null;
+  customerName: string | null;
+  closedAt: string;
+  paymentMethod: PaymentMethod;
+  subtotal: number | null;
+  discount: number;
+  discountPct: number | null;
+  discountReason: string | null;
+  total: number;
+  amount: number;
+  notes: string | null;
+  hasReceipt: boolean;
+  registeredByName: string | null;
+  payments: Array<{ method: PaymentMethod; amount: number; tendered: number | null }>;
+  items: Array<{
+    id: number; itemName: string; category: string; quantity: number;
+    price: number; subtotal: number; modifiers: ItemModifier[] | null;
+  }>;
+  /** Vacío en ventas para llevar y en las anteriores al historial de pedidos */
+  orders: Array<{
+    id: number;
+    createdAt: string;
+    waiterName: string | null;
+    notes: string | null;
+    items: Array<{
+      id: number; itemName: string; quantity: number; price: number;
+      notes: string | null; modifiers: ItemModifier[] | null;
+      status: 'ACTIVE' | 'VOIDED'; voidReason: string | null;
+    }>;
+  }>;
 }
 
 export interface DailyStats {
@@ -537,6 +575,9 @@ export const salesApi = {
 
   create: (data: CreateSaleBody) =>
     request<{ sale: Sale }>('/sales', { method: 'POST', body: data }),
+
+  detail: (saleId: number) =>
+    request<{ sale: SaleDetail }>(`/sales/${saleId}/detail`),
 
   /**
    * Imagen del comprobante de una venta como URL local (blob:). Es privada, así

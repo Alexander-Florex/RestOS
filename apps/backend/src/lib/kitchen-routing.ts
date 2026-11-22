@@ -61,6 +61,25 @@ export async function kitchenRoutes(
   }
 }
 
+/** "Entradas", "ENTRADA" y "Éntrada" son lo mismo; cualquier otro nombre no es un tiempo. */
+function courseKind(name: string | null): 'starter' | 'main' | 'dessert' | null {
+  const key = (name ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+  if (key === 'entrada' || key === 'entradas') return 'starter';
+  if (key === 'principal' || key === 'principales') return 'main';
+  if (key === 'postre' || key === 'postres') return 'dessert';
+  return null;
+}
+
+/**
+ * Copias de la comanda automática, según las categorías del pedido que van a cocina:
+ * Entrada + Principal = 2 · Entrada + Principal + Postre = 3 · cualquier otra = 1.
+ */
+export function kitchenCopies(courses: Array<string | null>): number {
+  const kinds = new Set(courses.map(courseKind));
+  if (!kinds.has('starter') || !kinds.has('main')) return 1;
+  return kinds.has('dessert') ? 3 : 2;
+}
+
 /** Los platos de la comanda, sin lo que no va a cocina y ordenados como la carta. */
 export function kitchenItems<T extends { menuItemId: number | null }>(
   items: T[],

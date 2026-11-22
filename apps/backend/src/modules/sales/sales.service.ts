@@ -134,6 +134,77 @@ export const salesService = {
   },
 
   /**
+   * Detalle de una venta ya cobrada: qué se cobró, cómo y los pedidos que la formaron
+   * (con quién los tomó y los platos anulados por un cambio). Solo lectura.
+   * Las ventas para llevar y las anteriores al historial no tienen pedidos: queda `items`.
+   */
+  async getDetail(restaurantId: number, id: number) {
+    const sale = await prisma.sale.findFirst({
+      where: { id, restaurantId },
+      include: {
+        items: { orderBy: { id: 'asc' } },
+        payments: { orderBy: { id: 'asc' } },
+        registeredBy: { select: { name: true } },
+        customer: { select: { name: true } },
+        takeawayOrder: { select: { customerName: true } },
+        orders: {
+          orderBy: { id: 'asc' },
+          include: { items: { orderBy: { id: 'asc' } }, createdBy: { select: { name: true } } },
+        },
+      },
+    });
+    if (!sale) throw HttpError.notFound('Venta no encontrada');
+    return {
+      id: sale.id,
+      channel: sale.channel,
+      tableNumber: sale.tableNumber,
+      tableName: sale.tableName,
+      customerName: sale.takeawayOrder?.customerName ?? sale.customer?.name ?? null,
+      closedAt: sale.closedAt,
+      paymentMethod: sale.paymentMethod,
+      subtotal: sale.subtotal !== null ? Number(sale.subtotal) : null,
+      discount: Number(sale.discount),
+      discountPct: sale.discountPct !== null ? Number(sale.discountPct) : null,
+      discountReason: sale.discountReason,
+      total: Number(sale.total),
+      amount: Number(sale.amount),
+      notes: sale.notes,
+      hasReceipt: !!sale.imageUrl,
+      registeredByName: sale.registeredBy?.name ?? null,
+      payments: sale.payments.map(p => ({
+        method: p.method,
+        amount: Number(p.amount),
+        tendered: p.tendered !== null ? Number(p.tendered) : null,
+      })),
+      items: sale.items.map(i => ({
+        id: i.id,
+        itemName: i.itemName,
+        category: i.category,
+        quantity: i.quantity,
+        price: Number(i.price),
+        subtotal: Number(i.subtotal),
+        modifiers: i.modifiers,
+      })),
+      orders: sale.orders.map(o => ({
+        id: o.id,
+        createdAt: o.createdAt,
+        waiterName: o.createdBy?.name ?? null,
+        notes: o.notes,
+        items: o.items.map(i => ({
+          id: i.id,
+          itemName: i.itemName,
+          quantity: i.quantity,
+          price: Number(i.price),
+          notes: i.notes,
+          modifiers: i.modifiers,
+          status: i.status,
+          voidReason: i.voidReason,
+        })),
+      })),
+    };
+  },
+
+  /**
    * Ruta en disco del comprobante de una venta del restaurante.
    * Solo el nombre de archivo guardado en la venta: no se puede pedir otro archivo.
    */

@@ -19,7 +19,7 @@ import {
 } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { PAYMENT_OPTIONS, PAYMENT_LABEL } from '../lib/menu-helpers';
-import { formatMoney } from '../lib/format';
+import { formatMoney, parseMoneyInput } from '../lib/format';
 import { cn } from '../lib/utils';
 import { ItemModifiers } from './ItemModifiers';
 import { tableLabel, tablesLabel } from '../lib/table-label';
@@ -72,13 +72,20 @@ export function CloseTableModal({
   // Descuento con motivo (permiso "Hacer descuentos") y promo de efectivo
   const canDiscount = can('sales.discount');
   const [discountOn, setDiscountOn] = useState(false);
-  const [discountPct, setDiscountPct] = useState('');
+  // Por porcentaje (10 %) o por un monto en pesos ($5.000)
+  const [discountMode, setDiscountMode] = useState<'pct' | 'amount'>('pct');
+  const [discountValue, setDiscountValue] = useState('');
   const [discountReason, setDiscountReason] = useState('');
   const [promo, setPromo] = useState<CashPromo | null>(null);
-  const pctNum = Number(discountPct.replace(',', '.'));
-  const pctValid = !discountOn || (Number.isFinite(pctNum) && pctNum > 0 && pctNum <= 100);
   const subtotalCents = Math.round(subtotal * 100);
-  const discountCentsV = discountOn && pctValid ? Math.round((subtotalCents * Math.round(pctNum * 100)) / 10_000) : 0;
+  const pctNum = Number(discountValue.replace(',', '.'));
+  const discountAmountCents = Math.round(parseMoneyInput(discountValue) * 100);
+  const discountTooBig = discountOn && discountMode === 'amount' && discountAmountCents > subtotalCents;
+  const discountValid = !discountOn || (discountMode === 'pct'
+    ? discountValue.trim() !== '' && Number.isFinite(pctNum) && pctNum > 0 && pctNum <= 100
+    : Number.isFinite(discountAmountCents) && discountAmountCents > 0 && !discountTooBig);
+  const discountCentsV = !discountOn || !discountValid ? 0
+    : discountMode === 'pct' ? Math.round((subtotalCents * Math.round(pctNum * 100)) / 10_000) : discountAmountCents;
   const total = (subtotalCents - discountCentsV) / 100;
 
   // Varios medios o cuenta dividida entre comensales
@@ -100,7 +107,7 @@ export function CloseTableModal({
   }
   useEffect(() => {
     if (!open) return;
-    setDiscountOn(false); setDiscountPct(''); setDiscountReason(''); setSplit(false); setParts([]);
+    setDiscountOn(false); setDiscountMode('pct'); setDiscountValue(''); setDiscountReason(''); setSplit(false); setParts([]);
     cashApi.promo().then(setPromo).catch(() => setPromo(null));
   }, [open]);
   useEffect(() => {
@@ -155,8 +162,14 @@ export function CloseTableModal({
       toast.error('Elegí a cuenta de qué cliente queda');
       return;
     }
-    if (discountOn && (!pctValid || discountReason.trim().length < 3)) {
-      toast.error('Completá el descuento: porcentaje entre 1 y 100 y el motivo');
+    if (discountTooBig) {
+      toast.error(`El descuento no puede ser mayor que la cuenta (${formatMoney(subtotal)})`);
+      return;
+    }
+    if (discountOn && (!discountValid || discountReason.trim().length < 3)) {
+      toast.error(discountMode === 'pct'
+        ? 'Completá el descuento: porcentaje entre 1 y 100 y el motivo'
+        : 'Completá el descuento: monto en pesos y el motivo');
       return;
     }
     if (split && !isAccount) {
@@ -184,7 +197,12 @@ export function CloseTableModal({
           ? { payments: parts.map((p, i) => ({ method: p.method, amount: partsCents[i] / 100 })) }
           : { paymentMethod, amount: numericAmount }),
         ...(isAccount ? { customerId: customer!.id } : {}),
-        ...(discountOn ? { discountPct: pctNum, discountReason: discountReason.trim() } : {}),
+        ...(discountOn
+          ? {
+              ...(discountMode === 'pct' ? { discountPct: pctNum } : { discountAmount: discountAmountCents / 100 }),
+              discountReason: discountReason.trim(),
+            }
+          : {}),
         notes: notes.trim() || undefined,
         imageBase64: imageBase64 || undefined,
       });
@@ -269,7 +287,7 @@ export function CloseTableModal({
           {discountCentsV > 0 && (
             <div className="mt-3 space-y-1 border-t border-border pt-3 text-sm">
               <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span className="tabular-nums">{formatMoney(subtotal)}</span></div>
-              <div className="flex justify-between text-emerald-300"><span>Descuento {pctNum}%{discountReason.trim() ? ` · ${discountReason.trim()}` : ''}</span><span className="tabular-nums">−{formatMoney(discountCentsV / 100)}</span></div>
+              <div className="flex justify-between text-emerald-300"><span>Descuento{discountMode === 'pct' ? ` ${pctNum}%` : ''}{discountReason.trim() ? ` · ${discountReason.trim()}` : ''}</span><span className="tabular-nums">−{formatMoney(discountCentsV / 100)}</span></div>
             </div>
           )}
           <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
@@ -363,20 +381,35 @@ export function CloseTableModal({
             <div className="space-y-2">
               {promoSuggested && (
                 <button type="button" disabled={submitting}
-                  onClick={() => { setDiscountOn(true); setDiscountPct(String(promo!.pct)); setDiscountReason('Promo efectivo'); }}
+                  onClick={() => { setDiscountOn(true); setDiscountMode('pct'); setDiscountValue(String(promo!.pct)); setDiscountReason('Promo efectivo'); }}
                   className="w-full rounded-xl border-2 border-dashed border-emerald-400/40 bg-emerald-500/5 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/10">
                   Hoy hay promo: aplicar {promo!.pct}% pagando en efectivo
                 </button>
               )}
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={discountOn} disabled={submitting}
-                  onChange={(e) => { setDiscountOn(e.target.checked); if (!e.target.checked) { setDiscountPct(''); setDiscountReason(''); } }} />
+                  onChange={(e) => { setDiscountOn(e.target.checked); if (!e.target.checked) { setDiscountValue(''); setDiscountReason(''); } }} />
                 Descuento
               </label>
               {discountOn && (
-                <div className="grid grid-cols-3 gap-2">
-                  <Input inputMode="decimal" placeholder="%" value={discountPct} onChange={(e) => setDiscountPct(e.target.value)} disabled={submitting} />
-                  <Input className="col-span-2" maxLength={200} placeholder="Motivo (obligatorio)" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} disabled={submitting} />
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <div role="group" aria-label="Tipo de descuento" className="flex shrink-0 overflow-hidden rounded-xl border-2 border-border">
+                      {([['pct', '%', 'Descontar por porcentaje'], ['amount', '$', 'Descontar un monto en pesos']] as const).map(([mode, text, title]) => (
+                        <button key={mode} type="button" title={title} aria-label={title} aria-pressed={discountMode === mode} disabled={submitting}
+                          onClick={() => { if (mode !== discountMode) { setDiscountMode(mode); setDiscountValue(''); } }}
+                          className={cn('min-w-11 px-3 py-2 text-sm font-bold transition-colors',
+                            discountMode === mode ? 'bg-brand-500/15 text-brand-400' : 'text-muted-foreground hover:text-foreground')}>
+                          {text}
+                        </button>
+                      ))}
+                    </div>
+                    <Input inputMode="decimal" aria-label={discountMode === 'pct' ? 'Porcentaje de descuento' : 'Monto de descuento en pesos'}
+                      placeholder={discountMode === 'pct' ? 'Ej: 10' : 'Ej: 5.000'} value={discountValue}
+                      onChange={(e) => setDiscountValue(e.target.value)} disabled={submitting} className="tabular-nums" />
+                  </div>
+                  <Input maxLength={200} placeholder="Motivo (obligatorio)" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} disabled={submitting} />
+                  {discountTooBig && <p className="text-xs text-rose-300">El descuento no puede ser mayor que la cuenta ({formatMoney(subtotal)}).</p>}
                 </div>
               )}
             </div>

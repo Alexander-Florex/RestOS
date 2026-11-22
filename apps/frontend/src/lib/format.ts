@@ -3,6 +3,8 @@
 // ──────────────────────────────────────────────
 import { tableLabel } from './table-label';
 
+export { parseMoneyInput } from '@shared/money-input';
+
 const currency = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',

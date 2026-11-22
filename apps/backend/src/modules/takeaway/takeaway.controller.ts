@@ -49,7 +49,7 @@ export const takeawayController = {
     }, {
       onCreated: async (created) => {
         kitchenPrintFailed = !(await autoPrintKitchen(restaurantId, () =>
-          printingService.printTakeawayKitchen({ restaurantId, takeawayId: created.id })));
+          printingService.printTakeawayKitchen({ restaurantId, takeawayId: created.id, auto: true })));
       },
     });
     res.status(201).json({ order, kitchenPrintFailed });
