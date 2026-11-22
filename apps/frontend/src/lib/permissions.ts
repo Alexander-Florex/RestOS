@@ -8,7 +8,7 @@ import type { AuthUser } from './api';
 
 export type Permission =
   | 'app.dashboard'
-  | 'orders.create' | 'orders.view' | 'orders.delete'
+  | 'orders.create' | 'orders.table' | 'orders.view' | 'orders.delete'
   | 'tables.operate' | 'tables.manage'
   | 'reservations.manage'
   | 'sales.charge' | 'sales.view' | 'reports.view'

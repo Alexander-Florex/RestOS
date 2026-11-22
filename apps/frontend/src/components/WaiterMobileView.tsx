@@ -76,8 +76,10 @@ export function WaiterMobileView() {
   // Aviso cuando caja aprueba o rechaza un cambio que pidió este mozo
   useChangeNotifications();
 
+  // Sin "Ver pedido de la mesa" el mozo sigue tomando pedidos, pero no ve la cuenta
+  const canSeeTableOrder = can('orders.table', 'orders.view', 'sales.charge');
   const { orders: previousOrders } = useTableOrders(
-    selectedTable && selectedTable.status !== 'AVAILABLE' ? selectedTable.id : null
+    canSeeTableOrder && selectedTable && selectedTable.status !== 'AVAILABLE' ? selectedTable.id : null
   );
 
   // Todo lo que pidió la mesa, en vivo: con mesas unidas, lo de todas
@@ -85,7 +87,7 @@ export function WaiterMobileView() {
   const liveGroup = liveTable ? groupOf(liveTable, tables) : [];
   const accountTables = liveGroup.length > 0 ? liveGroup : liveTable ? [liveTable] : [];
   const { orders: accountOrders, total: accountTotal } = useGroupOrders(
-    liveTable && liveTable.status !== 'AVAILABLE' ? accountTables.map(t => t.id) : [],
+    canSeeTableOrder && liveTable && liveTable.status !== 'AVAILABLE' ? accountTables.map(t => t.id) : [],
   );
   const accountCount = accountOrders.flatMap(o => o.items)
     .filter(i => i.status !== 'VOIDED')

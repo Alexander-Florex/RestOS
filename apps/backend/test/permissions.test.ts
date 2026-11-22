@@ -48,14 +48,25 @@ test('la migración de roles otorga los mismos permisos que SYSTEM_ROLES', async
   // falten permisos nuevos (effectivePermissions le da todos a ADMIN); sí que no haya inventados.
   assert.ok(arrays[0].every(p => isPermission(p)), 'permisos inexistentes en la migración');
   assert.deepEqual(effectivePermissions({ key: 'ADMIN', permissions: arrays[0] }), ALL_PERMISSIONS);
-  assert.deepEqual(arrays[1], [...SYSTEM_ROLES.WAITER.permissions]);
-  // Cajero: lo de esa migración + lo que sumaron migraciones posteriores con JSON_ARRAY_APPEND
+  // Mesero y Cajero: lo de esa migración + lo que sumaron o quitaron las posteriores
   const { readdir } = await import('node:fs/promises');
   const dir = new URL('../prisma/migrations/', import.meta.url);
   let later = '';
   for (const name of (await readdir(dir)).filter(n => n > '20261014120000_roles_and_permissions')) {
     later += await readFile(new URL(`${name}/migration.sql`, dir), 'utf8').catch(() => '');
   }
-  const appended = [...later.matchAll(/JSON_ARRAY_APPEND\(`permissions`, '\$', '([^']+)'\)\s*WHERE `key` = 'CASHIER'/g)].map(m => m[1]);
-  assert.deepEqual([...arrays[2], ...appended].sort(), [...SYSTEM_ROLES.CASHIER.permissions].sort());
+  const finalFor = (key: string, base: string[]) => {
+    const added = [...later.matchAll(new RegExp(`JSON_ARRAY_APPEND\\(\`permissions\`, '\\$', '([^']+)'\\)\\s*WHERE \`key\` = '${key}'`, 'g'))].map(m => m[1]);
+    const removed = [...later.matchAll(new RegExp(`JSON_SEARCH\\(\`permissions\`, 'one', '([^']+)'\\)\\)\\)\\s*WHERE \`key\` = '${key}'`, 'g'))].map(m => m[1]);
+    return [...base, ...added].filter(p => !removed.includes(p)).sort();
+  };
+  assert.deepEqual(finalFor('WAITER', arrays[1]), [...SYSTEM_ROLES.WAITER.permissions].sort());
+  assert.deepEqual(finalFor('CASHIER', arrays[2]), [...SYSTEM_ROLES.CASHIER.permissions].sort());
+});
+
+test('la Caja no ve lo facturado y sigue pudiendo cobrar', () => {
+  const cajero = effectivePermissions({ key: 'CASHIER', permissions: SYSTEM_ROLES.CASHIER.permissions });
+  assert.equal(cajero.includes('sales.view'), false);
+  assert.equal(cajero.includes('reports.view'), false);
+  for (const p of ['sales.charge', 'sales.discount', 'cash.manage', 'orders.table'] as const) assert.ok(cajero.includes(p), p);
 });

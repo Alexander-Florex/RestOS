@@ -7,6 +7,8 @@ import { orderChangesController } from './order-changes.controller.js';
 import { authenticate, requirePermission } from '../../middleware/auth.js';
 import { asyncHandler } from '../../lib/async-handler.js';
 
+const TABLE_ORDER_READERS = ['orders.table', 'orders.view', 'sales.charge'] as const;
+
 const router = Router();
 router.use(authenticate);
 
@@ -20,10 +22,10 @@ router.post('/items/:itemId/replace', requirePermission('orders.create'), asyncH
 
 // Lectura general — admin y staff
 router.get('/',                requirePermission('orders.view'), asyncHandler(ordersController.list));
-router.get('/:id',             asyncHandler(ordersController.getById));
+router.get('/:id',             requirePermission(...TABLE_ORDER_READERS), asyncHandler(ordersController.getById));
 
-// Lectura por mesa — todos los roles (el mesero la necesita)
-router.get('/table/:tableId',  asyncHandler(ordersController.listByTable));
+// Lectura por mesa: quien tiene "Ver pedido de la mesa", y quien cobra o ve todos los pedidos
+router.get('/table/:tableId',  requirePermission(...TABLE_ORDER_READERS), asyncHandler(ordersController.listByTable));
 
 // Crear pedido — admin, staff y mesero
 router.post('/',               requirePermission('orders.create'), asyncHandler(ordersController.create));
