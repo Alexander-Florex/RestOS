@@ -65,7 +65,7 @@ export function WaiterMobileView() {
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [search, setSearch] = useState('');
   // Selector de opciones/nota: plato nuevo (line undefined) o una línea ya cargada para editar
-  const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine } | null>(null);
+  const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine; from?: CartLine } | null>(null);
   // Ver lo que ya pidió la mesa (rehacer / cambiar platos, tarea 5.8)
   const [tableOrderOpen, setTableOrderOpen] = useState(false);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
@@ -163,6 +163,7 @@ export function WaiterMobileView() {
   function confirmCustomize(choice: DishChoice) {
     if (!customizing) return;
     if (customizing.line) cart.replace(customizing.line.key, customizing.item, choice);
+    else if (customizing.from) cart.customizeFrom(customizing.from.key, customizing.item, choice);
     else cart.add(customizing.item, choice);
     setCustomizing(null);
   }
@@ -394,7 +395,7 @@ export function WaiterMobileView() {
             onQuickAdd={quickAdd}
             onCustomize={(item, line) => {
               if (line) setCustomizing({ item: line.menuItem, line });
-              else versions.choose(item, picked => setCustomizing({ item: picked }));
+              else versions.choose(item, picked => setCustomizing({ item: picked, from: cart.plainLineOf(picked) }));
             }}
             largeOf={versions.largeOf}
             loading={loadingMenu}
@@ -453,7 +454,8 @@ export function WaiterMobileView() {
         initial={customizing?.line && {
           optionIds: customizing.line.optionIds, notes: customizing.line.notes, quantity: customizing.line.quantity,
         }}
-        confirmLabel={customizing?.line ? 'Guardar' : 'Agregar'}
+        confirmLabel={customizing?.line || customizing?.from ? 'Guardar' : 'Agregar'}
+        loadedQuantity={customizing?.from?.quantity}
         onClose={() => setCustomizing(null)}
         onConfirm={confirmCustomize}
       />

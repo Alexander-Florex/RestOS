@@ -37,7 +37,7 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine } | null>(null);
+  const [customizing, setCustomizing] = useState<{ item: MenuItem; line?: CartLine; from?: CartLine } | null>(null);
 
   const { clear } = cart;
   useEffect(() => {
@@ -70,6 +70,7 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
   function confirmCustomize(choice: DishChoice) {
     if (!customizing) return;
     if (customizing.line) cart.replace(customizing.line.key, customizing.item, choice);
+    else if (customizing.from) cart.customizeFrom(customizing.from.key, customizing.item, choice);
     else cart.add(customizing.item, choice);
     setCustomizing(null);
   }
@@ -156,7 +157,7 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
                     </p>
                   </div>
                   <Button size="sm" variant="outline" className="h-8 gap-1.5 px-2.5 text-xs"
-                    onClick={() => versions.choose(item, picked => setCustomizing({ item: picked }))}>
+                    onClick={() => versions.choose(item, picked => setCustomizing({ item: picked, from: cart.plainLineOf(picked) }))}>
                     {hasOptions(item) ? <SlidersHorizontal className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
                     {hasOptions(item) ? 'Opciones' : 'Nota'}
                   </Button>
@@ -207,7 +208,8 @@ export function AddOrderDialog({ table, open, onClose }: AddOrderDialogProps) {
           initial={customizing?.line && {
             optionIds: customizing.line.optionIds, notes: customizing.line.notes, quantity: customizing.line.quantity,
           }}
-          confirmLabel={customizing?.line ? 'Guardar' : 'Agregar'}
+          confirmLabel={customizing?.line || customizing?.from ? 'Guardar' : 'Agregar'}
+          loadedQuantity={customizing?.from?.quantity}
           onClose={() => setCustomizing(null)}
           onConfirm={confirmCustomize}
         />

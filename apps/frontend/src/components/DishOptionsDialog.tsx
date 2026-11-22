@@ -29,6 +29,8 @@ interface DishOptionsDialogProps {
   /** Para editar una línea ya cargada; si no, arranca con lo que viene por defecto. */
   initial?: Partial<DishChoice>;
   confirmLabel?: string;
+  /** Cuántos de este plato ya están cargados sin nota: lo elegido se aplica a ellos */
+  loadedQuantity?: number;
   onClose: () => void;
   onConfirm: (choice: DishChoice) => void;
 }
@@ -39,7 +41,7 @@ const GROUP_HINT: Record<MenuOptionGroup['type'], string> = {
   MULTI: 'Opcional, con recargo',
 };
 
-export function DishOptionsDialog({ item, initial, confirmLabel, onClose, onConfirm }: DishOptionsDialogProps) {
+export function DishOptionsDialog({ item, initial, confirmLabel, loadedQuantity, onClose, onConfirm }: DishOptionsDialogProps) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [notes, setNotes] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -166,6 +168,13 @@ export function DishOptionsDialog({ item, initial, confirmLabel, onClose, onConf
               </button>
             </div>
           </div>
+          {!!loadedQuantity && (
+            <p className="rounded-xl bg-white/[0.04] px-3 py-2 text-xs text-muted-foreground">
+              {loadedQuantity === 1
+                ? 'Se aplica al plato que ya cargaste, no suma otro.'
+                : `Ya cargaste ${loadedQuantity}. Elegí a cuántos les va esto; el resto queda igual.`}
+            </p>
+          )}
         </div>
 
         <DialogFooter className="gap-2">
