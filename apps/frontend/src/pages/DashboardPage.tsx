@@ -56,7 +56,8 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Servicio',
     items: [
-      { id: 'dashboard',    label: 'Inicio',        icon: Home },
+      // Muestra lo facturado: sin estos permisos (Caja) se entra directo al mapa de mesas
+      { id: 'dashboard',    label: 'Inicio',        icon: Home, perm: ['sales.view', 'reports.view'] },
       { id: 'tables',       label: 'Mapa de mesas', icon: LayoutGrid },
       { id: 'takeaway',     label: 'Para llevar',   icon: ShoppingBag },
       { id: 'reservations', label: 'Reservas',      icon: CalendarDays },
@@ -110,9 +111,10 @@ export function DashboardPage() {
   const allItems = groups.flatMap(g => g.items);
   const primaryItems = allItems.filter(i => MOBILE_PRIMARY.includes(i.id));
   const moreItems = allItems.filter(i => !MOBILE_PRIMARY.includes(i.id));
-  const current = allItems.find(i => i.id === view);
-  // Si el administrador le quita un permiso mientras está en esa sección, vuelve al inicio
-  const shown: View = current ? view : 'dashboard';
+  // Sin permiso para esa sección (o si se lo quitan estando ahí): Inicio o, si tampoco, las mesas
+  const home: View = allItems.some(i => i.id === 'dashboard') ? 'dashboard' : 'tables';
+  const shown: View = allItems.some(i => i.id === view) ? view : home;
+  const current = allItems.find(i => i.id === shown);
 
   function go(v: View) {
     setView(v);
@@ -143,7 +145,7 @@ export function DashboardPage() {
               </p>
               <div className="space-y-0.5">
                 {group.items.map(item => {
-                  const active = view === item.id;
+                  const active = shown === item.id;
                   const Icon = item.icon;
                   return (
                     <button
@@ -205,7 +207,7 @@ export function DashboardPage() {
               <BrandMark className="h-8 w-8" />
               <AnimatePresence mode="wait" initial={false}>
                 <motion.p
-                  key={view}
+                  key={shown}
                   initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
                   transition={{ duration: 0.2 }}
                   className="font-display text-base font-bold tracking-tight"
@@ -258,7 +260,7 @@ export function DashboardPage() {
       <nav className="fixed inset-x-3 bottom-3 z-40 md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="glass flex items-center justify-around rounded-[22px] bg-background/70 px-1.5 py-1.5">
           {primaryItems.map(item => (
-            <BottomTab key={item.id} item={item} active={view === item.id} onClick={() => go(item.id)} />
+            <BottomTab key={item.id} item={item} active={shown === item.id} onClick={() => go(item.id)} />
           ))}
           <BottomTab
             item={{ id: 'dashboard', label: 'Más', icon: MoreHorizontal }}
@@ -302,7 +304,7 @@ export function DashboardPage() {
               <div className="grid grid-cols-3 gap-2">
                 {moreItems.map((item, i) => {
                   const Icon = item.icon;
-                  const active = view === item.id;
+                  const active = shown === item.id;
                   return (
                     <motion.button
                       key={item.id}
