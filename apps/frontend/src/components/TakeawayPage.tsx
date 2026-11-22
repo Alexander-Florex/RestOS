@@ -28,6 +28,9 @@ import { cn } from '../lib/utils';
 import { useOrderCart, type CartLine } from '../hooks/useOrderCart';
 import { hasOptions, needsChoice, selectionModifiers } from '../lib/modifiers';
 import { DishOptionsDialog, type DishChoice } from './DishOptionsDialog';
+import { DishVersionDialog } from './DishVersionDialog';
+import { useDishVersions } from '../hooks/useDishVersions';
+import { inOrderCategory } from '@shared/dish-versions';
 import { ItemModifiers } from './ItemModifiers';
 import { submitOrder } from '../lib/order-queue';
 import { useOrderedCategories } from '../hooks/useMenuCategories';
@@ -180,11 +183,14 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
   // En el orden que eligió el administrador en Menú
   const categories = useOrderedCategories(menu);
   const effectiveCat = activeCategory || categories[0] || '';
-  const filtered = menu.filter(i => i.category === effectiveCat && i.stock !== 'OUT_OF_STOCK');
+  const versions = useDishVersions(menu);
+  const filtered = versions.dishes.filter(i => inOrderCategory(i, effectiveCat, menu) && i.stock !== 'OUT_OF_STOCK');
 
   function quickAdd(item: MenuItem) {
-    if (needsChoice(item)) setCustomizing({ item });
-    else cart.add(item);
+    versions.choose(item, picked => {
+      if (needsChoice(picked)) setCustomizing({ item: picked });
+      else cart.add(picked);
+    });
   }
 
   function confirmCustomize(choice: DishChoice) {
@@ -222,7 +228,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
   }
 
   return (
-    <Dialog open={open} onOpenChange={v => !v && !customizing && handleClose()}>
+    <Dialog open={open} onOpenChange={v => !v && !customizing && !versions.pending && handleClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
           <DialogTitle className="flex items-center gap-2">
@@ -272,7 +278,9 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
               ) : (
                 <div className="divide-y divide-border">
                   {filtered.map(item => {
-                    const inCart = cart.linesOf(item.id).reduce((s, l) => s + l.quantity, 0);
+                    const large = versions.largeOf(item);
+                    const inCart = [...cart.linesOf(item.id), ...(large ? cart.linesOf(large.id) : [])]
+                      .reduce((s, l) => s + l.quantity, 0);
                     return (
                       <div key={item.id} className="flex items-center gap-2 px-4 py-3">
                         <div className="flex-1 min-w-0">
@@ -284,7 +292,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
                             {inCart}
                           </span>
                         )}
-                        <button onClick={() => setCustomizing({ item })}
+                        <button onClick={() => versions.choose(item, picked => setCustomizing({ item: picked }))}
                           className="flex h-8 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
                           title={hasOptions(item) ? 'Opciones y nota' : 'Agregar con nota'}>
                           {hasOptions(item) ? <SlidersHorizontal className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
@@ -364,6 +372,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
         </DialogFooter>
 
         {/* Selector anidado dentro del contenido: así el modal de pedido no se cierra */}
+        <DishVersionDialog pending={versions.pending} onClose={versions.close} />
         <DishOptionsDialog
           item={customizing?.item ?? null}
           initial={customizing?.line && {

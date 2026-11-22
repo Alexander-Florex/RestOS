@@ -31,6 +31,9 @@ import { useChangeNotifications } from '../hooks/useChangeNotifications';
 import { tableLabel, tableBadge, showsName, useTableLabelMode, tablesLabel } from '../lib/table-label';
 import { groupOf } from './JoinTablesDialog';
 import { useOrderedCategories } from '../hooks/useMenuCategories';
+import { useDishVersions } from '../hooks/useDishVersions';
+import { DishVersionDialog } from './DishVersionDialog';
+import { inOrderCategory, versionNames } from '@shared/dish-versions';
 
 type Step = 'tables' | 'type' | 'takeaway-name' | 'guests' | 'menu';
 type OrderType = 'dine-in' | 'takeaway';
@@ -89,12 +92,16 @@ export function WaiterMobileView() {
 
   // Al buscar se mira toda la carta, sin importar la categoría elegida
   const searching = search.trim().length > 0;
+  const versions = useDishVersions(menu);
+  const { dishes } = versions;
   const filteredMenu = useMemo(
-    () => menu.filter(m =>
+    () => dishes.filter(m =>
       m.stock !== 'OUT_OF_STOCK' &&
-      (searching ? matchesSearch(m.name, search) : m.category === effectiveCategory)
+      (searching
+        ? versionNames(m, menu).some(name => matchesSearch(name, search))
+        : inOrderCategory(m, effectiveCategory, menu))
     ),
-    [menu, effectiveCategory, search, searching]
+    [dishes, menu, effectiveCategory, search, searching]
   );
   // Para decirle al mozo que el plato existe pero está agotado, en vez de "no se encontró"
   const soldOutMatches = useMemo(
@@ -147,8 +154,10 @@ export function WaiterMobileView() {
 
   /** "+" en un plato: si tiene algo obligatorio sin elegir, abre el selector; si no, suma uno. */
   function quickAdd(item: MenuItem) {
-    if (needsChoice(item)) setCustomizing({ item });
-    else cart.add(item);
+    versions.choose(item, picked => {
+      if (needsChoice(picked)) setCustomizing({ item: picked });
+      else cart.add(picked);
+    });
   }
 
   function confirmCustomize(choice: DishChoice) {
@@ -383,7 +392,11 @@ export function WaiterMobileView() {
             soldOutMatches={soldOutMatches}
             cart={cart}
             onQuickAdd={quickAdd}
-            onCustomize={(item, line) => setCustomizing({ item, line })}
+            onCustomize={(item, line) => {
+              if (line) setCustomizing({ item: line.menuItem, line });
+              else versions.choose(item, picked => setCustomizing({ item: picked }));
+            }}
+            largeOf={versions.largeOf}
             loading={loadingMenu}
             previousItemsCount={previousOrders.flatMap(o => o.items).filter(i => i.status !== 'VOIDED').length}
             onShowTableOrder={() => setTableOrderOpen(true)}
@@ -431,6 +444,8 @@ export function WaiterMobileView() {
           </AnimatePresence>
         </div>
       )}
+
+      <DishVersionDialog pending={versions.pending} onClose={versions.close} />
 
       {/* Personalizar plato: opciones (ingredientes, término, agregados) + nota */}
       <DishOptionsDialog
@@ -603,7 +618,7 @@ function GuestStep({ table, guestCount, onChange, onConfirm }: {
 
 function MenuStep({
   menu, categories, activeCategory, onCategoryChange, search, onSearchChange, soldOutMatches,
-  cart, onQuickAdd, onCustomize, loading, previousItemsCount, onShowTableOrder, orderType, customerName,
+  cart, onQuickAdd, onCustomize, largeOf, loading, previousItemsCount, onShowTableOrder, orderType, customerName,
 }: {
   menu: MenuItem[];
   categories: string[];
@@ -615,6 +630,7 @@ function MenuStep({
   cart: ReturnType<typeof useOrderCart>;
   onQuickAdd: (item: MenuItem) => void;
   onCustomize: (item: MenuItem, line?: CartLine) => void;
+  largeOf: (item: MenuItem) => MenuItem | null;
   loading: boolean;
   previousItemsCount: number;
   onShowTableOrder: () => void;
@@ -712,12 +728,14 @@ function MenuStep({
           )
         ) : (
           menu.map((item, idx) => {
-            const itemLines = cart.linesOf(item.id);
-            // Línea "rápida": el plato tal cual viene (con sus opciones por defecto y sin nota)
+            const large = largeOf(item);
+            const itemLines = large ? [...cart.linesOf(item.id), ...cart.linesOf(large.id)] : cart.linesOf(item.id);
+            // Línea "rápida": el plato tal cual viene (con sus opciones por defecto y sin nota).
+            // Con versión grande no hay: el "+" siempre pregunta cuál y cada una va en su renglón.
             const quickKey = lineKey(item.id, defaultOptionIds(item), '');
-            const quickLine = itemLines.find(l => l.key === quickKey);
+            const quickLine = large ? undefined : itemLines.find(l => l.key === quickKey);
             const qty = quickLine?.quantity ?? 0;
-            const variants = itemLines.filter(l => l.key !== quickKey);
+            const variants = itemLines.filter(l => l !== quickLine);
             const total = itemLines.reduce((s, l) => s + l.quantity, 0);
             const customizable = hasOptions(item);
             return (
@@ -780,8 +798,9 @@ function MenuStep({
                       initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                       className="overflow-hidden border-t border-white/[0.06]">
                       <div className="flex items-center gap-2 px-3.5 py-2.5">
-                        <button onClick={() => onCustomize(item, line)} className="min-w-0 flex-1 text-left" aria-label="Editar opciones">
-                          <ItemModifiers modifiers={selectionModifiers(item, line.optionIds)} notes={line.notes} />
+                        <button onClick={() => onCustomize(line.menuItem, line)} className="min-w-0 flex-1 text-left" aria-label="Editar opciones">
+                          {large && <span className="block truncate text-xs font-semibold">{line.menuItem.category} · {line.menuItem.name}</span>}
+                          <ItemModifiers modifiers={selectionModifiers(line.menuItem, line.optionIds)} notes={line.notes} />
                           <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                             <Pencil className="h-3 w-3" /> {formatMoney(line.unitPrice)} c/u · tocá para editar
                           </span>
