@@ -441,7 +441,7 @@ export const ordersApi = {
     request<{ orders: Order[]; total: number }>(`/orders/table/${tableId}`),
 
   create: (data: CreateOrderBody) =>
-    request<{ order: Order }>('/orders', { method: 'POST', body: data }),
+    request<{ order: Order; kitchenPrintFailed?: boolean }>('/orders', { method: 'POST', body: data }),
 
   // ── Cambios de platos (tarea 5.8) ──
   /** Rehacer: se cobra una sola vez; lo tirado queda como pérdida. */
@@ -1445,7 +1445,7 @@ export const takeawayApi = {
     request<{ order: TakeawayOrder }>(`/takeaway/${id}`),
 
   create: (data: CreateTakeawayBody) =>
-    request<{ order: TakeawayOrder }>('/takeaway', { method: 'POST', body: data }),
+    request<{ order: TakeawayOrder; kitchenPrintFailed?: boolean }>('/takeaway', { method: 'POST', body: data }),
 
   markReady: (id: number) =>
     request<{ order: TakeawayOrder }>(`/takeaway/${id}/ready`, { method: 'POST' }),

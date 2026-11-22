@@ -9,6 +9,7 @@ import { SaleChannel } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { HttpError } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
+import { logger } from '../../lib/logger.js';
 import { itemNotesForPrint, modifierLines } from '../../lib/modifiers.js';
 import { kitchenItems, kitchenRoutes } from '../../lib/kitchen-routing.js';
 import { tableLabel } from '../../shared/table-label.js';
@@ -40,6 +41,20 @@ function kitchenLine(i: {
     modifiers: modifierLines(i.modifiers),
     course: i.course,
   };
+}
+
+/**
+ * Comanda automática de un pedido recién guardado. Si falla no rompe el pedido, que
+ * ya quedó cargado: devuelve false para avisarle a quien lo tomó.
+ */
+export async function autoPrintKitchen(restaurantId: number, print: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await print();
+    return true;
+  } catch (err) {
+    logger.error('kitchen_auto_print_failed', { restaurantId, error: err instanceof Error ? err.message : String(err) });
+    return false;
+  }
 }
 
 export const printingService = {

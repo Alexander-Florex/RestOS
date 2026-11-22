@@ -79,6 +79,7 @@ Por socket:
 
 Salen los platos de mesa y para llevar, **sin bebidas**, en **un solo papel** para toda la cocina.
 
+- **Sale sola:** el servidor la manda a la cola apenas guarda un pedido nuevo, lo cargue quien lo cargue. Si un celular reenvía el mismo pedido, no sale otra copia. Un pedido tomado sin conexión se imprime cuando llega al servidor.
 - **Qué va a cocina:** lo decide cada categoría en **Menú → Categorías** con el botón "Va a cocina / No va a cocina" (la categoría Bebidas viene apagada).
 - **Títulos:** los platos se agrupan bajo el nombre de su categoría (ENTRADAS, PRINCIPAL, POSTRES), en el orden de la carta.
 - **Rehacer y cambiar plato:** siguen la misma regla.
@@ -87,7 +88,6 @@ Salen los platos de mesa y para llevar, **sin bebidas**, en **un solo papel** pa
 ## Pendiente
 
 - Decidir con el local:
-  - si la comanda sale **sola** al mandar el pedido o, como hoy, con el botón;
   - si el ticket de caja sale solo al cobrar;
   - si hay un cajón de dinero enchufado a la impresora.
 - Avisarle también al mozo cuando su comanda no salió (hoy la alerta la ven Caja y el Administrador).

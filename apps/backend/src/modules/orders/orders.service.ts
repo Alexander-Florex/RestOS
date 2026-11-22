@@ -128,7 +128,12 @@ export const ordersService = {
     return fromCents(totalCents);
   },
 
-  async create(restaurantId: number, input: CreateOrderInput): Promise<OrderWithItems> {
+  /** onCreated corre solo si el pedido es nuevo: un reintento del mismo pedido no lo dispara. */
+  async create(
+    restaurantId: number,
+    input: CreateOrderInput,
+    hooks: { onCreated?: (order: OrderWithItems) => Promise<void> } = {},
+  ): Promise<OrderWithItems> {
     // Reintento de un pedido que ya llegó (el dispositivo no vio la respuesta): devolverlo tal cual
     const already = await findByClientRequestId(restaurantId, input.clientRequestId);
     if (already) return already;
@@ -230,6 +235,7 @@ export const ordersService = {
 
     emitOrderCreated(restaurantId, result.order);
     if (result.updatedTable) emitTableChanged(restaurantId, result.updatedTable);
+    await hooks.onCreated?.(result.order);
 
     return result.order;
   },

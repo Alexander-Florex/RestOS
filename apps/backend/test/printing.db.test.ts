@@ -8,12 +8,15 @@ import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
+import type { Request, Response } from 'express';
 import { prisma } from '../src/lib/prisma.js';
 import { initSocket } from '../src/sockets/index.js';
 import { HttpError } from '../src/lib/http-error.js';
 import { ordersService } from '../src/modules/orders/orders.service.js';
 import { salesService } from '../src/modules/sales/sales.service.js';
-import { printingService } from '../src/modules/printing/printing.service.js';
+import { autoPrintKitchen, printingService } from '../src/modules/printing/printing.service.js';
+import { ordersController } from '../src/modules/orders/orders.controller.js';
+import { takeawayController } from '../src/modules/takeaway/takeaway.controller.js';
 import { orderChangesService } from '../src/modules/orders/order-changes.service.js';
 import { kickPrinter, resetPrinterStates, startPrinterWorker, stopPrinterWorker, MAX_ATTEMPTS } from '../src/modules/printing/printer-worker.js';
 import { parsePrinterTarget, printNetwork } from '../src/lib/printers/index.js';
@@ -106,6 +109,46 @@ test('la comanda no lleva bebidas, en mesa y para llevar; solo bebidas no genera
   await prisma.menuCategory.updateMany({ where: { restaurantId: r, name: 'Vinos' }, data: { sendToKitchen: true } });
   const back = await printedOrder({ restaurantId: r, orderId: onlyDrinks.id });
   assert.ok(back && texts(back).includes('2x Malbec'));
+});
+
+test('la comanda sale sola al tomar el pedido, sin bebidas y una sola vez aunque el celular reintente', async () => {
+  const { r, dish, table } = await setup();
+  await prisma.menuCategory.create({ data: { restaurantId: r, name: 'Bebidas', sendToKitchen: false } });
+  const vino = await prisma.menuItem.create({ data: { restaurantId: r, name: 'Malbec', category: 'Bebidas', price: '9000.00' } });
+  const call = async (handler: typeof ordersController.create | typeof takeawayController.create, body: unknown) => {
+    let json: { kitchenPrintFailed?: boolean } = {};
+    const res = { status() { return res; }, json(b: typeof json) { json = b; return res; } };
+    await handler({ user: { restaurantId: r }, body } as unknown as Request, res as unknown as Response);
+    return json;
+  };
+  const kitchenJobs = () => prisma.printJob.findMany({ where: { restaurantId: r, kind: 'kitchen' }, orderBy: { id: 'asc' } });
+  const lines = (job: { doc: unknown }) => (job.doc as { lines: { text: string }[] }).lines.map(l => l.text);
+
+  const body = { tableId: table.id, clientRequestId: 'auto-print-1', items: [{ menuItemId: dish.id, quantity: 1 }, { menuItemId: vino.id, quantity: 1 }] };
+  assert.equal((await call(ordersController.create, body)).kitchenPrintFailed, false);
+  await call(ordersController.create, body); // el mismo pedido, reenviado
+  let jobs = await kitchenJobs();
+  assert.equal(jobs.length, 1);
+  assert.ok(lines(jobs[0]).includes('1x Milanesa'));
+  assert.ok(!lines(jobs[0]).some(l => l.includes('Malbec')));
+
+  // Solo bebidas: se guarda, pero no sale papel
+  await call(ordersController.create, { tableId: table.id, items: [{ menuItemId: vino.id, quantity: 2 }] });
+  assert.equal((await kitchenJobs()).length, 1);
+
+  const takeaway = { customerName: 'Ana', clientRequestId: 'auto-print-2', items: [{ menuItemId: dish.id, quantity: 2 }, { menuItemId: vino.id, quantity: 1 }] };
+  await call(takeawayController.create, takeaway);
+  await call(takeawayController.create, takeaway);
+  jobs = await kitchenJobs();
+  assert.equal(jobs.length, 2);
+  assert.ok(lines(jobs[1]).includes('2x Milanesa'));
+  assert.ok(!lines(jobs[1]).some(l => l.includes('Malbec')));
+});
+
+test('si la comanda automática falla, avisa y el pedido queda guardado', async () => {
+  const ok = await autoPrintKitchen(1, async () => { throw new Error('sin cola'); });
+  assert.equal(ok, false);
+  assert.equal(await autoPrintKitchen(1, async () => null), true);
 });
 
 test('rehacer y cambiar: las bebidas no generan ticket ni figuran en el de cocina', async () => {
