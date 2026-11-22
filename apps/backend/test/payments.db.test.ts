@@ -6,7 +6,10 @@ import './db-env.js';
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import type { Request, Response } from 'express';
 import { prisma } from '../src/lib/prisma.js';
+import { salesController } from '../src/modules/sales/sales.controller.js';
+import { printingService } from '../src/modules/printing/printing.service.js';
 import { initSocket } from '../src/sockets/index.js';
 import { HttpError } from '../src/lib/http-error.js';
 import { salesService } from '../src/modules/sales/sales.service.js';
@@ -116,6 +119,46 @@ test('descuento redondea al centavo; 100 % deja la cuenta en cero (invita la cas
   await ordersService.create(r, { tableId: t2.id, guestCount: 1, items: [{ menuItemId: dish.id, quantity: 1 }] });
   const free = await salesService.create(r, { tableId: t2.id, paymentMethod: 'CASH', amount: 0, discountPct: 100, discountReason: 'invita la casa' });
   assert.equal(Number(free.total), 0);
+});
+
+test('descuento por monto en pesos: se resta justo, sin porcentaje, y sale en el ticket', async () => {
+  const { r, table } = await setup();
+  const sale = await salesService.create(r, {
+    tableId: await table(), paymentMethod: 'CARD', amount: 5000, discountAmount: 5000, discountReason: 'Cliente habitual',
+  });
+  assert.equal(Number(sale.subtotal), 10000);
+  assert.equal(Number(sale.discount), 5000);
+  assert.equal(sale.discountPct, null);
+  assert.equal(Number(sale.total), 5000);
+  assert.deepEqual((await pays(sale.id)).map(p => [p.method, Number(p.amount)]), [['CARD', 5000]]);
+  const job = await printingService.printSale({ restaurantId: r, saleId: sale.id });
+  const lines = job.doc.lines.map(l => l.text);
+  assert.ok(lines.some(l => l.startsWith('Descuento (Cliente habitual)') && l.endsWith('-$5.000,00')));
+  assert.ok(!lines.some(l => l.includes('%')));
+});
+
+test('descuento por monto: rechaza más que la cuenta, sin motivo y % junto con $', async () => {
+  const { r, table } = await setup();
+  const t = await table();
+  await assert.rejects(salesService.create(r, { tableId: t, paymentMethod: 'CASH', amount: 0, discountAmount: 10000.01, discountReason: 'de más' }), isHttp(400));
+  await assert.rejects(salesService.create(r, { tableId: t, paymentMethod: 'CASH', amount: 5000, discountAmount: 5000 }), isHttp(400));
+  await assert.rejects(salesService.create(r, { tableId: t, paymentMethod: 'CASH', amount: 5000, discountAmount: 5000, discountPct: 10, discountReason: 'los dos' }), isHttp(400));
+  assert.equal(await prisma.sale.count({ where: { restaurantId: r } }), 0);
+  // El monto exacto de la cuenta sí: invita la casa
+  const free = await salesService.create(r, { tableId: t, paymentMethod: 'CASH', amount: 0, discountAmount: 10000, discountReason: 'invita la casa' });
+  assert.equal(Number(free.total), 0);
+});
+
+test('descuento por monto: sin el permiso "Hacer descuentos" el servidor lo rechaza', async () => {
+  const { r, table } = await setup();
+  const role = await prisma.role.create({ data: { restaurantId: r, name: 'Solo cobra', permissions: ['sales.charge'] } });
+  const user = await prisma.user.create({ data: { restaurantId: r, roleId: role.id, username: 'cobra', email: 'cobra@test.local', name: 'Cobra', password: 'x' } });
+  const req = {
+    user: { userId: user.id, restaurantId: r },
+    body: { tableId: await table(), paymentMethod: 'CASH', amount: 5000, discountAmount: 5000, discountReason: 'sin permiso' },
+  } as unknown as Request;
+  await assert.rejects(salesController.create(req, {} as Response), isHttp(403));
+  assert.equal(await prisma.sale.count({ where: { restaurantId: r } }), 0);
 });
 
 test('reportes y caja suman por medio de pago real (también las mixtas)', async () => {
