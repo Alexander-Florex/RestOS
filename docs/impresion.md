@@ -77,18 +77,17 @@ Por socket:
 
 ## Qué sale en la comanda de cocina
 
-Salen los platos de mesa y para llevar, **sin bebidas**, en **un papel por sector**: "COCINA / SECTOR CALIENTE" y "COCINA / SECTOR FRÍO". Si el pedido es de un solo sector, sale un solo papel. Primero sale el sector del primer plato según el orden de la carta.
+Salen los platos de mesa y para llevar, **sin bebidas**, en **un solo papel** para toda la cocina.
 
-- **Dónde se elige:** en **Menú → Categorías**, cada categoría tiene "Cocina: sector caliente", "Cocina: sector frío" o "No va a cocina" (Bebidas viene en "No va a cocina").
-- **Excepción por plato:** en la ficha del plato, "Sector de cocina" permite cambiarlo. Por ejemplo, Entradas en caliente y una entrada fría marcada como frío.
-- **Títulos:** dentro de cada papel, los platos se agrupan bajo el nombre de su categoría (ENTRADAS, PRINCIPAL, POSTRES), en el orden de la carta.
-- **Rehacer y cambiar plato:** cada línea sale en el papel de su sector. Un cambio de un plato caliente por uno frío genera dos papeles.
-- Un pedido solo de bebidas no genera ticket, pero sigue en la cuenta. Si no se puede saber la categoría de un plato, se imprime en caliente.
+- **Sale sola:** el servidor la manda a la cola apenas guarda un pedido nuevo, lo cargue quien lo cargue. Si un celular reenvía el mismo pedido, no sale otra copia. Un pedido tomado sin conexión se imprime cuando llega al servidor.
+- **Qué va a cocina:** lo decide cada categoría en **Menú → Categorías** con el botón "Va a cocina / No va a cocina" (la categoría Bebidas viene apagada).
+- **Títulos:** los platos se agrupan bajo el nombre de su categoría (ENTRADAS, PRINCIPAL, POSTRES), en el orden de la carta.
+- **Rehacer y cambiar plato:** siguen la misma regla.
+- Un pedido solo de bebidas no genera ticket, pero sigue en la cuenta. Si no se puede saber la categoría de un plato, se imprime.
 
 ## Pendiente
 
 - Decidir con el local:
-  - si la comanda sale **sola** al mandar el pedido o, como hoy, con el botón;
   - si el ticket de caja sale solo al cobrar;
   - si hay un cajón de dinero enchufado a la impresora.
 - Avisarle también al mozo cuando su comanda no salió (hoy la alerta la ven Caja y el Administrador).

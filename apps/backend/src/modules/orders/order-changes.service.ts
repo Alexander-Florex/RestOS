@@ -217,7 +217,6 @@ export const orderChangesService = {
       emitPrintRequest(restaurantId, {
         type: 'kitchen',
         heading: 'REHACER',
-        sector: route.sector,
         tableNumber: result.item.order.table.number,
         orderNumber: result.item.orderId,
         items: [{
@@ -330,10 +329,7 @@ export const orderChangesService = {
   },
 };
 
-/**
- * Ticket a cocina: qué anular y qué hacer, cada cosa en el papel de su sector
- * (las bebidas no figuran; solo bebidas = sin ticket).
- */
+/** Ticket a cocina: qué anular y qué hacer (las bebidas no figuran; solo bebidas = sin ticket). */
 async function printChange(
   restaurantId: number,
   applied: Awaited<ReturnType<typeof applyReplace>>,
@@ -343,37 +339,29 @@ async function printChange(
   const route = await kitchenRoutes(restaurantId, [applied.item.menuItemId, applied.created.menuItemId]);
   const voided = route(applied.item.menuItemId);
   const made = route(applied.created.menuItemId);
-  const lines = [
+  const items = [
     ...(voided.goesToKitchen
-      ? [{
-          sector: voided.sector,
-          line: { name: `ANULAR: ${applied.item.itemName}`, quantity, notes: `Cambio · Motivo: ${reason}`, note: `Motivo: ${reason}`, course: voided.course },
-        }]
+      ? [{ name: `ANULAR: ${applied.item.itemName}`, quantity, notes: `Cambio · Motivo: ${reason}`, note: `Motivo: ${reason}`, course: voided.course }]
       : []),
     ...(made.goesToKitchen
       ? [{
-          sector: made.sector,
-          line: {
-            name: `HACER: ${applied.created.itemName}`,
-            quantity,
-            notes: itemNotesForPrint(applied.created.modifiers, applied.created.notes),
-            note: applied.created.notes,
-            modifiers: modifierLines(applied.created.modifiers),
-            course: made.course,
-          },
+          name: `HACER: ${applied.created.itemName}`,
+          quantity,
+          notes: itemNotesForPrint(applied.created.modifiers, applied.created.notes),
+          note: applied.created.notes,
+          modifiers: modifierLines(applied.created.modifiers),
+          course: made.course,
         }]
       : []),
   ];
-  for (const sector of new Set(lines.map(l => l.sector))) {
-    emitPrintRequest(restaurantId, {
-      type: 'kitchen',
-      heading: 'CAMBIO',
-      sector,
-      tableNumber: applied.tableNumber,
-      orderNumber: applied.item.orderId,
-      items: lines.filter(l => l.sector === sector).map(l => l.line),
-    });
-  }
+  if (items.length === 0) return;
+  emitPrintRequest(restaurantId, {
+    type: 'kitchen',
+    heading: 'CAMBIO',
+    tableNumber: applied.tableNumber,
+    orderNumber: applied.item.orderId,
+    items,
+  });
 }
 
 /** Al cobrar o anular la mesa, los pedidos de cambio pendientes se cierran solos. */

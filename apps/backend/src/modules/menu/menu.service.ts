@@ -2,7 +2,7 @@
 // menu.service.ts — Lógica de items del menú
 // Cada plato viaja con sus grupos de opciones (personalización, tarea 5.7).
 // ──────────────────────────────────────────────
-import { MenuOptionGroupType, StockStatus, type KitchenSector } from '@prisma/client';
+import { MenuOptionGroupType, StockStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { stockAutoService } from '../stock/stock-auto.service.js';
 import { HttpError } from '../../lib/http-error.js';
@@ -37,8 +37,6 @@ export interface CreateMenuItemData {
   stock?: StockStatus;
   /** El estado sale del stock de los insumos de su receta (tarea 3.8) */
   stockAuto?: boolean;
-  /** Sector de cocina propio del plato; null = el de su categoría */
-  kitchenSector?: KitchenSector | null;
   enabled?: boolean;
   imageUrl?: string;
 }
@@ -108,7 +106,6 @@ export const menuService = {
         price: data.price,
         description: data.description ?? null,
         stock: data.stock ?? StockStatus.IN_STOCK,
-        kitchenSector: data.kitchenSector ?? null,
         enabled: data.enabled ?? true,
         imageUrl: data.imageUrl ?? null,
       },
@@ -130,7 +127,6 @@ export const menuService = {
           ...(data.description !== undefined ? { description: data.description } : {}),
           ...(data.stock !== undefined ? { stock: data.stock } : {}),
           ...(data.stockAuto !== undefined ? { stockAuto: data.stockAuto } : {}),
-          ...(data.kitchenSector !== undefined ? { kitchenSector: data.kitchenSector } : {}),
           ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
           ...(data.imageUrl !== undefined ? { imageUrl: data.imageUrl } : {}),
         },

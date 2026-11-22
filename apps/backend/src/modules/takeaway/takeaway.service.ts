@@ -73,7 +73,12 @@ export const takeawayService = {
     return findOne(id, restaurantId);
   },
 
-  async create(restaurantId: number, input: CreateTakeawayInput) {
+  /** onCreated corre solo si el pedido es nuevo: un reintento del mismo pedido no lo dispara. */
+  async create(
+    restaurantId: number,
+    input: CreateTakeawayInput,
+    hooks: { onCreated?: (order: { id: number }) => Promise<void> } = {},
+  ) {
     const findExisting = () => input.clientRequestId
       ? prisma.takeawayOrder.findFirst({
           where: { restaurantId, clientRequestId: input.clientRequestId },
@@ -138,6 +143,7 @@ export const takeawayService = {
     }
 
     emit(restaurantId, SocketEvents.TAKEAWAY_CREATED, order);
+    await hooks.onCreated?.(order);
     return order;
   },
 
