@@ -16,6 +16,8 @@ router.use(authenticate);
 router.get('/',              requirePermission('sales.view'), asyncHandler(salesController.list));
 router.get('/stats/daily',   requirePermission('sales.view'), asyncHandler(salesController.dailyStats));
 router.get('/:id',           requirePermission('sales.view'), asyncHandler(salesController.getById));
+// El detalle se abre desde Ventas, Inicio y Reportes: alcanza con cualquiera de los dos permisos
+router.get('/:id/detail',    requirePermission('sales.view', 'reports.view'), asyncHandler(salesController.detail));
 router.get('/:id/receipt',   requirePermission('sales.view'), asyncHandler(salesController.receipt));
 router.post('/',             requirePermission('sales.charge'), asyncHandler(salesController.create));
 

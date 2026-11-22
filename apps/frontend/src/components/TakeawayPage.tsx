@@ -177,7 +177,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
   const [customerName, setCustomerName]       = useState('');
   const [customerPhone, setCustomerPhone]     = useState('');
   const [activeCategory, setActiveCategory]   = useState('');
-  const [customizing, setCustomizing]         = useState<{ item: MenuItem; line?: CartLine } | null>(null);
+  const [customizing, setCustomizing]         = useState<{ item: MenuItem; line?: CartLine; from?: CartLine } | null>(null);
   const [submitting, setSubmitting]           = useState(false);
 
   // En el orden que eligió el administrador en Menú
@@ -196,6 +196,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
   function confirmCustomize(choice: DishChoice) {
     if (!customizing) return;
     if (customizing.line) cart.replace(customizing.line.key, customizing.item, choice);
+    else if (customizing.from) cart.customizeFrom(customizing.from.key, customizing.item, choice);
     else cart.add(customizing.item, choice);
     setCustomizing(null);
   }
@@ -292,7 +293,7 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
                             {inCart}
                           </span>
                         )}
-                        <button onClick={() => versions.choose(item, picked => setCustomizing({ item: picked }))}
+                        <button onClick={() => versions.choose(item, picked => setCustomizing({ item: picked, from: cart.plainLineOf(picked) }))}
                           className="flex h-8 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
                           title={hasOptions(item) ? 'Opciones y nota' : 'Agregar con nota'}>
                           {hasOptions(item) ? <SlidersHorizontal className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
@@ -378,7 +379,8 @@ function NewOrderModal({ open, onClose }: { open: boolean; onClose: () => void }
           initial={customizing?.line && {
             optionIds: customizing.line.optionIds, notes: customizing.line.notes, quantity: customizing.line.quantity,
           }}
-          confirmLabel={customizing?.line ? 'Guardar' : 'Agregar'}
+          confirmLabel={customizing?.line || customizing?.from ? 'Guardar' : 'Agregar'}
+          loadedQuantity={customizing?.from?.quantity}
           onClose={() => setCustomizing(null)}
           onConfirm={confirmCustomize}
         />

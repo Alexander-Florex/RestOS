@@ -18,6 +18,7 @@ import { getSocket, SocketEvents } from '../lib/socket';
 import { AnimatedMoney, AnimatedNumber, EASE_OUT, PageHeader, SpotlightCard, Stagger, StaggerItem } from './ui/motion';
 import { cn } from '../lib/utils';
 import { BackupStatusCard } from './BackupStatusCard';
+import { SaleDetailDialog } from './SaleDetailDialog';
 
 type View = 'tables' | 'takeaway' | 'reservations' | 'menu' | 'sales' | 'reports' | 'inventory' | 'staff' | 'users';
 
@@ -53,6 +54,7 @@ export function DashboardHome({ onNavigate }: { onNavigate: (view: View) => void
   const { tables, loading: tablesLoading } = useTables();
   const [stats, setStats] = useState<DailyStats | null>(null);
   const [recent, setRecent] = useState<DailyTicket[]>([]);
+  const [detailId, setDetailId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function load() {
@@ -193,11 +195,14 @@ export function DashboardHome({ onNavigate }: { onNavigate: (view: View) => void
               <div className="space-y-1.5">
                 <AnimatePresence initial={false}>
                   {recent.map((t, i) => (
-                    <motion.div
+                    <motion.button
+                      type="button"
                       key={t.id} layout
+                      onClick={() => setDetailId(t.id)}
+                      title="Ver qué se pidió"
                       initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
                       transition={{ delay: i * 0.04, duration: 0.4, ease: EASE_OUT }}
-                      className="group flex items-center justify-between rounded-2xl px-3 py-3 transition-colors hover:bg-white/[0.04]"
+                      className="group flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-colors hover:bg-white/[0.04]"
                     >
                       <div className="flex items-center gap-3">
                         <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.03] font-display text-sm font-bold tabular-nums">
@@ -211,7 +216,7 @@ export function DashboardHome({ onNavigate }: { onNavigate: (view: View) => void
                         </div>
                       </div>
                       <span className="font-display text-base font-semibold tabular-nums">{formatMoney(t.total)}</span>
-                    </motion.div>
+                    </motion.button>
                   ))}
                 </AnimatePresence>
               </div>
@@ -253,6 +258,7 @@ export function DashboardHome({ onNavigate }: { onNavigate: (view: View) => void
           </div>
         </StaggerItem>
       </Stagger>
+      <SaleDetailDialog saleId={detailId} onClose={() => setDetailId(null)} />
     </div>
   );
 }

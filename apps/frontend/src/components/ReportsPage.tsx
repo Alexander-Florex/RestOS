@@ -14,6 +14,7 @@ import { localDateString, parseLocalDate } from '../lib/reservation-helpers';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { tableLabel } from '../lib/table-label';
+import { SaleDetailDialog } from './SaleDetailDialog';
 
 const PAYMENT_COLOR: Record<string, string> = {
   CASH:     '#10b981',
@@ -53,6 +54,7 @@ export function ReportsPage() {
   const takeawayCount = tickets.filter(t => t.channel === 'TAKEAWAY').length;
   // Filtro de tickets: una mesa, 'TAKEAWAY' (para llevar) o null (todos)
   const [ticketTableFilter, setTicketTableFilter] = useState<number | 'TAKEAWAY' | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Calcular from/to según el modo
@@ -377,11 +379,16 @@ export function ReportsPage() {
                     {tickets
                       .filter(t => ticketTableFilter === null || (ticketTableFilter === 'TAKEAWAY' ? t.channel === 'TAKEAWAY' : t.tableNumber === ticketTableFilter))
                       .map(t => (
-                        <tr key={t.id} className="border-b border-border/50 last:border-0">
+                        <tr key={t.id} onClick={() => setDetailId(t.id)} className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-white/[0.04]">
                           <td className="py-2 pr-3 tabular-nums text-muted-foreground">
                             {new Date(t.closedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                           </td>
-                          <td className="py-2 pr-3 font-medium">{saleOriginLabel(t)}</td>
+                          <td className="py-2 pr-3 font-medium">
+                            <button type="button" className="text-left hover:underline" title="Ver qué se pidió"
+                              onClick={(e) => { e.stopPropagation(); setDetailId(t.id); }}>
+                              {saleOriginLabel(t)}
+                            </button>
+                          </td>
                           <td className="py-2 pr-3 max-w-xs truncate text-muted-foreground" title={t.items.map(i => `${i.quantity}x ${i.itemName}`).join(', ')}>
                             {t.items.map(i => `${i.quantity}x ${i.itemName}`).join(', ')}
                           </td>
@@ -412,6 +419,8 @@ export function ReportsPage() {
               </div>
             </div>
           )}
+
+          <SaleDetailDialog saleId={detailId} onClose={() => setDetailId(null)} />
 
           {/* Comparación con mes anterior — solo en vista mensual */}
           {viewMode === 'monthly' && prevMonthReport && (

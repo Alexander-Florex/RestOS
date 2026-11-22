@@ -15,10 +15,8 @@
 import type { PrintJob, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
-import { toEscPos } from '../../lib/escpos.js';
 import { realTransport, type PrinterTransport } from '../../lib/printers/index.js';
-import type { TicketDoc } from '../../shared/ticket.js';
-import { emitJobUpdated, onPrintQueued } from './print-jobs.js';
+import { emitJobUpdated, jobEscPos, onPrintQueued } from './print-jobs.js';
 
 export const MAX_ATTEMPTS = 3;
 export const RETRY_MS = 10_000;
@@ -128,7 +126,7 @@ async function drain() {
 }
 
 async function printOne(target: string, job: PrintJob, st: PrinterState): Promise<boolean> {
-  const data = toEscPos(job.doc as unknown as TicketDoc);
+  const data = jobEscPos(job);
   try {
     await transport.print(target, job.title, data);
   } catch (err) {

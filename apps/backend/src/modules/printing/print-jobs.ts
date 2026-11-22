@@ -16,7 +16,7 @@ import { currentContext } from '../../lib/request-context.js';
 import { toEscPos } from '../../lib/escpos.js';
 import { ioRestaurant, SocketEvents } from '../../sockets/index.js';
 import { tableLabel } from '../../shared/table-label.js';
-import { buildTicket, ticketTitle, type PaperWidth, type PrintPayload, type TicketDoc } from '../../shared/ticket.js';
+import { buildTicket, printCopies, ticketTitle, type PaperWidth, type PrintPayload, type TicketDoc } from '../../shared/ticket.js';
 
 const RETENTION_DAYS = 30;
 let lastPrune = 0;
@@ -72,6 +72,16 @@ export async function ticketHeader(restaurantId: number, printedAt = new Date())
   };
 }
 
+/**
+ * Los bytes del trabajo, con todas sus copias seguidas y cada una con su corte. Van
+ * juntas a la impresora: si falla, el reintento no deja copias de más ni de menos.
+ */
+export function jobEscPos(job: PrintJob): Buffer {
+  const once = toEscPos(job.doc as unknown as TicketDoc);
+  const copies = printCopies(job.payload as unknown as PrintPayload);
+  return Buffer.concat(Array.from({ length: copies }, () => once));
+}
+
 /** Lo que recibe el agente y la pantalla por socket */
 export function socketJob(job: PrintJob) {
   const doc = job.doc as unknown as TicketDoc;
@@ -83,7 +93,7 @@ export function socketJob(job: PrintJob) {
     createdAt: job.createdAt,
     paperWidth: doc.paperWidth,
     doc,
-    escpos: toEscPos(doc).toString('base64'),
+    escpos: jobEscPos(job).toString('base64'),
   };
 }
 

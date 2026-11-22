@@ -59,6 +59,14 @@ export const salesController = {
     res.json({ sale });
   },
 
+  /** Qué se pidió y cómo se cobró una mesa ya cerrada */
+  async detail(req: Request, res: Response) {
+    if (!req.user) throw HttpError.unauthorized();
+    const { id } = idParam.parse(req.params);
+    const sale = await salesService.getDetail(req.user.restaurantId, id);
+    res.json({ sale });
+  },
+
   /** Imagen del comprobante (transferencia, etc.). Privada: requiere login y venta propia. */
   async receipt(req: Request, res: Response) {
     if (!req.user) throw HttpError.unauthorized();
